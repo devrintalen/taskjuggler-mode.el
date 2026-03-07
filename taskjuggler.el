@@ -16,6 +16,7 @@
 ;;   - Date literal highlighting: YYYY-MM-DD[-hh:mm[:ss]]
 ;;   - Duration literal highlighting: 5d, 2.5h, 3w, etc.
 ;;   - Macro reference highlighting: ${MacroName}, $(ENV_VAR)
+;;   - Indentation based on { } and [ ] block nesting depth
 
 ;;; Code:
 
@@ -23,6 +24,11 @@
   "Major mode for editing TaskJuggler project files."
   :group 'languages
   :prefix "taskjuggler-")
+
+(defcustom taskjuggler-indent-level 2
+  "Number of spaces per indentation level in TaskJuggler files."
+  :type 'integer
+  :group 'taskjuggler)
 
 ;;; Faces
 
@@ -181,6 +187,31 @@
    ("#" (0 "< b")))
   "Syntax propertize rules to handle # as a line comment in `taskjuggler-mode'.")
 
+;;; Indentation
+
+(defun taskjuggler--calculate-indent ()
+  "Return the target indentation column for the current line.
+Indentation is based on the brace/bracket nesting depth at the start
+of the line, as computed by `syntax-ppss'.  A line opening with `}'
+or `]' is de-indented one level relative to the enclosing block."
+  (save-excursion
+    (beginning-of-line)
+    (let* ((depth (car (syntax-ppss)))
+           (indent (* depth taskjuggler-indent-level)))
+      ;; A closing delimiter starts a new (outer) scope.
+      (when (looking-at "[ \t]*[]}]")
+        (setq indent (max 0 (- indent taskjuggler-indent-level))))
+      indent)))
+
+(defun taskjuggler-indent-line ()
+  "Indent the current line of TaskJuggler code."
+  (interactive)
+  (let ((pos (- (point-max) (point))))
+    (indent-line-to (taskjuggler--calculate-indent))
+    ;; Restore point position if it was beyond the indentation.
+    (when (> (- (point-max) pos) (point))
+      (goto-char (- (point-max) pos)))))
+
 ;;; Mode definition
 
 ;;;###autoload
@@ -202,9 +233,10 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local comment-start-skip "\\(?://+\\|#+\\|/\\*+\\)[ \t]*")
   ;; Syntax propertize handles # as a line comment character.
   (setq-local syntax-propertize-function taskjuggler--syntax-propertize)
-  ;; Style defaults
+  ;; Indentation
+  (setq-local indent-line-function #'taskjuggler-indent-line)
   (setq-local indent-tabs-mode nil)
-  (setq-local tab-width 2))
+  (setq-local tab-width taskjuggler-indent-level))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
