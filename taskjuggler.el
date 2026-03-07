@@ -199,6 +199,123 @@
          #'string<))
   "Sorted list of all TaskJuggler keywords, used for completion.")
 
+(defconst taskjuggler--signatures
+  (let ((sigs
+         '(;; Top-level declarations
+           ("project"     . "[<id>] <name> [<version>] <interval> [{ <attributes> }]")
+           ("task"         . "<id> [<name>] [{ <attributes> }]")
+           ("resource"     . "<id> [<name>] [{ <attributes> }]")
+           ("account"      . "<id> [<name>] [{ <attributes> }]")
+           ("scenario"     . "<id> <name> [{ <attributes> }]")
+           ("shift"        . "<id> [<name>] [{ <attributes> }]")
+           ("extend"       . "<id> { <attributes> }")
+           ("macro"        . "<id> [ <body> ]")
+           ("include"      . "\"<filename>\"")
+           ("flags"        . "<id>[, <id>]*")
+           ("supplement"   . "(task | resource) <id> { <attributes> }")
+           ;; Report types
+           ("taskreport"        . "<id> \"<filename>\" [{ <attributes> }]")
+           ("resourcereport"    . "<id> \"<filename>\" [{ <attributes> }]")
+           ("accountreport"     . "<id> \"<filename>\" [{ <attributes> }]")
+           ("textreport"        . "<id> \"<filename>\" [{ <attributes> }]")
+           ("tracereport"       . "<id> \"<filename>\" [{ <attributes> }]")
+           ("icalreport"        . "<id> \"<filename>\" [{ <attributes> }]")
+           ("timesheetreport"   . "<id> \"<filename>\" [{ <attributes> }]")
+           ("statussheetreport" . "<id> \"<filename>\" [{ <attributes> }]")
+           ;; Scheduling / time
+           ("effort"       . "<duration>")
+           ("duration"     . "<duration>")
+           ("length"       . "<duration>")
+           ("start"        . "<date>")
+           ("end"          . "<date>")
+           ("maxstart"     . "<date>")
+           ("minstart"     . "<date>")
+           ("maxend"       . "<date>")
+           ("minend"       . "<date>")
+           ("now"          . "<date>")
+           ("period"       . "<interval>")
+           ("vacation"     . "<interval>")
+           ("booking"      . "<resourceid> <interval>")
+           ("workinghours" . "<weekday>[, <weekday>]* (<interval>[, <interval>]* | off)")
+           ("scheduling"   . "(asap | alap)")
+           ("timingresolution" . "<duration>")
+           ;; Task relationships
+           ("depends"      . "<taskid>[{<scenario>}][, <taskid>]*")
+           ("precedes"     . "<taskid>[, <taskid>]*")
+           ("allocate"     . "<resourceid>[, <resourceid>]*")
+           ("responsible"  . "<resourceid>[, <resourceid>]*")
+           ("managers"     . "<resourceid>[, <resourceid>]*")
+           ;; Numeric / text properties
+           ("priority"     . "<integer>  (1-1000, default 500)")
+           ("complete"     . "<percentage>  (0-100)")
+           ("rate"         . "<float>")
+           ("efficiency"   . "<float>  (default 1.0)")
+           ("dailyworkinghours" . "<float>")
+           ("yearlyworkingdays" . "<float>")
+           ("dailymax"     . "<duration>")
+           ("weeklymax"    . "<duration>")
+           ("monthlymax"   . "<duration>")
+           ("overtime"     . "<duration>")
+           ("limits"       . "{ <attributes> }")
+           ("shifts"       . "<id>[{ <attributes> }][, <id>]*")
+           ;; Text / rich-text
+           ("note"         . "<string>")
+           ("summary"      . "<string>")
+           ("headline"     . "<string>")
+           ("title"        . "<string>")
+           ("caption"      . "<rich_text>")
+           ("header"       . "<rich_text>")
+           ("footer"       . "<rich_text>")
+           ("left"         . "<rich_text>")
+           ("center"       . "<rich_text>")
+           ("right"        . "<rich_text>")
+           ("email"        . "\"<address>\"")
+           ("currency"     . "\"<symbol>\"")
+           ("timezone"     . "\"<tz_name>\"")
+           ("projectid"    . "<id>")
+           ;; Identifiers
+           ("journalentry" . "<date> \"<headline>\" [{ <attributes> }]")
+           ("leave"        . "(annual | special | sick | unpaid | holiday) <interval>")
+           ("leaveallowance" . "(annual | special | sick | unpaid | holiday) <duration>")
+           ("charge"       . "<float> (onstart | onend | perhour | perday | perweek | permonth)")
+           ("chargeset"    . "<accountid> [<percent>][, <accountid> [<percent>]]*")
+           ("costaccount"  . "<accountid>")
+           ("revenueaccount" . "<accountid>")
+           ("balance"      . "<accountid> <accountid>")
+           ;; Report configuration
+           ("columns"      . "<column>[{ <attributes> }][, <column>]*")
+           ("sorttasks"    . "<criterion>[up | down][, <criterion>]*")
+           ("sortresources" . "<criterion>[up | down][, <criterion>]*")
+           ("hidetask"     . "<logical_expr>")
+           ("hideresource" . "<logical_expr>")
+           ("rolluptask"   . "<logical_expr>")
+           ("rollupresource" . "<logical_expr>")
+           ("scenarios"    . "<id>[, <id>]*")
+           ("timeformat"   . "\"<format_string>\"")
+           ("formats"      . "(html | csv | niku | xml | ...)")
+           ("loadunit"     . "(days | hours | weeks | months | years | minutes | shortauto | longauto)")
+           ("numberformat" . "\"<frac_sep>\" \"<thou_sep>\" \"<prefix>\" \"<suffix>\" <precision>")
+           ("currencyformat" . "\"<frac_sep>\" \"<thou_sep>\" \"<prefix>\" \"<suffix>\" <precision>")
+           ("opennodes"    . "<integer>")
+           ("resourceroot" . "<resourceid>")
+           ("taskroot"     . "<taskid>")
+           ("showprojectids" . "(yes | no)")
+           ("weekstartmonday" . "(yes | no)")
+           ("purge"        . "(depends | allocate | chargeset | flags | ...)")
+           ;; Boolean-ish value keywords
+           ("yes"          . "boolean true")
+           ("no"           . "boolean false")
+           ("true"         . "boolean true")
+           ("false"        . "boolean false")
+           ("on"           . "boolean true (alternative)")
+           ("off"          . "boolean false (alternative)")
+           ("asap"         . "as-soon-as-possible scheduling")
+           ("alap"         . "as-late-as-possible scheduling")))
+        (tbl (make-hash-table :test #'equal :size 200)))
+    (pcase-dolist (`(,k . ,v) sigs) (puthash k v tbl))
+    tbl)
+  "Hash table mapping TaskJuggler keywords to their argument signatures.")
+
 (defun taskjuggler--keyword-annotation (candidate)
   "Return a category label for CANDIDATE for display in completion popups."
   (cond
@@ -210,7 +327,8 @@
 
 (defun taskjuggler-completion-at-point ()
   "Provide keyword completion for `taskjuggler-mode'.
-Works with `company-capf' and built-in completion (\\[completion-at-point])."
+Works with `company-capf' and built-in completion (\\[completion-at-point]).
+Argument signatures are shown via `:company-docsig' (echo area in company-mode)."
   (let ((ppss (syntax-ppss)))
     ;; Don't offer keyword completion inside strings or comments.
     (unless (or (nth 3 ppss) (nth 4 ppss))
@@ -221,7 +339,10 @@ Works with `company-capf' and built-in completion (\\[completion-at-point])."
         (when (< start end)
           (list start end taskjuggler--all-keywords
                 :exclusive 'no
-                :annotation-function #'taskjuggler--keyword-annotation))))))
+                :annotation-function #'taskjuggler--keyword-annotation
+                :company-docsig
+                (lambda (cand)
+                  (gethash cand taskjuggler--signatures ""))))))))
 
 ;;; Indentation
 
