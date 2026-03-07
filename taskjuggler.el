@@ -119,9 +119,11 @@
   "Regexp matching a declaration keyword followed by its identifier.")
 
 (defvar taskjuggler-font-lock-keywords
-  `(;; Named declarations: highlight the identifier after the keyword
+  `(;; Named declarations: highlight the identifier after the keyword.
+    ;; regexp-opt with 'words wraps in a capturing group, making the keyword
+    ;; group 1 and the identifier group 2.
     (,taskjuggler--named-declaration-re
-     (1 font-lock-function-name-face))
+     (2 font-lock-function-name-face))
     ;; Top-level structural keywords
     (,(regexp-opt taskjuggler-top-level-keywords 'words)
      . font-lock-keyword-face)
@@ -135,11 +137,11 @@
     (,(regexp-opt taskjuggler-value-keywords 'words)
      . font-lock-constant-face)
     ;; Date literals
-    (,taskjuggler--date-re . taskjuggler-date-face)
+    (,taskjuggler--date-re . 'taskjuggler-date-face)
     ;; Duration literals
-    (,taskjuggler--duration-re . taskjuggler-duration-face)
+    (,taskjuggler--duration-re . 'taskjuggler-duration-face)
     ;; Macro and environment variable references
-    (,taskjuggler--macro-ref-re . taskjuggler-macro-face))
+    (,taskjuggler--macro-ref-re . 'taskjuggler-macro-face))
   "Font-lock keywords for `taskjuggler-mode'.")
 
 ;;; Syntax table
@@ -173,9 +175,10 @@
 
 (defconst taskjuggler--syntax-propertize
   (syntax-propertize-rules
-   ;; # starts a line comment, unless inside a string or existing comment.
+   ;; # starts a style-b (line) comment, closed by newline ("> b").
+   ;; "< b": class=comment-start, match=space (none), flag=b (style b).
    ;; syntax-propertize-rules automatically skips strings and comments.
-   ("#" (0 "<")))
+   ("#" (0 "< b")))
   "Syntax propertize rules to handle # as a line comment in `taskjuggler-mode'.")
 
 ;;; Mode definition

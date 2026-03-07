@@ -1,0 +1,39 @@
+project ee "Vuzix EE Team" 2021-01-01 +3y {
+	timezone "America/New_York"
+	scenario plan "Plan" {
+		scenario delayed "Delayed"
+	}
+}
+
+include "resources.tji"
+
+# Sub-projects
+include "509_m400c.tji"
+include "497_microled_projector.tji"
+include "492_shield.tji"
+include "514_blade2.tji"
+include "519_m500.tji"
+include "515_snackerultralite.tji"
+
+# Gantt chart report
+taskreport overview "Projects Overview" {
+	formats html
+
+	header -8<-
+	== EE Projects Overview ==
+	->8-
+
+	columns bsi { title 'WBS' },
+		name,
+		start,
+		end,
+		duration,
+		complete,
+		gauge,
+		resources,
+		chart
+
+	timeformat "%a %Y-%m-%d"
+	loadunit days
+	sorttasks tree
+}
