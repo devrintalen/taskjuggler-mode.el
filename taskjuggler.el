@@ -17,6 +17,7 @@
 ;;   - Duration literal highlighting: 5d, 2.5h, 3w, etc.
 ;;   - Macro reference highlighting: ${MacroName}, $(ENV_VAR)
 ;;   - Indentation based on { } and [ ] block nesting depth
+;;   - Keyword completion via completion-at-point (works with company-capf)
 
 ;;; Code:
 
@@ -187,6 +188,41 @@
    ("#" (0 "< b")))
   "Syntax propertize rules to handle # as a line comment in `taskjuggler-mode'.")
 
+;;; Completion
+
+(defconst taskjuggler--all-keywords
+  (delete-dups
+   (sort (append taskjuggler-top-level-keywords
+                 taskjuggler-report-keywords
+                 taskjuggler-property-keywords
+                 taskjuggler-value-keywords)
+         #'string<))
+  "Sorted list of all TaskJuggler keywords, used for completion.")
+
+(defun taskjuggler--keyword-annotation (candidate)
+  "Return a category label for CANDIDATE for display in completion popups."
+  (cond
+   ((member candidate taskjuggler-top-level-keywords) " keyword")
+   ((member candidate taskjuggler-report-keywords)    " report")
+   ((member candidate taskjuggler-property-keywords)  " property")
+   ((member candidate taskjuggler-value-keywords)     " value")
+   (t "")))
+
+(defun taskjuggler-completion-at-point ()
+  "Provide keyword completion for `taskjuggler-mode'.
+Works with `company-capf' and built-in completion (\\[completion-at-point])."
+  (let ((ppss (syntax-ppss)))
+    ;; Don't offer keyword completion inside strings or comments.
+    (unless (or (nth 3 ppss) (nth 4 ppss))
+      (let ((end (point))
+            (start (save-excursion
+                     (skip-chars-backward "[:alpha:]")
+                     (point))))
+        (when (< start end)
+          (list start end taskjuggler--all-keywords
+                :exclusive 'no
+                :annotation-function #'taskjuggler--keyword-annotation))))))
+
 ;;; Indentation
 
 (defun taskjuggler--calculate-indent ()
@@ -233,6 +269,8 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local comment-start-skip "\\(?://+\\|#+\\|/\\*+\\)[ \t]*")
   ;; Syntax propertize handles # as a line comment character.
   (setq-local syntax-propertize-function taskjuggler--syntax-propertize)
+  ;; Completion
+  (add-hook 'completion-at-point-functions #'taskjuggler-completion-at-point nil t)
   ;; Indentation
   (setq-local indent-line-function #'taskjuggler-indent-line)
   (setq-local indent-tabs-mode nil)
