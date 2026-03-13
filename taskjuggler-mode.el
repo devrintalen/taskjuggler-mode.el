@@ -1,8 +1,9 @@
-;;; taskjuggler.el --- Major mode for TaskJuggler project files -*- lexical-binding: t -*-
+;;; taskjuggler-mode.el --- Major mode for TaskJuggler project files -*- lexical-binding: t -*-
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "27.1"))
+;; License: GPL-2.0-or-later
 
 ;;; Commentary:
 ;;
@@ -244,5 +245,5 @@ See URL `https://taskjuggler.org' for more information.
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
-(provide 'taskjuggler)
-;;; taskjuggler.el ends here
+(provide 'taskjuggler-mode)
+;;; taskjuggler-mode.el ends here
