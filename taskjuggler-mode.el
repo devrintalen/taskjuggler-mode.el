@@ -17,7 +17,7 @@
 ;;   - Date literal highlighting: YYYY-MM-DD[-hh:mm[:ss]]
 ;;   - Duration literal highlighting: 5d, 2.5h, 3w, etc.
 ;;   - Macro reference highlighting: ${MacroName}, $(ENV_VAR)
-;;   - Indentation based on { } and [ ] block nesting depth
+;;   - Indentation based on { } and [ ] block nesting depth (line and region)
 ;;   - Keyword completion via completion-at-point (works with company-capf)
 
 ;;; Code:
@@ -214,6 +214,19 @@ or `]' is de-indented one level relative to the enclosing block."
     (when (> (- (point-max) pos) (point))
       (goto-char (- (point-max) pos)))))
 
+(defun taskjuggler-indent-region (beg end)
+  "Indent each line in the region from BEG to END."
+  (interactive "r")
+  (let ((end-marker (copy-marker end)))
+    (save-excursion
+      (goto-char beg)
+      (beginning-of-line)
+      (while (< (point) end-marker)
+        (unless (looking-at "[ \t]*$")
+          (taskjuggler-indent-line))
+        (forward-line 1)))
+    (set-marker end-marker nil)))
+
 ;;; Mode definition
 
 ;;;###autoload
@@ -237,6 +250,7 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local syntax-propertize-function taskjuggler--syntax-propertize)
   ;; Indentation
   (setq-local indent-line-function #'taskjuggler-indent-line)
+  (setq-local indent-region-function #'taskjuggler-indent-region)
   (setq-local indent-tabs-mode nil)
   (setq-local tab-width taskjuggler-indent-level))
 
