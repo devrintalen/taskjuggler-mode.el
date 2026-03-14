@@ -19,6 +19,8 @@
 ;;   - Macro reference highlighting: ${MacroName}, $(ENV_VAR)
 ;;   - Indentation based on { } and [ ] block nesting depth (line and region)
 ;;   - Keyword completion via completion-at-point (works with company-capf)
+;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
+;;   - Flymake integration: on-the-fly error checking via tj3
 
 ;;; Code:
 
@@ -227,6 +229,76 @@ or `]' is de-indented one level relative to the enclosing block."
         (forward-line 1)))
     (set-marker end-marker nil)))
 
+;;; Compilation
+
+;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
+;; The regexp matches with or without ANSI escape codes so it works whether or
+;; not ansi-color-compilation-filter is active.
+(defconst taskjuggler--compilation-error-re
+  '(taskjuggler
+    "^\\([^()\t\n :]+\\):\\([0-9]+\\): \\(?:\e\\[[0-9;]*m\\)?Error:"
+    1 2 nil 2)
+  "Entry for `compilation-error-regexp-alist-alist' matching TJ3 error output.")
+
+(defvar compilation-error-regexp-alist-alist)
+(defvar compilation-error-regexp-alist)
+(with-eval-after-load 'compile
+  (add-to-list 'compilation-error-regexp-alist-alist
+               taskjuggler--compilation-error-re)
+  (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
+
+;;; Flymake
+
+(defvar-local taskjuggler--flymake-proc nil
+  "The currently running flymake process for this buffer.")
+
+(defun taskjuggler-flymake-backend (report-fn &rest _args)
+  "Flymake backend for `taskjuggler-mode'.
+Runs tj3 on the current file and reports errors via REPORT-FN."
+  (unless (executable-find "tj3")
+    (error "Cannot find tj3 on PATH"))
+  (when (process-live-p taskjuggler--flymake-proc)
+    (kill-process taskjuggler--flymake-proc))
+  (let* ((source (current-buffer))
+         (file   (buffer-file-name))
+         (fname  (and file (file-name-nondirectory file))))
+    (if (not file)
+        (funcall report-fn nil)
+      (setq taskjuggler--flymake-proc
+            (make-process
+             :name "taskjuggler-flymake"
+             :noquery t
+             :connection-type 'pipe
+             :buffer (generate-new-buffer " *taskjuggler-flymake*")
+             :command (list "tj3" file)
+             :sentinel
+             (lambda (proc _event)
+               (when (memq (process-status proc) '(exit signal))
+                 (unwind-protect
+                     (if (eq proc (buffer-local-value 'taskjuggler--flymake-proc source))
+                         (with-current-buffer (process-buffer proc)
+                           ;; Strip ANSI escape codes before parsing.
+                           (goto-char (point-min))
+                           (while (re-search-forward "\e\\[[0-9;]*m" nil t)
+                             (replace-match ""))
+                           ;; Collect errors for the current file only.
+                           ;; Errors in included files are reported there instead.
+                           (goto-char (point-min))
+                           (let (diags)
+                             (while (re-search-forward
+                                     (concat "^" (regexp-quote fname)
+                                             ":\\([0-9]+\\): Error: \\(.*\\)")
+                                     nil t)
+                               (let* ((lnum (string-to-number (match-string 1)))
+                                      (msg  (match-string 2))
+                                      (reg  (flymake-diag-region source lnum)))
+                                 (push (flymake-make-diagnostic
+                                        source (car reg) (cdr reg) :error msg)
+                                       diags)))
+                             (funcall report-fn (nreverse diags))))
+                       (flymake-log :debug "Canceling obsolete check %s" proc))
+                   (kill-buffer (process-buffer proc))))))))))
+
 ;;; Mode definition
 
 ;;;###autoload
@@ -252,7 +324,13 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local indent-line-function #'taskjuggler-indent-line)
   (setq-local indent-region-function #'taskjuggler-indent-region)
   (setq-local indent-tabs-mode nil)
-  (setq-local tab-width taskjuggler-indent-level))
+  (setq-local tab-width taskjuggler-indent-level)
+  ;; Compilation: pre-fill compile-command with tj3 and the current file.
+  (when (buffer-file-name)
+    (setq-local compile-command
+                (concat "tj3 " (shell-quote-argument (buffer-file-name)))))
+  ;; Flymake
+  (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
