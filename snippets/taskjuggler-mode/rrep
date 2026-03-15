@@ -1,0 +1,11 @@
+# name: resourcereport
+# key: rrep
+# --
+resourcereport ${1:id} "${2:Report Title}" {
+  formats ${3:html}
+  columns name, effort, rate, weekly
+  loadunit shortauto
+  hideresource ~isleaf()
+  hidetask @all
+  $0
+}

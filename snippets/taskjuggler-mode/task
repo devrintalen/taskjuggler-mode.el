@@ -1,0 +1,9 @@
+# name: task
+# key: task
+# --
+task ${1:id} "${2:Description}" {
+  effort ${3:5d}
+  depends ${4:!prev}
+  allocate ${5:resource}
+  $0
+}

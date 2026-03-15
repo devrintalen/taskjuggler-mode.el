@@ -1,0 +1,13 @@
+# name: journalentry
+# key: je
+# --
+journalentry ${1:`(format-time-string "%Y-%m-%d")`} "${2:Title}" {
+  author ${3:id}
+  alert ${4:green}
+  summary -8<-
+    ${5:Summary text.}
+  ->8-
+  details -8<-
+    $0
+  ->8-
+}
