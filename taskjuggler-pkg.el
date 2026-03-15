@@ -3,3 +3,6 @@
   '((emacs "27.1"))
   :keywords '("languages" "project-management")
   :url "https://github.com/devrintalen/taskjuggler-mode.el")
+;; Local Variables:
+;; no-byte-compile: t
+;; End:

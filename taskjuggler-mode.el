@@ -24,6 +24,8 @@
 
 ;;; Code:
 
+(declare-function yas-load-directory "yasnippet" (directory &optional recurse))
+
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
   :group 'languages
