@@ -240,8 +240,12 @@ or `]' is de-indented one level relative to the enclosing block."
     1 2 nil 2)
   "Entry for `compilation-error-regexp-alist-alist' matching TJ3 error output.")
 
-(defvar compilation-error-regexp-alist-alist)
-(defvar compilation-error-regexp-alist)
+(defvar compilation-error-regexp-alist-alist
+  "Alist mapping error regexp symbols to their specs; defined in `compile.el'.
+Forward-declared here to silence the byte-compiler.")
+(defvar compilation-error-regexp-alist
+  "List of active error regexp symbols used by `compilation-mode'; defined in `compile.el'.
+Forward-declared here to silence the byte-compiler.")
 (with-eval-after-load 'compile
   (add-to-list 'compilation-error-regexp-alist-alist
                taskjuggler--compilation-error-re)
