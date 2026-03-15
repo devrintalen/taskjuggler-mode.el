@@ -1,0 +1,4 @@
+# name: depends
+# key: dep
+# --
+depends ${1:!prev}$0

@@ -1,0 +1,8 @@
+# name: resource
+# key: res
+# --
+resource ${1:id} "${2:Full Name}" {
+  email "${3:user@example.com}"
+  rate ${4:300}
+  $0
+}

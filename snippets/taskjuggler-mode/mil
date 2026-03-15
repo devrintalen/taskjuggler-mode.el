@@ -1,0 +1,8 @@
+# name: milestone
+# key: mil
+# --
+task ${1:id} "${2:Milestone}" {
+  start ${3:!prev.end}
+  charge ${4:0.0} onstart
+  $0
+}

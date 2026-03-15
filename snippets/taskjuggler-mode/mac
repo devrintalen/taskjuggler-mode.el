@@ -1,0 +1,6 @@
+# name: macro
+# key: mac
+# --
+macro ${1:name} [
+  $0
+]

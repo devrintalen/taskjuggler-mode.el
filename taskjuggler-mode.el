@@ -337,5 +337,15 @@ See URL `https://taskjuggler.org' for more information.
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
+;;; Yasnippet
+
+(with-eval-after-load 'yasnippet
+  (let ((snippets-dir (expand-file-name "snippets"
+                                        (file-name-directory
+                                         (or load-file-name buffer-file-name)))))
+    (when (file-directory-p snippets-dir)
+      (add-to-list 'yas-snippet-dirs snippets-dir)
+      (yas-load-directory snippets-dir))))
+
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here

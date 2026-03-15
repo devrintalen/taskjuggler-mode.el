@@ -1,0 +1,14 @@
+# name: resource group
+# key: resgrp
+# --
+resource ${1:group} "${2:Group Name}" {
+  resource ${3:id1} "${4:Member One}" {
+    email "${5:one@example.com}"
+    rate ${6:300}
+  }
+  resource ${7:id2} "${8:Member Two}" {
+    email "${9:two@example.com}"
+    rate ${10:300}
+  }
+  $0
+}

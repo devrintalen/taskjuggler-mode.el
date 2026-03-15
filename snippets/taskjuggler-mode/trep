@@ -1,0 +1,11 @@
+# name: taskreport
+# key: trep
+# --
+taskreport ${1:id} "${2:Report Title}" {
+  formats ${3:html}
+  columns bsi { title 'WBS' }, name, start, end, effort, chart
+  timeformat "%Y-%m-%d"
+  loadunit days
+  hideresource @all
+  $0
+}

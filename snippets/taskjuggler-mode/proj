@@ -1,0 +1,13 @@
+# name: project
+# key: proj
+# --
+project ${1:id} "${2:Project Name}" ${3:2024-01-01} +${4:6m} {
+  timezone "${5:America/New_York}"
+  timeformat "%Y-%m-%d"
+  currency "${6:USD}"
+  now ${7:`(format-time-string "%Y-%m-%d")`}
+
+  scenario plan "Plan" {
+    $0
+  }
+}
