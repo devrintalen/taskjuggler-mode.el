@@ -34,6 +34,15 @@
   :type 'integer
   :group 'taskjuggler)
 
+(defcustom taskjuggler-tj3-extra-args nil
+  "List of additional command-line arguments passed to tj3 by the flymake backend.
+Use this to supply flags your project requires, such as:
+  (setq-local taskjuggler-tj3-extra-args \\='(\"--prefix\" \"/opt/tj3\"))
+The arguments are inserted between the `tj3' executable and the file name."
+  :type '(repeat string)
+  :safe #'listp
+  :group 'taskjuggler)
+
 ;;; Faces
 
 (defface taskjuggler-date-face
@@ -274,7 +283,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
              :noquery t
              :connection-type 'pipe
              :buffer (generate-new-buffer " *taskjuggler-flymake*")
-             :command (list "tj3" file)
+             :command (append (list "tj3") taskjuggler-tj3-extra-args (list file))
              :sentinel
              (lambda (proc _event)
                (when (memq (process-status proc) '(exit signal))
