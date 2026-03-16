@@ -1,22 +1,21 @@
 # taskjuggler-mode.el
 
-An Emacs major mode for editing [TaskJuggler 3](https://taskjuggler.org) project
-files (`.tjp`, `.tji`).
+An Emacs major mode for editing [TaskJuggler v3](https://taskjuggler.org) 
+project files (`.tjp`, `.tji`).
 
-## Existing options and why this is different
+This is not the first Emacs mode written to support TaskJuggler. As
+far as I know, these are the projects already out there:
 
-There are a few other Emacs modes for TaskJuggler floating around:
+|-----------------------------|---------------------------------------------------------------------------------------------------------|
+| Project                     | Notes                                                                                                   |
+|-----------------------------|---------------------------------------------------------------------------------------------------------|
+| csrhodes/tj3-mode           | Provides syntax highlighting                                                                            |
+| ska2342/taskjuggler-mode.el | Probably the "original" Emacs mode for TaskJuggler. Written for TJ2 and once packaged with TaskJuggler. |
+| ox-taskjuggler              | org export backend, turns org-mode documents into TaskJuggler files.                                    |
+| ndwarshuis/org-tj           | Library funtions for org-mode and TaskJuggler integration                                               |
+|-----------------------------|---------------------------------------------------------------------------------------------------------|
 
-- **`taskjuggler-mode` bundled with TJ2** — Ships with the old TaskJuggler 2
-  source tree. It targets TJ2 syntax, which differs significantly from TJ3, and
-  has not been maintained in years.
-- **`tj3-mode` / miscellaneous Gist snippets** — Small, one-off files that
-  typically provide only basic keyword highlighting with no indentation, no
-  compilation support, and no integration with modern Emacs tooling (Flymake,
-  company, yasnippet).
-
-This mode targets **TaskJuggler 3** specifically and is designed around the
-conventions of modern Emacs package development:
+Here is what this mode supports:
 
 - Full TJ3 keyword coverage across four semantic categories (structural,
   report, property, value)
@@ -30,12 +29,9 @@ conventions of modern Emacs package development:
 
 ## Installation
 
-### MELPA with `use-package`
-
-```emacs-lisp
-(use-package taskjuggler-mode
-  :ensure t)
-```
+I do not have this integrated with MELPA (yet), so installation is
+manual. Clone the repository somewhere, and then use elisp like the
+following:
 
 ### `straight.el` with `use-package`
 
@@ -45,6 +41,16 @@ conventions of modern Emacs package development:
              :type git
              :host github
              :repo "devrintalen/taskjuggler-mode.el"))
+	
+
+```
+
+### Manually clone the repository
+
+```emacs-lisp
+(use-package taskjuggler-mode
+    :straight (:local-repo "/path/to/taskjuggler-mode.el/" :type nil)
+    :mode (("\\.tj[ip]\\'" . taskjuggler-mode)))
 ```
 
 ## Configuration
@@ -54,23 +60,30 @@ RET taskjuggler RET`). The table below lists every option with its default value
 Copying the `use-package` block as-is produces exactly the same behavior as not
 setting anything.
 
-| Option | Default | Description |
-|---|---|---|
-| `taskjuggler-indent-level` | `2` | Spaces per indentation level |
-| `taskjuggler-tj3-extra-args` | `nil` | Extra CLI flags forwarded to `tj3` by the Flymake backend |
+| Option                       | Default | Description                                               |
+|------------------------------|---------|-----------------------------------------------------------|
+| `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
+| `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
 
 ### Full `use-package` example with all options
 
 ```emacs-lisp
 (use-package taskjuggler-mode
-  :ensure t   ; or :straight ... (see above)
+  :straight (taskjuggler-mode
+             :type git
+             :host github
+             :repo "devrintalen/taskjuggler-mode.el")
   :custom
   ;; Number of spaces per indentation level.
   (taskjuggler-indent-level 2)
+
   ;; Extra arguments passed to tj3 when running Flymake checks.
   ;; Example for a non-standard installation prefix:
   ;;   (taskjuggler-tj3-extra-args '("--prefix" "/opt/tj3"))
   (taskjuggler-tj3-extra-args nil))
+  
+  
+(add-hook 'taskjuggler-mode-hook 'electric-pair-local-mode)
 ```
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
@@ -89,18 +102,18 @@ per-project with a `.dir-locals.el`:
 Keywords are divided into four semantic categories, each mapped to a distinct
 face so themes can style them independently:
 
-| Category | Face | Examples |
-|---|---|---|
-| Structural keywords | `font-lock-keyword-face` | `project`, `task`, `resource`, `include`, `macro` |
-| Report keywords | `font-lock-builtin-face` | `taskreport`, `resourcereport`, `textreport` |
-| Property keywords | `font-lock-type-face` | `effort`, `depends`, `allocate`, `start`, `end` |
-| Value/constant keywords | `font-lock-constant-face` | `asap`, `alap`, `yes`, `no`, `done` |
-| Declaration identifiers | `font-lock-function-name-face` | The `my-task` in `task my-task "…"` |
-| Date literals | `taskjuggler-date-face` (inherits `font-lock-string-face`) | `2024-03-15`, `2024-03-15-09:00` |
-| Duration literals | `taskjuggler-duration-face` (inherits `font-lock-constant-face`) | `5d`, `2.5h`, `3w`, `30min` |
-| Macro/env references | `taskjuggler-macro-face` (inherits `font-lock-preprocessor-face`) | `${MacroName}`, `$(ENV_VAR)` |
-| Strings | `font-lock-string-face` | `"Project Name"` |
-| Comments | `font-lock-comment-face` | `// …`, `/* … */`, `# …` |
+| Category                | Face                                                              | Examples                                          |
+|-------------------------|-------------------------------------------------------------------|---------------------------------------------------|
+| Structural keywords     | `font-lock-keyword-face`                                          | `project`, `task`, `resource`, `include`, `macro` |
+| Report keywords         | `font-lock-builtin-face`                                          | `taskreport`, `resourcereport`, `textreport`      |
+| Property keywords       | `font-lock-type-face`                                             | `effort`, `depends`, `allocate`, `start`, `end`   |
+| Value/constant keywords | `font-lock-constant-face`                                         | `asap`, `alap`, `yes`, `no`, `done`               |
+| Declaration identifiers | `font-lock-function-name-face`                                    | The `my-task` in `task my-task "…"`               |
+| Date literals           | `taskjuggler-date-face` (inherits `font-lock-string-face`)        | `2024-03-15`, `2024-03-15-09:00`                  |
+| Duration literals       | `taskjuggler-duration-face` (inherits `font-lock-constant-face`)  | `5d`, `2.5h`, `3w`, `30min`                       |
+| Macro/env references    | `taskjuggler-macro-face` (inherits `font-lock-preprocessor-face`) | `${MacroName}`, `$(ENV_VAR)`                      |
+| Strings                 | `font-lock-string-face`                                           | `"Project Name"`                                  |
+| Comments                | `font-lock-comment-face`                                          | `// …`, `/* … */`, `# …`                          |
 
 The three faces (`taskjuggler-date-face`, `taskjuggler-duration-face`,
 `taskjuggler-macro-face`) can be customized independently if you want dates or
@@ -187,20 +200,20 @@ If [yasnippet](https://github.com/joaotavora/yasnippet) is installed, the
 snippet directory bundled with this package is registered automatically. No
 additional configuration is required.
 
-| Key | Expands to |
-|---|---|
-| `proj` | `project` block with timezone, timeformat, currency, now, and a scenario |
-| `task` | `task` block with effort, depends, and allocate |
-| `mil` | Milestone task skeleton |
-| `res` | Single `resource` block |
-| `resgrp` | `resource` group containing two members |
-| `dep` | `depends` line |
-| `inc` | `include` statement |
-| `mac` | `macro` definition |
-| `hdr` | TJ3 heredoc delimiters (`-8<-` … `->8-`) |
-| `je` | `journalentry` block with author, alert, summary, and details; date pre-filled to today |
-| `trep` | `taskreport` with standard columns |
-| `rrep` | `resourcereport` with standard columns |
+| Key      | Expands to                                                                              |
+|----------|-----------------------------------------------------------------------------------------|
+| `proj`   | `project` block with timezone, timeformat, currency, now, and a scenario                |
+| `task`   | `task` block with effort, depends, and allocate                                         |
+| `mil`    | Milestone task skeleton                                                                 |
+| `res`    | Single `resource` block                                                                 |
+| `resgrp` | `resource` group containing two members                                                 |
+| `dep`    | `depends` line                                                                          |
+| `inc`    | `include` statement                                                                     |
+| `mac`    | `macro` definition                                                                      |
+| `hdr`    | TJ3 heredoc delimiters (`-8<-` … `->8-`)                                                |
+| `je`     | `journalentry` block with author, alert, summary, and details; date pre-filled to today |
+| `trep`   | `taskreport` with standard columns                                                      |
+| `rrep`   | `resourcereport` with standard columns                                                  |
 
 ## Requirements
 
