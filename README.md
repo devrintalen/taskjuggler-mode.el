@@ -1,19 +1,23 @@
 # taskjuggler-mode.el
 
-An Emacs major mode for editing [TaskJuggler v3](https://taskjuggler.org) 
+An Emacs major mode for editing [TaskJuggler v3](https://taskjuggler.org)
 project files (`.tjp`, `.tji`).
+
+If you are already at the point that you are using (or considering)
+TaskJuggler, then you are *deep* down the rabbit hole and I wish you
+good luck. I also offer you this package to help.
+
+🌮
 
 This is not the first Emacs mode written to support TaskJuggler. As
 far as I know, these are the projects already out there:
 
-|-----------------------------|---------------------------------------------------------------------------------------------------------|
-| Project                     | Notes                                                                                                   |
+| **Project**                 | **Notes**                                                                                               |
 |-----------------------------|---------------------------------------------------------------------------------------------------------|
 | csrhodes/tj3-mode           | Provides syntax highlighting                                                                            |
 | ska2342/taskjuggler-mode.el | Probably the "original" Emacs mode for TaskJuggler. Written for TJ2 and once packaged with TaskJuggler. |
 | ox-taskjuggler              | org export backend, turns org-mode documents into TaskJuggler files.                                    |
 | ndwarshuis/org-tj           | Library funtions for org-mode and TaskJuggler integration                                               |
-|-----------------------------|---------------------------------------------------------------------------------------------------------|
 
 Here is what this mode supports:
 
@@ -29,28 +33,30 @@ Here is what this mode supports:
 
 ## Installation
 
-I do not have this integrated with MELPA (yet), so installation is
-manual. Clone the repository somewhere, and then use elisp like the
-following:
-
 ### `straight.el` with `use-package`
+
+This probably the easiest way, if you already use `straight.el`.
 
 ```emacs-lisp
 (use-package taskjuggler-mode
   :straight (taskjuggler-mode
-             :type git
-             :host github
-             :repo "devrintalen/taskjuggler-mode.el"))
-	
+			 :type git
+			 :host github
+			 :repo "devrintalen/taskjuggler-mode.el"))
+
 
 ```
 
 ### Manually clone the repository
 
+If you do not want to have `straight.el` pull the repo automatically,
+you can check out the code yourself and then use the local directory
+like so:
+
 ```emacs-lisp
 (use-package taskjuggler-mode
-    :straight (:local-repo "/path/to/taskjuggler-mode.el/" :type nil)
-    :mode (("\\.tj[ip]\\'" . taskjuggler-mode)))
+	:straight (:local-repo "/path/to/taskjuggler-mode.el/" :type nil)
+	:mode (("\\.tj[ip]\\'" . taskjuggler-mode)))
 ```
 
 ## Configuration
@@ -70,19 +76,18 @@ setting anything.
 ```emacs-lisp
 (use-package taskjuggler-mode
   :straight (taskjuggler-mode
-             :type git
-             :host github
-             :repo "devrintalen/taskjuggler-mode.el")
+			 :type git
+			 :host github
+			 :repo "devrintalen/taskjuggler-mode.el")
   :custom
   ;; Number of spaces per indentation level.
   (taskjuggler-indent-level 2)
-
   ;; Extra arguments passed to tj3 when running Flymake checks.
   ;; Example for a non-standard installation prefix:
   ;;   (taskjuggler-tj3-extra-args '("--prefix" "/opt/tj3"))
   (taskjuggler-tj3-extra-args nil))
-  
-  
+
+
 (add-hook 'taskjuggler-mode-hook 'electric-pair-local-mode)
 ```
 
