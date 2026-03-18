@@ -221,21 +221,27 @@ or `]' is de-indented one level relative to the enclosing block."
 (defun taskjuggler-indent-line ()
   "Indent the current line of TaskJuggler code."
   (interactive)
+  ;; Record distance from point to end of buffer.  Using point-max rather than
+  ;; a buffer position means the saved offset stays valid after indentation
+  ;; inserts or removes leading whitespace.
   (let ((pos (- (point-max) (point))))
     (indent-line-to (taskjuggler--calculate-indent))
-    ;; Restore point position if it was beyond the indentation.
+    ;; If point was in the content area (not inside the indentation), restore
+    ;; it to the same distance from the end of the buffer.
     (when (> (- (point-max) pos) (point))
       (goto-char (- (point-max) pos)))))
 
 (defun taskjuggler-indent-region (beg end)
   "Indent each line in the region from BEG to END."
   (interactive "r")
+  ;; Use a marker for END so it tracks the correct buffer position as each
+  ;; `taskjuggler-indent-line' call inserts or removes leading whitespace.
   (let ((end-marker (copy-marker end)))
     (save-excursion
       (goto-char beg)
       (beginning-of-line)
       (while (< (point) end-marker)
-        (unless (looking-at "[ \t]*$")
+        (unless (looking-at "[ \t]*$")   ; skip blank lines
           (taskjuggler-indent-line))
         (forward-line 1)))
     (set-marker end-marker nil)))
@@ -245,16 +251,18 @@ or `]' is de-indented one level relative to the enclosing block."
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
 ;; The regexp matches with or without ANSI escape codes so it works whether or
 ;; not ansi-color-compilation-filter is active.
+;; Spec fields: (NAME REGEXP FILE LINE COLUMN TYPE)
+;;   FILE=1, LINE=2, COLUMN=nil (not present), TYPE=2 (2 = error level).
 (defconst taskjuggler--compilation-error-re
   '(taskjuggler
     "^\\([^()\t\n :]+\\):\\([0-9]+\\): \\(?:\e\\[[0-9;]*m\\)?Error:"
     1 2 nil 2)
   "Entry for `compilation-error-regexp-alist-alist' matching TJ3 error output.")
 
-(defvar compilation-error-regexp-alist-alist
+(defvar compilation-error-regexp-alist-alist nil
   "Alist mapping error regexp symbols to their specs; defined in `compile.el'.
 Forward-declared here to silence the byte-compiler.")
-(defvar compilation-error-regexp-alist
+(defvar compilation-error-regexp-alist nil
   "List of active error regexp symbols used by `compilation-mode'; defined in `compile.el'.
 Forward-declared here to silence the byte-compiler.")
 (with-eval-after-load 'compile
@@ -290,6 +298,8 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
              (lambda (proc _event)
                (when (memq (process-status proc) '(exit signal))
                  (unwind-protect
+                     ;; Discard results if a newer check has already replaced
+                     ;; this process (user saved again before tj3 finished).
                      (if (eq proc (buffer-local-value 'taskjuggler--flymake-proc source))
                          (with-current-buffer (process-buffer proc)
                            ;; Strip ANSI escape codes before parsing.
@@ -312,6 +322,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
                                        diags)))
                              (funcall report-fn (nreverse diags))))
                        (flymake-log :debug "Canceling obsolete check %s" proc))
+                   ;; Always clean up the temporary process buffer.
                    (kill-buffer (process-buffer proc))))))))))
 
 ;;; Mode definition
@@ -352,8 +363,10 @@ See URL `https://taskjuggler.org' for more information.
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
-;;; Yasnippet
+;;; Yasnippet integration
 
+;; If yasnippet is installed, register the bundled snippets directory so that
+;; TJ3-specific snippet expansions are available in `taskjuggler-mode' buffers.
 (with-eval-after-load 'yasnippet
   (let ((snippets-dir (expand-file-name "snippets"
                                         (file-name-directory
