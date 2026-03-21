@@ -38,25 +38,19 @@ Here is what this mode supports:
 This probably the easiest way, if you already use `straight.el`.
 
 ```emacs-lisp
+
 (use-package taskjuggler-mode
-  :straight (taskjuggler-mode
-			 :type git
-			 :host github
-			 :repo "devrintalen/taskjuggler-mode.el"))
+  :after yasnippet
+  :straight (taskjuggler-mode :type git
+                              :host github
+                              :repo "devrintalen/taskjuggler-mode.el"
+                              :files ("*.el" "snippets"))
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook ((taskjuggler-mode . flymake-mode)
+         (taskuggler-mode . electric-pair-local-mode))
+  :custom
+  (taskjuggler-tj3-program "~/bin/tj3"))
 
-
-```
-
-### Manually clone the repository
-
-If you do not want to have `straight.el` pull the repo automatically,
-you can check out the code yourself and then use the local directory
-like so:
-
-```emacs-lisp
-(use-package taskjuggler-mode
-	:straight (:local-repo "/path/to/taskjuggler-mode.el/" :type nil)
-	:mode (("\\.tj[ip]\\'" . taskjuggler-mode)))
 ```
 
 ## Configuration
@@ -70,26 +64,6 @@ setting anything.
 |------------------------------|---------|-----------------------------------------------------------|
 | `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
 | `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
-
-### Full `use-package` example with all options
-
-```emacs-lisp
-(use-package taskjuggler-mode
-  :straight (taskjuggler-mode
-			 :type git
-			 :host github
-			 :repo "devrintalen/taskjuggler-mode.el")
-  :custom
-  ;; Number of spaces per indentation level.
-  (taskjuggler-indent-level 2)
-  ;; Extra arguments passed to tj3 when running Flymake checks.
-  ;; Example for a non-standard installation prefix:
-  ;;   (taskjuggler-tj3-extra-args '("--prefix" "/opt/tj3"))
-  (taskjuggler-tj3-extra-args nil))
-
-
-(add-hook 'taskjuggler-mode-hook 'electric-pair-local-mode)
-```
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
 per-project with a `.dir-locals.el`:
@@ -201,10 +175,6 @@ than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
 ### yasnippet snippets
 
-If [yasnippet](https://github.com/joaotavora/yasnippet) is installed, the
-snippet directory bundled with this package is registered automatically. No
-additional configuration is required.
-
 | Key      | Expands to                                                                              |
 |----------|-----------------------------------------------------------------------------------------|
 | `proj`   | `project` block with timezone, timeformat, currency, now, and a scenario                |
@@ -224,5 +194,5 @@ additional configuration is required.
 
 - Emacs 27.1 or later
 - `tj3` on `PATH` (only for Flymake and compilation features)
-- [yasnippet](https://github.com/joaotavora/yasnippet) (optional, for snippets)
+- [yasnippet](https://github.com/joaotavora/yasnippet) (required, for snippets)
 - [Company](https://company-mode.github.io) (optional, for pop-up completion)
