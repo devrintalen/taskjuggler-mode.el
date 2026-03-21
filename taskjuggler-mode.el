@@ -2,7 +2,7 @@
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1"))
+;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0"))
 ;; License: GPL-3.0-or-later
 
 ;;; Commentary:
@@ -23,8 +23,6 @@
 ;;   - Flymake integration: on-the-fly error checking via tj3
 
 ;;; Code:
-
-(declare-function yas-load-directory "yasnippet" (directory &optional recurse))
 
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
@@ -354,13 +352,35 @@ See URL `https://taskjuggler.org' for more information.
 
 ;;; Yasnippet
 
-(with-eval-after-load 'yasnippet
-  (let ((snippets-dir (expand-file-name "snippets"
-                                        (file-name-directory
-                                         (or load-file-name buffer-file-name)))))
-    (when (file-directory-p snippets-dir)
-      (add-to-list 'yas-snippet-dirs snippets-dir)
-      (yas-load-directory snippets-dir))))
+;; With thanks to @AndreaCrotti. I've taken portions of their
+;; yasnippet-snippets code to come up with the below autoloader for
+;; the taskjuggler snippets.
+;;
+;; https://github.com/AndreaCrotti/yasnippet-snippets
+(defconst taskjuggler-mode-snippets-dir
+  (expand-file-name
+   "snippets"
+   (file-name-directory
+    ;; Copied from ‘f-this-file’ from f.el.
+    (cond
+     (load-in-progress load-file-name)
+     ((and (boundp 'byte-compile-current-file) byte-compile-current-file)
+      byte-compile-current-file)
+     (:else (buffer-file-name))))))
+
+;;;###autoload
+(defun taskjuggler-mode-snippets-initialize ()
+  "Load the `taskjuggler-mode-snippets-dir' snippets directory."
+  ;; NOTE: we add the symbol `taskjuggler-mode-snippets-dir' rather than its
+  ;; value, so that yasnippet will automatically find the directory
+  ;; after this package is updated (i.e., moves directory).
+  (unless (member 'taskjuggler-mode-snippets-dir yas-snippet-dirs)
+    (add-to-list 'yas-snippet-dirs 'taskjuggler-mode-snippets-dir t)
+    (yas--load-snippet-dirs)))
+
+;;;###autoload
+(eval-after-load 'yasnippet
+   '(taskjuggler-mode-snippets-initialize))
 
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here
