@@ -472,6 +472,47 @@ The blank-line separator between the two blocks is preserved."
         (insert next-text sep-text cur-text)
         (goto-char (+ cur-start (length next-text) (length sep-text) header-offset))))))
 
+;;; Block navigation
+
+(defun taskjuggler-next-block ()
+  "Move point to the next sibling block at the same depth.
+Finds the block at or enclosing point and jumps to the header of the
+next sibling.  Signals an error if there is no next sibling."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let ((next (taskjuggler--next-sibling-bounds header)))
+      (if next
+          (goto-char (nth 1 next))
+        (user-error "No next sibling block")))))
+
+(defun taskjuggler-prev-block ()
+  "Move point to the previous sibling block at the same depth.
+Finds the block at or enclosing point and jumps to the header of the
+previous sibling.  Signals an error if there is no previous sibling."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let ((prev (taskjuggler--prev-sibling-bounds header)))
+      (if prev
+          (goto-char (nth 1 prev))
+        (user-error "No previous sibling block")))))
+
+(defun taskjuggler-goto-parent ()
+  "Move point to the keyword line of the enclosing block.
+Uses `up-list' to find the opening brace one level up, then moves to
+the beginning of that line.  Signals an error at the top level."
+  (interactive)
+  (if (= (car (syntax-ppss)) 0)
+      (user-error "Already at top level")
+    (condition-case nil
+        (progn
+          (up-list -1)
+          (beginning-of-line))
+      (error (user-error "No enclosing block found")))))
+
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
@@ -584,6 +625,20 @@ See URL `https://taskjuggler.org' for more information.
 
 (define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
+
+(declare-function evil-define-key* "evil-core")
+
+;; Evil-mode navigation bindings (normal state).
+;; gj/gk jump to the next/previous sibling block at the same depth;
+;; gh moves up to the enclosing block's keyword line.
+;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
+;; evil-define-key* (function) is used instead of evil-define-key (macro)
+;; so the call survives byte-compilation without evil present.
+(with-eval-after-load 'evil
+  (evil-define-key* 'normal taskjuggler-mode-map
+    (kbd "gj") #'taskjuggler-next-block
+    (kbd "gk") #'taskjuggler-prev-block
+    (kbd "gh") #'taskjuggler-goto-parent))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
