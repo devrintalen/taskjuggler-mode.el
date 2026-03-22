@@ -6,7 +6,7 @@
   block header, jump into its first (or last) child block at depth+1. Complement
   to the existing `taskjuggler-goto-parent`.
 
-- [ ] `beginning-of-defun` / `end-of-defun` integration — set
+- [x] `beginning-of-defun` / `end-of-defun` integration — set
   `beginning-of-defun-function` and `end-of-defun-function` to delegate to the
   existing `taskjuggler--current-block-header` and `taskjuggler--block-end`
   helpers. Unlocks `C-M-a`, `C-M-e`, `C-M-h` (mark-defun), and

@@ -21,6 +21,8 @@
 ;;   - Keyword completion via completion-at-point (works with company-capf)
 ;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
 ;;   - Flymake integration: on-the-fly error checking via tj3
+;;   - Defun navigation: C-M-a/C-M-e jump to block start/end; C-M-h marks block;
+;;     narrow-to-defun narrows to the current block
 
 ;;; Code:
 
@@ -513,6 +515,54 @@ the beginning of that line.  Signals an error at the top level."
           (beginning-of-line))
       (error (user-error "No enclosing block found")))))
 
+;;; beginning-of-defun / end-of-defun integration
+
+(defun taskjuggler--beginning-of-defun (&optional arg)
+  "Move to the beginning of the current or ARGth enclosing/preceding block.
+With ARG (default 1) positive, jump to the header of the block containing
+point.  If already at a block header, that counts as step one; subsequent
+steps search backward for preceding block headers.  With ARG negative,
+delegate to `taskjuggler--end-of-defun'.
+Implements `beginning-of-defun-function' for `taskjuggler-mode'."
+  (let ((count (or arg 1)))
+    (cond
+     ((> count 0)
+      (let ((header (taskjuggler--current-block-header)))
+        (if header
+            ;; In a block (or at its header): jump there and do (count-1)
+            ;; additional backward searches.
+            (progn
+              (goto-char header)
+              (dotimes (_ (1- count))
+                (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
+                  (beginning-of-line))))
+          ;; Not inside any block: search backward COUNT times.
+          (dotimes (_ count)
+            (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
+              (beginning-of-line))))))
+     ((< count 0)
+      (taskjuggler--end-of-defun (- count))))))
+
+(defun taskjuggler--end-of-defun (&optional arg)
+  "Move to the end of the current or ARGth following block.
+With ARG (default 1) positive, jump past the closing `}' of the block
+containing point.  With ARG negative, delegate to
+`taskjuggler--beginning-of-defun'.
+Implements `end-of-defun-function' for `taskjuggler-mode'."
+  (let ((count (or arg 1)))
+    (cond
+     ((> count 0)
+      (dotimes (_ count)
+        (let ((header (taskjuggler--current-block-header)))
+          (if header
+              (goto-char (taskjuggler--block-end header))
+            ;; Not in a block: find the next block and skip past it.
+            (when (re-search-forward taskjuggler--moveable-block-re nil 'move)
+              (beginning-of-line)
+              (goto-char (taskjuggler--block-end (point))))))))
+     ((< count 0)
+      (taskjuggler--beginning-of-defun (- count))))))
+
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
@@ -613,6 +663,9 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local indent-region-function #'taskjuggler-indent-region)
   (setq-local indent-tabs-mode nil)
   (setq-local tab-width taskjuggler-indent-level)
+  ;; Defun navigation: wire up standard C-M-a / C-M-e / C-M-h / narrow-to-defun.
+  (setq-local beginning-of-defun-function #'taskjuggler--beginning-of-defun)
+  (setq-local end-of-defun-function #'taskjuggler--end-of-defun)
   ;; Compilation: pre-fill compile-command with tj3 and the current file.
   (when (buffer-file-name)
     (setq-local compile-command
