@@ -286,6 +286,192 @@ as a continuation and aligned with the first argument on the keyword line."
         (forward-line 1)))
     (set-marker end-marker nil)))
 
+;;; Block movement
+
+;; Blocks that can be moved are those introduced by top-level or report
+;; keywords (task, resource, macro, taskreport, etc.).  The movement
+;; functions swap a block with its previous or next *sibling* — another
+;; block at the same brace-nesting depth — preserving any blank-line
+;; separator between them.  Comment lines (# or //) immediately preceding
+;; a block header (with no intervening blank lines) are treated as belonging
+;; to that block and travel with it.
+
+(defconst taskjuggler--moveable-block-re
+  (concat "[ \t]*"
+          (regexp-opt (append taskjuggler-top-level-keywords
+                              taskjuggler-report-keywords)
+                      'words))
+  "Regexp matching a line that starts a moveable TaskJuggler block.")
+
+(defun taskjuggler--current-block-header ()
+  "Return position of the block header line at or enclosing point.
+If point is on a moveable keyword line, return that line's position.
+If point is inside a brace block whose opening line is a moveable keyword,
+return that opening line's position.  Return nil otherwise."
+  (save-excursion
+    (beginning-of-line)
+    (cond
+     ((looking-at taskjuggler--moveable-block-re)
+      (point))
+     ((> (car (syntax-ppss)) 0)
+      (condition-case nil
+          (progn
+            (up-list -1)           ; jump to the innermost opening {
+            (beginning-of-line)
+            (when (looking-at taskjuggler--moveable-block-re)
+              (point)))
+        (error nil)))
+     (t nil))))
+
+(defun taskjuggler--block-end (header-pos)
+  "Return the position of the line start immediately after the block at HEADER-POS.
+If the header line contains a `{', uses `forward-sexp' to skip to the matching
+`}' and returns the line after that.  Otherwise returns the line after the
+header itself (bare keyword with no brace body)."
+  (save-excursion
+    (goto-char header-pos)
+    (let ((eol (line-end-position))
+          brace-pos)
+      ;; Find the first real { on the header line (not inside string/comment).
+      (while (and (not brace-pos)
+                  (re-search-forward "{" eol t))
+        (let ((pp (save-excursion (syntax-ppss (match-beginning 0)))))
+          (when (and (not (nth 3 pp)) (not (nth 4 pp)))
+            (setq brace-pos (match-beginning 0)))))
+      (if brace-pos
+          (progn
+            (goto-char brace-pos)
+            (forward-sexp)         ; jump to matching }
+            (forward-line 1)
+            (point))
+        (goto-char header-pos)
+        (forward-line 1)
+        (point)))))
+
+(defun taskjuggler--block-with-comments-start (header-pos)
+  "Return the start of the block at HEADER-POS, including preceding comments.
+Immediately preceding lines that begin with `#' or `//' (no blank lines
+between them and the header) are considered part of the block."
+  (save-excursion
+    (goto-char header-pos)
+    (beginning-of-line)
+    (let ((start (point)))
+      (while (and (not (bobp))
+                  (save-excursion
+                    (forward-line -1)
+                    (looking-at "[ \t]*\\(#\\|//\\)")))
+        (forward-line -1)
+        (setq start (point)))
+      start)))
+
+(defun taskjuggler--prev-sibling-bounds (header-pos)
+  "Return (start header end) for the previous sibling of the block at HEADER-POS.
+A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+if there is no previous sibling."
+  (save-excursion
+    (let* ((depth     (car (syntax-ppss header-pos)))
+           (our-start (taskjuggler--block-with-comments-start header-pos)))
+      (goto-char our-start)
+      ;; Skip backward over blank lines.
+      (while (and (not (bobp))
+                  (progn (forward-line -1) (looking-at "[ \t]*$"))))
+      (when (not (or (and (bobp) (looking-at "[ \t]*$"))
+                     (looking-at "[ \t]*$")))
+        ;; Now on the last content line of the candidate previous block.
+        (let ((prev-header
+               (cond
+                ;; The previous block is a single-line keyword (or its header).
+                ((looking-at taskjuggler--moveable-block-re)
+                 (point))
+                ;; The last line ends with } — walk back to the opening {.
+                ((looking-at ".*}[ \t]*$")
+                 (save-excursion
+                   (end-of-line)
+                   (skip-chars-backward " \t")
+                   (condition-case nil
+                       (progn
+                         (backward-sexp)   ; } → matching {
+                         (beginning-of-line)
+                         (when (looking-at taskjuggler--moveable-block-re)
+                           (point)))
+                     (error nil))))
+                (t nil))))
+          (when (and prev-header
+                     (= (car (syntax-ppss prev-header)) depth))
+            (list (taskjuggler--block-with-comments-start prev-header)
+                  prev-header
+                  (taskjuggler--block-end prev-header))))))))
+
+(defun taskjuggler--next-sibling-bounds (header-pos)
+  "Return (start header end) for the next sibling of the block at HEADER-POS.
+A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+if there is no next sibling."
+  (save-excursion
+    (let ((depth   (car (syntax-ppss header-pos)))
+          (our-end (taskjuggler--block-end header-pos)))
+      (goto-char our-end)
+      ;; Skip blank lines and comment lines to reach the next keyword.
+      (while (and (not (eobp))
+                  (looking-at "[ \t]*\\($\\|#\\|//\\)"))
+        (forward-line 1))
+      (when (and (not (eobp))
+                 (looking-at taskjuggler--moveable-block-re)
+                 (= (car (syntax-ppss)) depth))
+        (let* ((next-header (point))
+               (next-start  (taskjuggler--block-with-comments-start next-header))
+               (next-end    (taskjuggler--block-end next-header)))
+          (list next-start next-header next-end))))))
+
+(defun taskjuggler-move-block-up ()
+  "Move the block at point before its previous sibling block.
+The block is identified by the moveable keyword line at or enclosing point.
+Any comment lines immediately preceding the block travel with it.
+The blank-line separator between the two blocks is preserved."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let* ((cur-start (taskjuggler--block-with-comments-start header))
+           (cur-end   (taskjuggler--block-end header))
+           (prev      (taskjuggler--prev-sibling-bounds header)))
+      (unless prev
+        (user-error "No previous sibling block to move past"))
+      (let* ((prev-start    (nth 0 prev))
+             (prev-end      (nth 2 prev))
+             (prev-text     (buffer-substring prev-start prev-end))
+             (sep-text      (buffer-substring prev-end cur-start))
+             (cur-text      (buffer-substring cur-start cur-end))
+             (header-offset (- header cur-start)))
+        (goto-char prev-start)
+        (delete-region prev-start cur-end)
+        (insert cur-text sep-text prev-text)
+        (goto-char (+ prev-start header-offset))))))
+
+(defun taskjuggler-move-block-down ()
+  "Move the block at point after its next sibling block.
+The block is identified by the moveable keyword line at or enclosing point.
+Any comment lines immediately preceding the next block travel with it.
+The blank-line separator between the two blocks is preserved."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let* ((cur-start (taskjuggler--block-with-comments-start header))
+           (cur-end   (taskjuggler--block-end header))
+           (next      (taskjuggler--next-sibling-bounds header)))
+      (unless next
+        (user-error "No next sibling block to move past"))
+      (let* ((next-start    (nth 0 next))
+             (next-end      (nth 2 next))
+             (cur-text      (buffer-substring cur-start cur-end))
+             (sep-text      (buffer-substring cur-end next-start))
+             (next-text     (buffer-substring next-start next-end))
+             (header-offset (- header cur-start)))
+        (goto-char cur-start)
+        (delete-region cur-start next-end)
+        (insert next-text sep-text cur-text)
+        (goto-char (+ cur-start (length next-text) (length sep-text) header-offset))))))
+
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
@@ -395,6 +581,9 @@ See URL `https://taskjuggler.org' for more information.
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
+
+(define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
+(define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
