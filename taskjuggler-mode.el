@@ -684,6 +684,7 @@ See URL `https://taskjuggler.org' for more information.
 ;; Evil-mode navigation bindings (normal state).
 ;; gj/gk jump to the next/previous sibling block at the same depth;
 ;; gh moves up to the enclosing block's keyword line.
+;; [[ / ]] jump to the start / end of the current block (defun integration).
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
@@ -691,7 +692,9 @@ See URL `https://taskjuggler.org' for more information.
   (evil-define-key* 'normal taskjuggler-mode-map
     (kbd "gj") #'taskjuggler-next-block
     (kbd "gk") #'taskjuggler-prev-block
-    (kbd "gh") #'taskjuggler-goto-parent))
+    (kbd "gh") #'taskjuggler-goto-parent
+    (kbd "[[") #'beginning-of-defun
+    (kbd "]]") #'end-of-defun))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
