@@ -754,22 +754,22 @@ See URL `https://taskjuggler.org' for more information.
 ;; gj/gk   — next/previous sibling at the same depth
 ;; gh       — parent block
 ;; gl/gL    — first/last direct child block
-;; C-M-n/p  — forward/backward block (linear, crosses depth boundaries)
+;; ]b / [b  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
 (with-eval-after-load 'evil
   (evil-define-key* 'normal taskjuggler-mode-map
-    (kbd "gj")    #'taskjuggler-next-block
-    (kbd "gk")    #'taskjuggler-prev-block
-    (kbd "gh")    #'taskjuggler-goto-parent
-    (kbd "gl")    #'taskjuggler-goto-first-child
-    (kbd "gL")    #'taskjuggler-goto-last-child
-    (kbd "C-M-n") #'taskjuggler-forward-block
-    (kbd "C-M-p") #'taskjuggler-backward-block
-    (kbd "[[")    #'beginning-of-defun
-    (kbd "]]")    #'end-of-defun))
+    (kbd "gj") #'taskjuggler-next-block
+    (kbd "gk") #'taskjuggler-prev-block
+    (kbd "gh") #'taskjuggler-goto-parent
+    (kbd "gl") #'taskjuggler-goto-first-child
+    (kbd "gL") #'taskjuggler-goto-last-child
+    (kbd "]b") #'taskjuggler-forward-block
+    (kbd "[b") #'taskjuggler-backward-block
+    (kbd "[[") #'beginning-of-defun
+    (kbd "]]") #'end-of-defun))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
