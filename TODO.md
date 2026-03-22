@@ -2,7 +2,7 @@
 
 ## Movement features
 
-- [ ] `taskjuggler-goto-first-child` / `taskjuggler-goto-last-child` — from a
+- [x] `taskjuggler-goto-first-child` / `taskjuggler-goto-last-child` — from a
   block header, jump into its first (or last) child block at depth+1. Complement
   to the existing `taskjuggler-goto-parent`.
 

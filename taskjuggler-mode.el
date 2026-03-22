@@ -515,6 +515,49 @@ the beginning of that line.  Signals an error at the top level."
           (beginning-of-line))
       (error (user-error "No enclosing block found")))))
 
+(defun taskjuggler--child-block-headers (header-pos)
+  "Return a list of positions of direct child block headers inside HEADER-POS.
+Children are moveable-keyword lines at exactly one brace-nesting level deeper
+than HEADER-POS.  Returns nil when the block has no brace body or no children."
+  (let* ((depth     (car (syntax-ppss header-pos)))
+         (block-end (taskjuggler--block-end header-pos))
+         children)
+    (save-excursion
+      (goto-char header-pos)
+      (forward-line 1)
+      (while (< (point) block-end)
+        (when (and (looking-at taskjuggler--moveable-block-re)
+                   (= (car (syntax-ppss)) (1+ depth)))
+          (push (point) children))
+        (forward-line 1)))
+    (nreverse children)))
+
+(defun taskjuggler-goto-first-child ()
+  "Move point to the first direct child block inside the current block.
+Signals an error if point is not on a moveable block header or if the
+block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let ((children (taskjuggler--child-block-headers header)))
+      (if children
+          (goto-char (car children))
+        (user-error "No child block found")))))
+
+(defun taskjuggler-goto-last-child ()
+  "Move point to the last direct child block inside the current block.
+Signals an error if point is not on a moveable block header or if the
+block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let ((children (taskjuggler--child-block-headers header)))
+      (if children
+          (goto-char (car (last children)))
+        (user-error "No child block found")))))
+
 ;;; beginning-of-defun / end-of-defun integration
 
 (defun taskjuggler--beginning-of-defun (&optional arg)
@@ -683,7 +726,8 @@ See URL `https://taskjuggler.org' for more information.
 
 ;; Evil-mode navigation bindings (normal state).
 ;; gj/gk jump to the next/previous sibling block at the same depth;
-;; gh moves up to the enclosing block's keyword line.
+;; gh moves up to the enclosing block's keyword line;
+;; gl/gL jump to the first/last direct child block.
 ;; [[ / ]] jump to the start / end of the current block (defun integration).
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
@@ -693,6 +737,8 @@ See URL `https://taskjuggler.org' for more information.
     (kbd "gj") #'taskjuggler-next-block
     (kbd "gk") #'taskjuggler-prev-block
     (kbd "gh") #'taskjuggler-goto-parent
+    (kbd "gl") #'taskjuggler-goto-first-child
+    (kbd "gL") #'taskjuggler-goto-last-child
     (kbd "[[") #'beginning-of-defun
     (kbd "]]") #'end-of-defun))
 ;;;###autoload
