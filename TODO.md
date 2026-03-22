@@ -2,17 +2,17 @@
 
 ## Movement features
 
-- [ ] `taskjuggler-goto-first-child` / `taskjuggler-goto-last-child` — from a
+- [x] `taskjuggler-goto-first-child` / `taskjuggler-goto-last-child` — from a
   block header, jump into its first (or last) child block at depth+1. Complement
   to the existing `taskjuggler-goto-parent`.
 
-- [ ] `beginning-of-defun` / `end-of-defun` integration — set
+- [x] `beginning-of-defun` / `end-of-defun` integration — set
   `beginning-of-defun-function` and `end-of-defun-function` to delegate to the
   existing `taskjuggler--current-block-header` and `taskjuggler--block-end`
   helpers. Unlocks `C-M-a`, `C-M-e`, `C-M-h` (mark-defun), and
   `narrow-to-defun` for free.
 
-- [ ] `taskjuggler-forward-block` / `taskjuggler-backward-block` — jump to the
+- [x] `taskjuggler-forward-block` / `taskjuggler-backward-block` — jump to the
   next/previous moveable block at any nesting depth (linear scan through the
   file). Bind to `C-M-n` / `C-M-p`.
 
