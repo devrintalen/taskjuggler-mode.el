@@ -34,6 +34,13 @@
   :type 'integer
   :group 'taskjuggler)
 
+(defcustom taskjuggler-tj3-program "tj3"
+  "Name or path of the tj3 executable used by the Flymake backend and compilation.
+If tj3 is not on your PATH, set this to the full path, e.g.:
+  (setq taskjuggler-tj3-program \"/opt/tj3/bin/tj3\")"
+  :type 'string
+  :group 'taskjuggler)
+
 (defcustom taskjuggler-tj3-extra-args nil
   "List of additional command-line arguments passed to tj3 by the flymake backend.
 Use this to supply flags your project requires, such as:
@@ -202,19 +209,60 @@ The arguments are inserted between the `tj3' executable and the file name."
 
 ;;; Indentation
 
+(defun taskjuggler--continuation-indent ()
+  "Return the column for a keyword-argument continuation line, or nil.
+When the previous non-blank line ends with a comma, this line is treated
+as a continuation of a multi-line argument list.  Walk back to the first
+line of the comma-terminated sequence and return the column of its first
+argument (the token immediately after the leading keyword word).
+Returns nil when the current line is not a continuation."
+  (save-excursion
+    (beginning-of-line)
+    (forward-line -1)
+    (while (and (not (bobp)) (looking-at "[ \t]*$"))
+      (forward-line -1))
+    (when (looking-at ".*,[ \t]*$")
+      ;; Walk back while the preceding non-blank line also ends with a comma,
+      ;; so we land on the first line of the sequence (the keyword line).
+      (let ((continue t))
+        (while continue
+          (let ((prev-also-comma
+                 (save-excursion
+                   (forward-line -1)
+                   (while (and (not (bobp)) (looking-at "[ \t]*$"))
+                     (forward-line -1))
+                   (and (not (bobp)) (looking-at ".*,[ \t]*$")))))
+            (if prev-also-comma
+                (progn
+                  (forward-line -1)
+                  (while (and (not (bobp)) (looking-at "[ \t]*$"))
+                    (forward-line -1)))
+              (setq continue nil)))))
+      ;; Now on the anchor (keyword) line.  Find the column of the first argument:
+      ;; skip leading whitespace, skip the keyword word, skip whitespace after it.
+      (beginning-of-line)
+      (skip-chars-forward " \t")
+      (skip-syntax-forward "w_")
+      (skip-chars-forward " \t")
+      (unless (eolp)
+        (current-column)))))
+
 (defun taskjuggler--calculate-indent ()
   "Return the target indentation column for the current line.
 Indentation is based on the brace/bracket nesting depth at the start
 of the line, as computed by `syntax-ppss'.  A line opening with `}'
-or `]' is de-indented one level relative to the enclosing block."
+or `]' is de-indented one level relative to the enclosing block.
+If the previous non-blank line ends with a comma, the line is treated
+as a continuation and aligned with the first argument on the keyword line."
   (save-excursion
     (beginning-of-line)
-    (let* ((depth (car (syntax-ppss)))
-           (indent (* depth taskjuggler-indent-level)))
-      ;; A closing delimiter starts a new (outer) scope.
-      (when (looking-at "[ \t]*[]}]")
-        (setq indent (max 0 (- indent taskjuggler-indent-level))))
-      indent)))
+    (or (taskjuggler--continuation-indent)
+        (let* ((depth (car (syntax-ppss)))
+               (indent (* depth taskjuggler-indent-level)))
+          ;; A closing delimiter starts a new (outer) scope.
+          (when (looking-at "[ \t]*[]}]")
+            (setq indent (max 0 (- indent taskjuggler-indent-level))))
+          indent))))
 
 (defun taskjuggler-indent-line ()
   "Indent the current line of TaskJuggler code."
@@ -268,8 +316,8 @@ Forward-declared here to silence the byte-compiler.")
 (defun taskjuggler-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
 Runs tj3 on the current file and reports errors via REPORT-FN."
-  (unless (executable-find "tj3")
-    (error "Cannot find tj3 on PATH"))
+  (unless (executable-find taskjuggler-tj3-program)
+    (error "Cannot find tj3 executable: %s" taskjuggler-tj3-program))
   (when (process-live-p taskjuggler--flymake-proc)
     (kill-process taskjuggler--flymake-proc))
   (let* ((source (current-buffer))
@@ -283,7 +331,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
              :noquery t
              :connection-type 'pipe
              :buffer (generate-new-buffer " *taskjuggler-flymake*")
-             :command (append (list "tj3") taskjuggler-tj3-extra-args (list file))
+             :command (append (list taskjuggler-tj3-program) taskjuggler-tj3-extra-args (list file))
              :sentinel
              (lambda (proc _event)
                (when (memq (process-status proc) '(exit signal))
@@ -341,7 +389,7 @@ See URL `https://taskjuggler.org' for more information.
   ;; Compilation: pre-fill compile-command with tj3 and the current file.
   (when (buffer-file-name)
     (setq-local compile-command
-                (concat "tj3 " (shell-quote-argument (buffer-file-name)))))
+                (concat taskjuggler-tj3-program " " (shell-quote-argument (buffer-file-name)))))
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t))
 
