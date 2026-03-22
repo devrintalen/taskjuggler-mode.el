@@ -12,12 +12,6 @@
   helpers. Unlocks `C-M-a`, `C-M-e`, `C-M-h` (mark-defun), and
   `narrow-to-defun` for free.
 
-- [ ] Imenu support — add `imenu-generic-expression` or a custom
-  `imenu-create-index-function` that builds a hierarchical index of all named
-  declarations (`task foo`, `resource bar`, etc.) using
-  `taskjuggler--named-declaration-re`. Enables `M-x imenu`, `consult-imenu`,
-  and `which-function-mode`.
-
 - [ ] `taskjuggler-forward-block` / `taskjuggler-backward-block` — jump to the
   next/previous moveable block at any nesting depth (linear scan through the
   file). Bind to `C-M-n` / `C-M-p`.
@@ -36,16 +30,9 @@
   (header through closing `}`). Thin wrapper around `narrow-to-region` using
   the existing bounds helpers. Bind to `C-x n b`.
 
-- [ ] Date bump at point — `taskjuggler-date-increment` /
-  `taskjuggler-date-decrement` bump the date literal under point by one day
-  (prefix arg for weeks/months). Detect via `taskjuggler--date-re`, parse with
-  `date-to-time` / `format-time-string`. Bind to `C-c C-<up>` / `C-c C-<down>`.
+- [ ] Insert timestamp at point. Can this be similar to the org mode implementation?
+- [ ] Edit timestamp at point. Similar to above, I like the org-mode implementation.
 
-- [ ] `taskjuggler-cycle-complete` — when point is on a `complete` property
-  line, cycle the value through 0 → 25 → 50 → 75 → 100 → 0. Bind to `C-c C-c`.
 
 ## Infrastructure
 
-- [ ] `which-func` breadcrumb — set `which-func-functions` to a function that
-  walks up via `taskjuggler-goto-parent` and returns a path like
-  `project > task foo > task bar` for display in the header line.
