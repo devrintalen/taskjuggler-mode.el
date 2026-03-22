@@ -558,6 +558,30 @@ block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
           (goto-char (car (last children)))
         (user-error "No child block found")))))
 
+(defun taskjuggler-forward-block (&optional arg)
+  "Move point to the next moveable block header at any nesting depth.
+Unlike `taskjuggler-next-block', this is a linear file scan that crosses
+nesting boundaries.  With numeric ARG, repeat that many times.
+Bound to \\[taskjuggler-forward-block]."
+  (interactive "p")
+  (dotimes (_ (or arg 1))
+    (end-of-line)
+    (if (re-search-forward taskjuggler--moveable-block-re nil t)
+        (beginning-of-line)
+      (user-error "No next block"))))
+
+(defun taskjuggler-backward-block (&optional arg)
+  "Move point to the previous moveable block header at any nesting depth.
+Unlike `taskjuggler-prev-block', this is a linear file scan that crosses
+nesting boundaries.  With numeric ARG, repeat that many times.
+Bound to \\[taskjuggler-backward-block]."
+  (interactive "p")
+  (dotimes (_ (or arg 1))
+    (beginning-of-line)
+    (if (re-search-backward taskjuggler--moveable-block-re nil t)
+        (beginning-of-line)
+      (user-error "No previous block"))))
+
 ;;; beginning-of-defun / end-of-defun integration
 
 (defun taskjuggler--beginning-of-defun (&optional arg)
@@ -721,26 +745,31 @@ See URL `https://taskjuggler.org' for more information.
 
 (define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
+(define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
+(define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
 
 (declare-function evil-define-key* "evil-core")
 
 ;; Evil-mode navigation bindings (normal state).
-;; gj/gk jump to the next/previous sibling block at the same depth;
-;; gh moves up to the enclosing block's keyword line;
-;; gl/gL jump to the first/last direct child block.
-;; [[ / ]] jump to the start / end of the current block (defun integration).
+;; gj/gk   — next/previous sibling at the same depth
+;; gh       — parent block
+;; gl/gL    — first/last direct child block
+;; C-M-n/p  — forward/backward block (linear, crosses depth boundaries)
+;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
 (with-eval-after-load 'evil
   (evil-define-key* 'normal taskjuggler-mode-map
-    (kbd "gj") #'taskjuggler-next-block
-    (kbd "gk") #'taskjuggler-prev-block
-    (kbd "gh") #'taskjuggler-goto-parent
-    (kbd "gl") #'taskjuggler-goto-first-child
-    (kbd "gL") #'taskjuggler-goto-last-child
-    (kbd "[[") #'beginning-of-defun
-    (kbd "]]") #'end-of-defun))
+    (kbd "gj")    #'taskjuggler-next-block
+    (kbd "gk")    #'taskjuggler-prev-block
+    (kbd "gh")    #'taskjuggler-goto-parent
+    (kbd "gl")    #'taskjuggler-goto-first-child
+    (kbd "gL")    #'taskjuggler-goto-last-child
+    (kbd "C-M-n") #'taskjuggler-forward-block
+    (kbd "C-M-p") #'taskjuggler-backward-block
+    (kbd "[[")    #'beginning-of-defun
+    (kbd "]]")    #'end-of-defun))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 

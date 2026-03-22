@@ -12,7 +12,7 @@
   helpers. Unlocks `C-M-a`, `C-M-e`, `C-M-h` (mark-defun), and
   `narrow-to-defun` for free.
 
-- [ ] `taskjuggler-forward-block` / `taskjuggler-backward-block` — jump to the
+- [x] `taskjuggler-forward-block` / `taskjuggler-backward-block` — jump to the
   next/previous moveable block at any nesting depth (linear scan through the
   file). Bind to `C-M-n` / `C-M-p`.
 
