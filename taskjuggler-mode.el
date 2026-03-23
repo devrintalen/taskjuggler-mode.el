@@ -2,7 +2,7 @@
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0"))
+;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0") (org "9.0"))
 ;; License: GPL-3.0-or-later
 
 ;;; Commentary:
@@ -630,6 +630,20 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
 
+;;; Date insertion
+
+(defun taskjuggler-insert-date (arg)
+  "Insert a TaskJuggler date literal at point using the Org date picker.
+Without prefix ARG, insert a bare date: YYYY-MM-DD.
+With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
+  (interactive "P")
+  (require 'org)
+  (let* ((date-string (org-read-date arg))
+         (tj-date (if arg
+                      (replace-regexp-in-string " " "-" date-string)
+                    date-string)))
+    (insert tj-date)))
+
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
@@ -747,6 +761,7 @@ See URL `https://taskjuggler.org' for more information.
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
 (define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
 (define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
+(define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-insert-date)
 
 (declare-function evil-define-key* "evil-core")
 

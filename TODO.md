@@ -30,7 +30,7 @@
   (header through closing `}`). Thin wrapper around `narrow-to-region` using
   the existing bounds helpers. Bind to `C-x n b`.
 
-- [ ] Insert timestamp at point. Can this be similar to the org mode implementation?
+- [x] Insert timestamp at point. Can this be similar to the org mode implementation?
 - [ ] Edit timestamp at point. Similar to above, I like the org-mode implementation.
 
 
