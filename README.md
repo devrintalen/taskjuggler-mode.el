@@ -49,7 +49,6 @@ This probably the easiest way, if you already use `straight.el`.
 ```emacs-lisp
 
 (use-package taskjuggler-mode
-  :after yasnippet
   :straight (taskjuggler-mode :type git
                               :host github
                               :repo "devrintalen/taskjuggler-mode.el"
@@ -271,6 +270,6 @@ than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
 - Emacs 27.1 or later
 - `tj3` on `PATH` (only for Flymake and compilation features)
-- [yasnippet](https://github.com/joaotavora/yasnippet) (required, for snippets)
 - `org` (ships with Emacs; required for date editing via `C-c C-d`)
+- [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)
 - [Company](https://company-mode.github.io) (optional, for pop-up completion)
