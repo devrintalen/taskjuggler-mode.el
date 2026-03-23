@@ -677,6 +677,16 @@ With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
                     date-string)))
     (insert tj-date)))
 
+(defun taskjuggler-date-dwim (arg)
+  "Insert or edit a TaskJuggler date literal depending on context.
+If point is on a date literal, edit it via `taskjuggler-edit-date-at-point'.
+Otherwise, insert a new date via `taskjuggler-insert-date'.
+ARG is passed through to the chosen command."
+  (interactive "P")
+  (if (taskjuggler--date-bounds-at-point)
+      (taskjuggler-edit-date-at-point arg)
+    (taskjuggler-insert-date arg)))
+
 (defun taskjuggler-edit-date-at-point (arg)
   "Edit the TJ3 date literal at point using the Org date picker.
 The existing date pre-fills the calendar.  Without prefix ARG, replace
@@ -813,8 +823,7 @@ See URL `https://taskjuggler.org' for more information.
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
 (define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
 (define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
-(define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-insert-date)
-(define-key taskjuggler-mode-map (kbd "C-c C-t")  #'taskjuggler-edit-date-at-point)
+(define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
 
 (declare-function evil-define-key* "evil-core")
 
