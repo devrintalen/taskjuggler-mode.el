@@ -26,6 +26,9 @@
 
 ;;; Code:
 
+(declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
+(declare-function yas--load-snippet-dirs "yasnippet" ())
+
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
   :group 'languages
@@ -595,15 +598,16 @@ Implements `beginning-of-defun-function' for `taskjuggler-mode'."
     (cond
      ((> count 0)
       (let ((header (taskjuggler--current-block-header)))
-        (if header
-            ;; In a block (or at its header): jump there and do (count-1)
-            ;; additional backward searches.
+        (if (and header (/= header (line-beginning-position)))
+            ;; Inside a block body (not already at its header): jump to the
+            ;; header, then do (count-1) additional backward searches.
             (progn
               (goto-char header)
               (dotimes (_ (1- count))
                 (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
                   (beginning-of-line))))
-          ;; Not inside any block: search backward COUNT times.
+          ;; Already at a block header, or not inside any block: search
+          ;; backward COUNT times (standard beginning-of-defun behaviour).
           (dotimes (_ count)
             (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
               (beginning-of-line))))))
@@ -818,7 +822,7 @@ See URL `https://taskjuggler.org' for more information.
 ;; gj/gk   — next/previous sibling at the same depth
 ;; gh       — parent block
 ;; gl/gL    — first/last direct child block
-;; ]b / [b  — forward/backward block (linear, crosses depth boundaries)
+;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
@@ -830,8 +834,8 @@ See URL `https://taskjuggler.org' for more information.
     (kbd "gh") #'taskjuggler-goto-parent
     (kbd "gl") #'taskjuggler-goto-first-child
     (kbd "gL") #'taskjuggler-goto-last-child
-    (kbd "]b") #'taskjuggler-forward-block
-    (kbd "[b") #'taskjuggler-backward-block
+    (kbd "]B") #'taskjuggler-forward-block
+    (kbd "[B") #'taskjuggler-backward-block
     (kbd "[[") #'beginning-of-defun
     (kbd "]]") #'end-of-defun))
 ;;;###autoload
