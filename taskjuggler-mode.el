@@ -2,7 +2,7 @@
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0") (org "9.0"))
+;; Package-Requires: ((emacs "27.1") (org "9.0"))
 ;; License: GPL-3.0-or-later
 
 ;;; Commentary:

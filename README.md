@@ -24,12 +24,21 @@ Here is what this mode supports:
 - Full TJ3 keyword coverage across four semantic categories (structural,
   report, property, value)
 - All three TJ3 comment styles (`//`, `/* */`, `#`) handled correctly
-- `syntax-ppss`-based indentation that understands `{}` and `[]` nesting
+- `syntax-ppss`-based indentation that understands `{}` and `[]` nesting,
+  including continuation-line alignment for comma-terminated argument lists
 - First-class Flymake integration running `tj3` on-the-fly
 - `compilation-mode` error navigation pre-wired for TJ3's error format
 - `completion-at-point` / `company-capf` keyword completion
 - yasnippet snippet collection for common constructs
-- Requires only Emacs 27.1 with no third-party dependencies
+- Block movement (`M-<up>` / `M-<down>`) swaps sibling blocks while
+  keeping their preceding comments attached
+- Block navigation: jump to next/previous sibling, parent, and first/last
+  child; linear forward/backward scan across nesting boundaries
+- `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e` /
+  `C-M-h` / `narrow-to-defun`)
+- Date editing with the Org calendar picker (`C-c C-d`) — inserts a new
+  date or edits the date under point
+- Evil-mode bindings for all navigation and movement commands
 
 ## Installation
 
@@ -40,7 +49,6 @@ This probably the easiest way, if you already use `straight.el`.
 ```emacs-lisp
 
 (use-package taskjuggler-mode
-  :after yasnippet
   :straight (taskjuggler-mode :type git
                               :host github
                               :repo "devrintalen/taskjuggler-mode.el"
@@ -63,6 +71,7 @@ setting anything.
 | Option                       | Default | Description                                               |
 |------------------------------|---------|-----------------------------------------------------------|
 | `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
+| `taskjuggler-tj3-program`    | `"tj3"` | Name or full path of the `tj3` executable                 |
 | `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
@@ -122,6 +131,73 @@ aware of strings and comments:
 - `TAB` indents the current line (`taskjuggler-indent-line`).
 - `C-M-\` indents the active region (`taskjuggler-indent-region`).
 - Tabs are never inserted; `indent-tabs-mode` is `nil`.
+- Continuation lines (when the previous non-blank line ends with a comma) are
+  aligned with the first argument on the keyword line rather than indented by
+  one level.
+
+### Block movement
+
+`M-<up>` (`taskjuggler-move-block-up`) and `M-<down>`
+(`taskjuggler-move-block-down`) swap the block at point with its previous or
+next *sibling* — another block at the same brace-nesting depth.
+
+- Any comment lines (`#` or `//`) immediately preceding a block header (with
+  no intervening blank lines) travel with the block.
+- The blank-line separator between the two blocks is preserved.
+- Works from anywhere inside a block, not just on the header line.
+
+### Block navigation
+
+Several commands let you move through the block structure without the mouse:
+
+| Key        | Command                             | Description                                           |
+|------------|-------------------------------------|-------------------------------------------------------|
+| `C-M-n`    | `taskjuggler-forward-block`         | Linear scan to the next block header (any depth)      |
+| `C-M-p`    | `taskjuggler-backward-block`        | Linear scan to the previous block header (any depth)  |
+| `C-M-a`    | `beginning-of-defun`                | Jump to the header of the current/enclosing block     |
+| `C-M-e`    | `end-of-defun`                      | Jump past the closing `}` of the current block        |
+| `C-M-h`    | `mark-defun`                        | Mark the current block as a region                    |
+| —          | `taskjuggler-next-block`            | Jump to the next *sibling* at the same depth          |
+| —          | `taskjuggler-prev-block`            | Jump to the previous *sibling* at the same depth      |
+| —          | `taskjuggler-goto-parent`           | Jump to the enclosing block's header                  |
+| —          | `taskjuggler-goto-first-child`      | Jump to the first direct child block                  |
+| —          | `taskjuggler-goto-last-child`       | Jump to the last direct child block                   |
+
+`narrow-to-defun` also works as expected, narrowing to the current block.
+
+#### Evil-mode bindings
+
+When `evil-mode` is active, additional normal-state bindings are registered:
+
+| Key   | Command                        |
+|-------|--------------------------------|
+| `gj`  | `taskjuggler-next-block`       |
+| `gk`  | `taskjuggler-prev-block`       |
+| `gh`  | `taskjuggler-goto-parent`      |
+| `gl`  | `taskjuggler-goto-first-child` |
+| `gL`  | `taskjuggler-goto-last-child`  |
+| `]B`  | `taskjuggler-forward-block`    |
+| `[B`  | `taskjuggler-backward-block`   |
+| `[[`  | `beginning-of-defun`           |
+| `]]`  | `end-of-defun`                 |
+
+These bindings are registered with `with-eval-after-load 'evil` so the mode
+loads cleanly without evil present.
+
+### Date editing
+
+`C-c C-d` (`taskjuggler-date-dwim`) is a unified entry point for working with
+TJ3 date literals:
+
+- **Point is on a date**: opens the Org calendar with the existing date
+  pre-selected so you can change it in place.
+- **Point is not on a date**: inserts a new date literal at point.
+
+Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
+`C-u`, the Org time picker is also shown and the result is
+`YYYY-MM-DD-HH:MM`.
+
+`org` must be available (it ships with Emacs).
 
 ### Keyword completion
 
@@ -194,5 +270,6 @@ than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
 - Emacs 27.1 or later
 - `tj3` on `PATH` (only for Flymake and compilation features)
-- [yasnippet](https://github.com/joaotavora/yasnippet) (required, for snippets)
+- `org` (ships with Emacs; required for date editing via `C-c C-d`)
+- [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)
 - [Company](https://company-mode.github.io) (optional, for pop-up completion)
