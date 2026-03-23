@@ -2,7 +2,7 @@
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0"))
+;; Package-Requires: ((emacs "27.1") (yasnippet "0.14.0") (org "9.0"))
 ;; License: GPL-3.0-or-later
 
 ;;; Commentary:
@@ -25,6 +25,9 @@
 ;;     narrow-to-defun narrows to the current block
 
 ;;; Code:
+
+(declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
+(declare-function yas--load-snippet-dirs "yasnippet" ())
 
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
@@ -595,15 +598,16 @@ Implements `beginning-of-defun-function' for `taskjuggler-mode'."
     (cond
      ((> count 0)
       (let ((header (taskjuggler--current-block-header)))
-        (if header
-            ;; In a block (or at its header): jump there and do (count-1)
-            ;; additional backward searches.
+        (if (and header (/= header (line-beginning-position)))
+            ;; Inside a block body (not already at its header): jump to the
+            ;; header, then do (count-1) additional backward searches.
             (progn
               (goto-char header)
               (dotimes (_ (1- count))
                 (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
                   (beginning-of-line))))
-          ;; Not inside any block: search backward COUNT times.
+          ;; Already at a block header, or not inside any block: search
+          ;; backward COUNT times (standard beginning-of-defun behaviour).
           (dotimes (_ count)
             (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
               (beginning-of-line))))))
@@ -629,6 +633,78 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
               (goto-char (taskjuggler--block-end (point))))))))
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
+
+;;; Date insertion
+
+(defun taskjuggler--date-bounds-at-point ()
+  "Return (BEG . END) of the TJ3 date literal at point, or nil."
+  (save-excursion
+    (let ((pos (point))
+          (bol (line-beginning-position))
+          (eol (line-end-position)))
+      (goto-char bol)
+      (catch 'found
+        (while (re-search-forward taskjuggler--date-re eol t)
+          (when (and (<= (match-beginning 0) pos)
+                     (>= (match-end 0) pos))
+            (throw 'found (cons (match-beginning 0) (match-end 0)))))))))
+
+(defun taskjuggler--tj-date-to-org-time (date-string)
+  "Parse TJ3 DATE-STRING into an Emacs encoded time for org-read-date.
+Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
+  ;; Replace the hyphen separating date from time with a space so that
+  ;; parse-time-string can handle it: "2024-03-15-10:30" → "2024-03-15 10:30"
+  (let* ((normalised (replace-regexp-in-string
+                      "\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)-\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)"
+                      "\\1 \\2"
+                      date-string))
+         (parsed (parse-time-string normalised)))
+    ;; parse-time-string leaves unset fields as nil; fill in zeros for time.
+    (when (null (nth 0 parsed)) (setf (nth 0 parsed) 0))
+    (when (null (nth 1 parsed)) (setf (nth 1 parsed) 0))
+    (when (null (nth 2 parsed)) (setf (nth 2 parsed) 0))
+    (apply #'encode-time parsed)))
+
+(defun taskjuggler-insert-date (arg)
+  "Insert a TaskJuggler date literal at point using the Org date picker.
+Without prefix ARG, insert a bare date: YYYY-MM-DD.
+With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
+  (interactive "P")
+  (require 'org)
+  (let* ((date-string (org-read-date arg))
+         (tj-date (if arg
+                      (replace-regexp-in-string " " "-" date-string)
+                    date-string)))
+    (insert tj-date)))
+
+(defun taskjuggler-date-dwim (arg)
+  "Insert or edit a TaskJuggler date literal depending on context.
+If point is on a date literal, edit it via `taskjuggler-edit-date-at-point'.
+Otherwise, insert a new date via `taskjuggler-insert-date'.
+ARG is passed through to the chosen command."
+  (interactive "P")
+  (if (taskjuggler--date-bounds-at-point)
+      (taskjuggler-edit-date-at-point arg)
+    (taskjuggler-insert-date arg)))
+
+(defun taskjuggler-edit-date-at-point (arg)
+  "Edit the TJ3 date literal at point using the Org date picker.
+The existing date pre-fills the calendar.  Without prefix ARG, replace
+with a bare date: YYYY-MM-DD.  With prefix ARG, also prompt for a time
+and replace with YYYY-MM-DD-HH:MM."
+  (interactive "P")
+  (require 'org)
+  (let ((bounds (taskjuggler--date-bounds-at-point)))
+    (unless bounds
+      (user-error "No TaskJuggler date at point"))
+    (let* ((old-string (buffer-substring-no-properties (car bounds) (cdr bounds)))
+           (default-time (taskjuggler--tj-date-to-org-time old-string))
+           (new-string (org-read-date arg nil nil nil default-time))
+           (tj-date (if arg
+                        (replace-regexp-in-string " " "-" new-string)
+                      new-string)))
+      (delete-region (car bounds) (cdr bounds))
+      (insert tj-date))))
 
 ;;; Compilation
 
@@ -747,6 +823,7 @@ See URL `https://taskjuggler.org' for more information.
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
 (define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
 (define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
+(define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
 
 (declare-function evil-define-key* "evil-core")
 
@@ -754,7 +831,7 @@ See URL `https://taskjuggler.org' for more information.
 ;; gj/gk   — next/previous sibling at the same depth
 ;; gh       — parent block
 ;; gl/gL    — first/last direct child block
-;; ]b / [b  — forward/backward block (linear, crosses depth boundaries)
+;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
@@ -766,8 +843,8 @@ See URL `https://taskjuggler.org' for more information.
     (kbd "gh") #'taskjuggler-goto-parent
     (kbd "gl") #'taskjuggler-goto-first-child
     (kbd "gL") #'taskjuggler-goto-last-child
-    (kbd "]b") #'taskjuggler-forward-block
-    (kbd "[b") #'taskjuggler-backward-block
+    (kbd "]B") #'taskjuggler-forward-block
+    (kbd "[B") #'taskjuggler-backward-block
     (kbd "[[") #'beginning-of-defun
     (kbd "]]") #'end-of-defun))
 ;;;###autoload
