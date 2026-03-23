@@ -632,6 +632,35 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
 
 ;;; Date insertion
 
+(defun taskjuggler--date-bounds-at-point ()
+  "Return (BEG . END) of the TJ3 date literal at point, or nil."
+  (save-excursion
+    (let ((pos (point))
+          (bol (line-beginning-position))
+          (eol (line-end-position)))
+      (goto-char bol)
+      (catch 'found
+        (while (re-search-forward taskjuggler--date-re eol t)
+          (when (and (<= (match-beginning 0) pos)
+                     (>= (match-end 0) pos))
+            (throw 'found (cons (match-beginning 0) (match-end 0)))))))))
+
+(defun taskjuggler--tj-date-to-org-time (date-string)
+  "Parse TJ3 DATE-STRING into an Emacs encoded time for org-read-date.
+Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
+  ;; Replace the hyphen separating date from time with a space so that
+  ;; parse-time-string can handle it: "2024-03-15-10:30" → "2024-03-15 10:30"
+  (let* ((normalised (replace-regexp-in-string
+                      "\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\)-\\([0-9]\\{2\\}:[0-9]\\{2\\}\\)"
+                      "\\1 \\2"
+                      date-string))
+         (parsed (parse-time-string normalised)))
+    ;; parse-time-string leaves unset fields as nil; fill in zeros for time.
+    (when (null (nth 0 parsed)) (setf (nth 0 parsed) 0))
+    (when (null (nth 1 parsed)) (setf (nth 1 parsed) 0))
+    (when (null (nth 2 parsed)) (setf (nth 2 parsed) 0))
+    (apply #'encode-time parsed)))
+
 (defun taskjuggler-insert-date (arg)
   "Insert a TaskJuggler date literal at point using the Org date picker.
 Without prefix ARG, insert a bare date: YYYY-MM-DD.
@@ -643,6 +672,25 @@ With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
                       (replace-regexp-in-string " " "-" date-string)
                     date-string)))
     (insert tj-date)))
+
+(defun taskjuggler-edit-date-at-point (arg)
+  "Edit the TJ3 date literal at point using the Org date picker.
+The existing date pre-fills the calendar.  Without prefix ARG, replace
+with a bare date: YYYY-MM-DD.  With prefix ARG, also prompt for a time
+and replace with YYYY-MM-DD-HH:MM."
+  (interactive "P")
+  (require 'org)
+  (let ((bounds (taskjuggler--date-bounds-at-point)))
+    (unless bounds
+      (user-error "No TaskJuggler date at point"))
+    (let* ((old-string (buffer-substring-no-properties (car bounds) (cdr bounds)))
+           (default-time (taskjuggler--tj-date-to-org-time old-string))
+           (new-string (org-read-date arg nil nil nil default-time))
+           (tj-date (if arg
+                        (replace-regexp-in-string " " "-" new-string)
+                      new-string)))
+      (delete-region (car bounds) (cdr bounds))
+      (insert tj-date))))
 
 ;;; Compilation
 
@@ -762,6 +810,7 @@ See URL `https://taskjuggler.org' for more information.
 (define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
 (define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
 (define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-insert-date)
+(define-key taskjuggler-mode-map (kbd "C-c C-t")  #'taskjuggler-edit-date-at-point)
 
 (declare-function evil-define-key* "evil-core")
 

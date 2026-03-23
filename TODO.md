@@ -31,7 +31,7 @@
   the existing bounds helpers. Bind to `C-x n b`.
 
 - [x] Insert timestamp at point. Can this be similar to the org mode implementation?
-- [ ] Edit timestamp at point. Similar to above, I like the org-mode implementation.
+- [x] Edit timestamp at point. Similar to above, I like the org-mode implementation.
 
 
 ## Infrastructure
