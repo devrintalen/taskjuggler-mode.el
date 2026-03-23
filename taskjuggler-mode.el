@@ -427,30 +427,46 @@ if there is no next sibling."
                (next-end    (taskjuggler--block-end next-header)))
           (list next-start next-header next-end))))))
 
+(defun taskjuggler--move-block (direction)
+  "Move the block at point one sibling in DIRECTION (`up' or `down').
+The blank-line separator between blocks is preserved and the block header's
+comment lines travel with whichever block they precede."
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not on a moveable TaskJuggler block"))
+    (let* ((cur-start (taskjuggler--block-with-comments-start header))
+           (cur-end   (taskjuggler--block-end header))
+           (sibling   (if (eq direction 'up)
+                          (taskjuggler--prev-sibling-bounds header)
+                        (taskjuggler--next-sibling-bounds header))))
+      (unless sibling
+        (user-error "No %s sibling block to move past" direction))
+      (let* ((sib-start     (nth 0 sibling))
+             (sib-end       (nth 2 sibling))
+             (header-offset (- header cur-start)))
+        (if (eq direction 'up)
+            (let* ((sib-text (buffer-substring sib-start sib-end))
+                   (sep-text (buffer-substring sib-end cur-start))
+                   (cur-text (buffer-substring cur-start cur-end)))
+              (goto-char sib-start)
+              (delete-region sib-start cur-end)
+              (insert cur-text sep-text sib-text)
+              (goto-char (+ sib-start header-offset)))
+          (let* ((cur-text (buffer-substring cur-start cur-end))
+                 (sep-text (buffer-substring cur-end sib-start))
+                 (sib-text (buffer-substring sib-start sib-end)))
+            (goto-char cur-start)
+            (delete-region cur-start sib-end)
+            (insert sib-text sep-text cur-text)
+            (goto-char (+ cur-start (length sib-text) (length sep-text) header-offset))))))))
+
 (defun taskjuggler-move-block-up ()
   "Move the block at point before its previous sibling block.
 The block is identified by the moveable keyword line at or enclosing point.
 Any comment lines immediately preceding the block travel with it.
 The blank-line separator between the two blocks is preserved."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
-    (unless header
-      (user-error "Not on a moveable TaskJuggler block"))
-    (let* ((cur-start (taskjuggler--block-with-comments-start header))
-           (cur-end   (taskjuggler--block-end header))
-           (prev      (taskjuggler--prev-sibling-bounds header)))
-      (unless prev
-        (user-error "No previous sibling block to move past"))
-      (let* ((prev-start    (nth 0 prev))
-             (prev-end      (nth 2 prev))
-             (prev-text     (buffer-substring prev-start prev-end))
-             (sep-text      (buffer-substring prev-end cur-start))
-             (cur-text      (buffer-substring cur-start cur-end))
-             (header-offset (- header cur-start)))
-        (goto-char prev-start)
-        (delete-region prev-start cur-end)
-        (insert cur-text sep-text prev-text)
-        (goto-char (+ prev-start header-offset))))))
+  (taskjuggler--move-block 'up))
 
 (defun taskjuggler-move-block-down ()
   "Move the block at point after its next sibling block.
@@ -458,52 +474,36 @@ The block is identified by the moveable keyword line at or enclosing point.
 Any comment lines immediately preceding the next block travel with it.
 The blank-line separator between the two blocks is preserved."
   (interactive)
+  (taskjuggler--move-block 'down))
+
+;;; Block navigation
+
+(defun taskjuggler--navigate-sibling (direction)
+  "Move point to the sibling block in DIRECTION (`next' or `prev').
+Signals an error if there is no enclosing moveable block or no sibling."
   (let ((header (taskjuggler--current-block-header)))
     (unless header
       (user-error "Not on a moveable TaskJuggler block"))
-    (let* ((cur-start (taskjuggler--block-with-comments-start header))
-           (cur-end   (taskjuggler--block-end header))
-           (next      (taskjuggler--next-sibling-bounds header)))
-      (unless next
-        (user-error "No next sibling block to move past"))
-      (let* ((next-start    (nth 0 next))
-             (next-end      (nth 2 next))
-             (cur-text      (buffer-substring cur-start cur-end))
-             (sep-text      (buffer-substring cur-end next-start))
-             (next-text     (buffer-substring next-start next-end))
-             (header-offset (- header cur-start)))
-        (goto-char cur-start)
-        (delete-region cur-start next-end)
-        (insert next-text sep-text cur-text)
-        (goto-char (+ cur-start (length next-text) (length sep-text) header-offset))))))
-
-;;; Block navigation
+    (let ((bounds (if (eq direction 'next)
+                      (taskjuggler--next-sibling-bounds header)
+                    (taskjuggler--prev-sibling-bounds header))))
+      (if bounds
+          (goto-char (nth 1 bounds))
+        (user-error "No %s sibling block" direction)))))
 
 (defun taskjuggler-next-block ()
   "Move point to the next sibling block at the same depth.
 Finds the block at or enclosing point and jumps to the header of the
 next sibling.  Signals an error if there is no next sibling."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
-    (unless header
-      (user-error "Not on a moveable TaskJuggler block"))
-    (let ((next (taskjuggler--next-sibling-bounds header)))
-      (if next
-          (goto-char (nth 1 next))
-        (user-error "No next sibling block")))))
+  (taskjuggler--navigate-sibling 'next))
 
 (defun taskjuggler-prev-block ()
   "Move point to the previous sibling block at the same depth.
 Finds the block at or enclosing point and jumps to the header of the
 previous sibling.  Signals an error if there is no previous sibling."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
-    (unless header
-      (user-error "Not on a moveable TaskJuggler block"))
-    (let ((prev (taskjuggler--prev-sibling-bounds header)))
-      (if prev
-          (goto-char (nth 1 prev))
-        (user-error "No previous sibling block")))))
+  (taskjuggler--navigate-sibling 'prev))
 
 (defun taskjuggler-goto-parent ()
   "Move point to the keyword line of the enclosing block.
@@ -535,31 +535,31 @@ than HEADER-POS.  Returns nil when the block has no brace body or no children."
         (forward-line 1)))
     (nreverse children)))
 
-(defun taskjuggler-goto-first-child ()
-  "Move point to the first direct child block inside the current block.
-Signals an error if point is not on a moveable block header or if the
-block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
-  (interactive)
+(defun taskjuggler--goto-child (which)
+  "Move point to the WHICH child block of the block at point.
+WHICH is `first' or `last'.  Signals an error if there is no enclosing
+moveable block or the block has no children."
   (let ((header (taskjuggler--current-block-header)))
     (unless header
       (user-error "Not on a moveable TaskJuggler block"))
     (let ((children (taskjuggler--child-block-headers header)))
       (if children
-          (goto-char (car children))
+          (goto-char (if (eq which 'first) (car children) (car (last children))))
         (user-error "No child block found")))))
+
+(defun taskjuggler-goto-first-child ()
+  "Move point to the first direct child block inside the current block.
+Signals an error if point is not on a moveable block header or if the
+block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
+  (interactive)
+  (taskjuggler--goto-child 'first))
 
 (defun taskjuggler-goto-last-child ()
   "Move point to the last direct child block inside the current block.
 Signals an error if point is not on a moveable block header or if the
 block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
-    (unless header
-      (user-error "Not on a moveable TaskJuggler block"))
-    (let ((children (taskjuggler--child-block-headers header)))
-      (if children
-          (goto-char (car (last children)))
-        (user-error "No child block found")))))
+  (taskjuggler--goto-child 'last))
 
 (defun taskjuggler-forward-block (&optional arg)
   "Move point to the next moveable block header at any nesting depth.
@@ -665,17 +665,20 @@ Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
     (when (null (nth 2 parsed)) (setf (nth 2 parsed) 0))
     (apply #'encode-time parsed)))
 
+(defun taskjuggler--org-date-to-tj (date-string with-time)
+  "Convert an org DATE-STRING to a TJ3 date literal.
+When WITH-TIME is non-nil, replace the space between date and time with `-'."
+  (if with-time
+      (replace-regexp-in-string " " "-" date-string)
+    date-string))
+
 (defun taskjuggler-insert-date (arg)
   "Insert a TaskJuggler date literal at point using the Org date picker.
 Without prefix ARG, insert a bare date: YYYY-MM-DD.
 With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
   (interactive "P")
   (require 'org)
-  (let* ((date-string (org-read-date arg))
-         (tj-date (if arg
-                      (replace-regexp-in-string " " "-" date-string)
-                    date-string)))
-    (insert tj-date)))
+  (insert (taskjuggler--org-date-to-tj (org-read-date arg) arg)))
 
 (defun taskjuggler-date-dwim (arg)
   "Insert or edit a TaskJuggler date literal depending on context.
@@ -699,12 +702,9 @@ and replace with YYYY-MM-DD-HH:MM."
       (user-error "No TaskJuggler date at point"))
     (let* ((old-string (buffer-substring-no-properties (car bounds) (cdr bounds)))
            (default-time (taskjuggler--tj-date-to-org-time old-string))
-           (new-string (org-read-date arg nil nil nil default-time))
-           (tj-date (if arg
-                        (replace-regexp-in-string " " "-" new-string)
-                      new-string)))
+           (new-string (org-read-date arg nil nil nil default-time)))
       (delete-region (car bounds) (cdr bounds))
-      (insert tj-date))))
+      (insert (taskjuggler--org-date-to-tj new-string arg)))))
 
 ;;; Compilation
 
@@ -717,12 +717,8 @@ and replace with YYYY-MM-DD-HH:MM."
     1 2 nil 2)
   "Entry for `compilation-error-regexp-alist-alist' matching TJ3 error output.")
 
-(defvar compilation-error-regexp-alist-alist
-  "Alist mapping error regexp symbols to their specs; defined in `compile.el'.
-Forward-declared here to silence the byte-compiler.")
-(defvar compilation-error-regexp-alist
-  "List of active error regexp symbols used by `compilation-mode'; defined in `compile.el'.
-Forward-declared here to silence the byte-compiler.")
+(defvar compilation-error-regexp-alist-alist)
+(defvar compilation-error-regexp-alist)
 (with-eval-after-load 'compile
   (add-to-list 'compilation-error-regexp-alist-alist
                taskjuggler--compilation-error-re)
@@ -818,6 +814,8 @@ See URL `https://taskjuggler.org' for more information.
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
+;;;###autoload
+(add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
 (define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
@@ -847,8 +845,6 @@ See URL `https://taskjuggler.org' for more information.
     (kbd "[B") #'taskjuggler-backward-block
     (kbd "[[") #'beginning-of-defun
     (kbd "]]") #'end-of-defun))
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
 
 ;;; Yasnippet
 
