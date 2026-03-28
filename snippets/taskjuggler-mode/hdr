@@ -1,6 +1,0 @@
-# name: heredoc
-# key: hdr
-# --
--8<-
-${0:text}
-->8-
