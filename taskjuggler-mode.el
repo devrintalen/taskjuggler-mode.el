@@ -634,6 +634,54 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
 
+;;; Sexp movement
+
+(defun taskjuggler--forward-sexp-1 ()
+  "Move forward past one sexp.
+When point is in the leading whitespace or at the keyword on a moveable
+block header line, the entire block (header + brace body) is treated as a
+single sexp.  Otherwise falls back to `forward-sexp-default-function'."
+  (let ((indent-end (save-excursion
+                      (beginning-of-line)
+                      (skip-chars-forward " \t")
+                      (point))))
+    (if (and (<= (point) indent-end)
+             (save-excursion
+               (goto-char indent-end)
+               (looking-at taskjuggler--moveable-block-re)))
+        (goto-char (taskjuggler--block-end indent-end))
+      (forward-sexp-default-function 1))))
+
+(defun taskjuggler--backward-sexp-1 ()
+  "Move backward past one sexp.
+When the sexp immediately before point is a TJ3 block ending with `}',
+jumps back to the start of the block header line (including any preceding
+comment lines).  Otherwise falls back to `forward-sexp-default-function'."
+  (let (block-start)
+    (save-excursion
+      (skip-chars-backward " \t\n")
+      (when (eq (char-before) ?})
+        (backward-char)
+        (condition-case nil
+            (progn
+              (backward-sexp)           ; `}' -> matching `{'
+              (beginning-of-line)
+              (when (looking-at taskjuggler--moveable-block-re)
+                (setq block-start
+                      (taskjuggler--block-with-comments-start (point)))))
+          (error nil))))
+    (if block-start
+        (goto-char block-start)
+      (forward-sexp-default-function -1))))
+
+(defun taskjuggler--forward-sexp (&optional arg)
+  "Move forward by ARG sexps, treating TJ3 blocks as single units.
+Installed as `forward-sexp-function' in `taskjuggler-mode'."
+  (let ((count (or arg 1)))
+    (cond
+     ((> count 0) (dotimes (_ count) (taskjuggler--forward-sexp-1)))
+     ((< count 0) (dotimes (_ (- count)) (taskjuggler--backward-sexp-1))))))
+
 ;;; Date insertion
 
 (defun taskjuggler--date-bounds-at-point ()
@@ -805,6 +853,8 @@ See URL `https://taskjuggler.org' for more information.
   ;; Defun navigation: wire up standard C-M-a / C-M-e / C-M-h / narrow-to-defun.
   (setq-local beginning-of-defun-function #'taskjuggler--beginning-of-defun)
   (setq-local end-of-defun-function #'taskjuggler--end-of-defun)
+  ;; Sexp movement: treat a full block (keyword + body) as one sexp for C-M-f/b.
+  (setq-local forward-sexp-function #'taskjuggler--forward-sexp)
   ;; Compilation: pre-fill compile-command with tj3 and the current file.
   (when (buffer-file-name)
     (setq-local compile-command
@@ -819,16 +869,18 @@ See URL `https://taskjuggler.org' for more information.
 
 (define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
 (define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
-(define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-forward-block)
-(define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-backward-block)
+(define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-next-block)
+(define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-prev-block)
+(define-key taskjuggler-mode-map (kbd "C-M-u")    #'taskjuggler-goto-parent)
+(define-key taskjuggler-mode-map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
 (define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
 
 (declare-function evil-define-key* "evil-core")
 
 ;; Evil-mode navigation bindings (normal state).
-;; gj/gk   — next/previous sibling at the same depth
-;; gh       — parent block
-;; gl/gL    — first/last direct child block
+;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
+;; gh       — parent block (mirrors C-M-u)
+;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
 ;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
