@@ -682,6 +682,20 @@ Installed as `forward-sexp-function' in `taskjuggler-mode'."
      ((> count 0) (dotimes (_ count) (taskjuggler--forward-sexp-1)))
      ((< count 0) (dotimes (_ (- count)) (taskjuggler--backward-sexp-1))))))
 
+(defun taskjuggler-forward-block-sexp (&optional arg)
+  "Move forward by ARG blocks as sexps.
+Interactive wrapper around `taskjuggler--forward-sexp' for key binding.
+Bound to \\[taskjuggler-forward-block-sexp]."
+  (interactive "p")
+  (taskjuggler--forward-sexp (or arg 1)))
+
+(defun taskjuggler-backward-block-sexp (&optional arg)
+  "Move backward by ARG blocks as sexps.
+Interactive wrapper around `taskjuggler--forward-sexp' for key binding.
+Bound to \\[taskjuggler-backward-block-sexp]."
+  (interactive "p")
+  (taskjuggler--forward-sexp (- (or arg 1))))
+
 ;;; Date insertion
 
 (defun taskjuggler--date-bounds-at-point ()
@@ -881,6 +895,7 @@ See URL `https://taskjuggler.org' for more information.
 ;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
 ;; gh       — parent block (mirrors C-M-u)
 ;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
+;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
 ;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
@@ -893,6 +908,8 @@ See URL `https://taskjuggler.org' for more information.
     (kbd "gh") #'taskjuggler-goto-parent
     (kbd "gl") #'taskjuggler-goto-first-child
     (kbd "gL") #'taskjuggler-goto-last-child
+    (kbd "]t") #'taskjuggler-forward-block-sexp
+    (kbd "[t") #'taskjuggler-backward-block-sexp
     (kbd "]B") #'taskjuggler-forward-block
     (kbd "[B") #'taskjuggler-backward-block
     (kbd "[[") #'beginning-of-defun
