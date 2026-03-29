@@ -134,7 +134,7 @@ Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
 `C-u`, the Org time picker is also shown and the result is
 `YYYY-MM-DD-HH:MM`.
 
-`org` must be available (it ships with Emacs).
+`org` ships with Emacs and is loaded on demand when `C-c C-d` is invoked.
 
 ### Compilation support
 
@@ -269,5 +269,5 @@ Here is what this mode supports:
 
 - Emacs 27.1 or later
 - [TaskJuggler](https://taskjuggler.org/) `tj3` binary (for compilation and flymake features)
-- `org` (ships with Emacs; required for date editing via `C-c C-d`)
+- `org` (ships with Emacs; loaded on demand for date editing via `C-c C-d`)
 - [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)

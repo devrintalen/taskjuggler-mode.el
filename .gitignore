@@ -10,6 +10,9 @@
 # Built distribution
 dist/
 
+# Generated files
+*.html
+
 # Backup files
 *~
 

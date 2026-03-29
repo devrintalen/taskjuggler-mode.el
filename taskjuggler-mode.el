@@ -2,7 +2,8 @@
 
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (org "9.0"))
+;; Package-Requires: ((emacs "27.1"))
+;; URL: https://github.com/devrintalen/taskjuggler-mode.el
 ;; License: GPL-3.0-or-later
 
 ;;; Commentary:
@@ -761,7 +762,8 @@ When WITH-TIME is non-nil, replace the space between date and time with `-'."
 Without prefix ARG, insert a bare date: YYYY-MM-DD.
 With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
   (interactive "P")
-  (require 'org)
+  (unless (require 'org nil t)
+    (user-error "taskjuggler-insert-date requires org, which is not available"))
   (insert (taskjuggler--org-date-to-tj (org-read-date arg) arg)))
 
 (defun taskjuggler-date-dwim (arg)
@@ -780,7 +782,8 @@ The existing date pre-fills the calendar.  Without prefix ARG, replace
 with a bare date: YYYY-MM-DD.  With prefix ARG, also prompt for a time
 and replace with YYYY-MM-DD-HH:MM."
   (interactive "P")
-  (require 'org)
+  (unless (require 'org nil t)
+    (user-error "taskjuggler-edit-date-at-point requires org, which is not available"))
   (let ((bounds (taskjuggler--date-bounds-at-point)))
     (unless bounds
       (user-error "No TaskJuggler date at point"))
