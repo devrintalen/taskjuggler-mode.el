@@ -330,9 +330,9 @@ return that opening line's position.  Return nil otherwise."
 
 (defun taskjuggler--block-end (header-pos)
   "Return the position of the line start immediately after the block at HEADER-POS.
-If the header line contains a `{', uses `forward-sexp' to skip to the matching
-`}' and returns the line after that.  Otherwise returns the line after the
-header itself (bare keyword with no brace body)."
+If the header line contains a `{', uses `forward-sexp-default-function' to skip
+to the matching `}' and returns the line after that.  Otherwise returns the line
+after the header itself (bare keyword with no brace body)."
   (save-excursion
     (goto-char header-pos)
     (let ((eol (line-end-position))
@@ -346,7 +346,7 @@ header itself (bare keyword with no brace body)."
       (if brace-pos
           (progn
             (goto-char brace-pos)
-            (forward-sexp)         ; jump to matching }
+            (forward-sexp-default-function 1) ; jump to matching }
             (forward-line 1)
             (point))
         (goto-char header-pos)
@@ -355,8 +355,8 @@ header itself (bare keyword with no brace body)."
 
 (defun taskjuggler--block-with-comments-start (header-pos)
   "Return the start of the block at HEADER-POS, including preceding comments.
-Immediately preceding lines that begin with `#' or `//' (no blank lines
-between them and the header) are considered part of the block."
+Immediately preceding comment lines (# //, or /* */ blocks) with no blank
+lines between them and the header are considered part of the block."
   (save-excursion
     (goto-char header-pos)
     (beginning-of-line)
@@ -364,8 +364,12 @@ between them and the header) are considered part of the block."
       (while (and (not (bobp))
                   (save-excursion
                     (forward-line -1)
-                    (looking-at "[ \t]*\\(#\\|//\\)")))
+                    (or (looking-at "[ \t]*\\(#\\|//\\|/\\*\\)")
+                        (nth 4 (syntax-ppss)))))
         (forward-line -1)
+        ;; For lines inside a /* */ comment, walk back to the opening /* line.
+        (while (and (not (bobp)) (nth 4 (syntax-ppss)))
+          (forward-line -1))
         (setq start (point)))
       start)))
 
@@ -377,11 +381,16 @@ if there is no previous sibling."
     (let* ((depth     (car (syntax-ppss header-pos)))
            (our-start (taskjuggler--block-with-comments-start header-pos)))
       (goto-char our-start)
-      ;; Skip backward over blank lines.
+      ;; Skip backward over blank lines and comment lines.
       (while (and (not (bobp))
-                  (progn (forward-line -1) (looking-at "[ \t]*$"))))
-      (when (not (or (and (bobp) (looking-at "[ \t]*$"))
-                     (looking-at "[ \t]*$")))
+                  (progn
+                    (forward-line -1)
+                    (or (looking-at "[ \t]*$")
+                        (looking-at "[ \t]*\\(#\\|//\\|/\\*\\)")
+                        (nth 4 (syntax-ppss))))))
+      (when (not (or (looking-at "[ \t]*$")
+                     (looking-at "[ \t]*\\(#\\|//\\|/\\*\\)")
+                     (nth 4 (syntax-ppss))))
         ;; Now on the last content line of the candidate previous block.
         (let ((prev-header
                (cond
@@ -395,7 +404,7 @@ if there is no previous sibling."
                    (skip-chars-backward " \t")
                    (condition-case nil
                        (progn
-                         (backward-sexp)   ; } → matching {
+                         (forward-sexp-default-function -1) ; } → matching {
                          (beginning-of-line)
                          (when (looking-at taskjuggler--moveable-block-re)
                            (point)))
@@ -415,10 +424,16 @@ if there is no next sibling."
     (let ((depth   (car (syntax-ppss header-pos)))
           (our-end (taskjuggler--block-end header-pos)))
       (goto-char our-end)
-      ;; Skip blank lines and comment lines to reach the next keyword.
+      ;; Skip blank lines and comment lines (including /* */ blocks) to reach
+      ;; the next keyword.
       (while (and (not (eobp))
-                  (looking-at "[ \t]*\\($\\|#\\|//\\)"))
-        (forward-line 1))
+                  (or (looking-at "[ \t]*$")
+                      (looking-at "[ \t]*\\(#\\|//\\|/\\*\\)")
+                      (nth 4 (syntax-ppss))))
+        (if (looking-at "[ \t]*/\\*")
+            (progn (re-search-forward "\\*/" nil 'move)
+                   (unless (eobp) (forward-line 1)))
+          (forward-line 1)))
       (when (and (not (eobp))
                  (looking-at taskjuggler--moveable-block-re)
                  (= (car (syntax-ppss)) depth))
@@ -608,6 +623,10 @@ Implements `beginning-of-defun-function' for `taskjuggler-mode'."
                   (beginning-of-line))))
           ;; Already at a block header, or not inside any block: search
           ;; backward COUNT times (standard beginning-of-defun behaviour).
+          ;; When at a header, step back one char so re-search-backward
+          ;; doesn't re-match the current line's keyword.
+          (when (and header (not (bobp)))
+            (forward-char -1))
           (dotimes (_ count)
             (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
               (beginning-of-line))))))
@@ -624,10 +643,13 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
     (cond
      ((> count 0)
       (dotimes (_ count)
-        (let ((header (taskjuggler--current-block-header)))
-          (if header
-              (goto-char (taskjuggler--block-end header))
-            ;; Not in a block: find the next block and skip past it.
+        (let* ((header (taskjuggler--current-block-header))
+               (end    (and header (taskjuggler--block-end header))))
+          (if (and end (> end (point)))
+              ;; Current block ends ahead of point: jump to it.
+              (goto-char end)
+            ;; Not in a block, or already at/past the block end: find the
+            ;; next block and skip past it.
             (when (re-search-forward taskjuggler--moveable-block-re nil 'move)
               (beginning-of-line)
               (goto-char (taskjuggler--block-end (point))))))))
@@ -656,7 +678,8 @@ single sexp.  Otherwise falls back to `forward-sexp-default-function'."
   "Move backward past one sexp.
 When the sexp immediately before point is a TJ3 block ending with `}',
 jumps back to the start of the block header line (including any preceding
-comment lines).  Otherwise falls back to `forward-sexp-default-function'."
+comment lines).  Uses `forward-sexp-default-function' for brace-matching
+to avoid reentrancy through `forward-sexp-function'."
   (let (block-start)
     (save-excursion
       (skip-chars-backward " \t\n")
@@ -664,7 +687,7 @@ comment lines).  Otherwise falls back to `forward-sexp-default-function'."
         (backward-char)
         (condition-case nil
             (progn
-              (backward-sexp)           ; `}' -> matching `{'
+              (forward-sexp-default-function -1) ; `}' -> matching `{'
               (beginning-of-line)
               (when (looking-at taskjuggler--moveable-block-re)
                 (setq block-start
