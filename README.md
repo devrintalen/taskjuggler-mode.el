@@ -7,7 +7,7 @@ If you are already at the point that you are using (or considering)
 TaskJuggler, then you are *deep* down the rabbit hole and I wish you
 good luck. I also offer you this package to help.
 
-🌮
+![A screenshot of a sample TaskJuggler project file, showing taskjuggler-mode.el syntax highlighting](screenshots/gnomes.png)
 
 ## Features
 
