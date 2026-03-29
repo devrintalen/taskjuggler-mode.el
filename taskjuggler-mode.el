@@ -330,9 +330,9 @@ return that opening line's position.  Return nil otherwise."
 
 (defun taskjuggler--block-end (header-pos)
   "Return the position of the line start immediately after the block at HEADER-POS.
-If the header line contains a `{', uses `forward-sexp-default-function' to skip
-to the matching `}' and returns the line after that.  Otherwise returns the line
-after the header itself (bare keyword with no brace body)."
+If the header line contains a `{', skips to the matching `}' and returns
+the line after that.  Otherwise returns the line after the header itself
+(bare keyword with no brace body)."
   (save-excursion
     (goto-char header-pos)
     (let ((eol (line-end-position))
@@ -346,7 +346,7 @@ after the header itself (bare keyword with no brace body)."
       (if brace-pos
           (progn
             (goto-char brace-pos)
-            (forward-sexp-default-function 1) ; jump to matching }
+            (let ((forward-sexp-function nil)) (forward-sexp 1)) ; jump to matching }
             (forward-line 1)
             (point))
         (goto-char header-pos)
@@ -404,7 +404,7 @@ if there is no previous sibling."
                    (skip-chars-backward " \t")
                    (condition-case nil
                        (progn
-                         (forward-sexp-default-function -1) ; } → matching {
+                         (let ((forward-sexp-function nil)) (forward-sexp -1)) ; } → matching {
                          (beginning-of-line)
                          (when (looking-at taskjuggler--moveable-block-re)
                            (point)))
@@ -662,7 +662,7 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
   "Move forward past one sexp.
 When point is in the leading whitespace or at the keyword on a moveable
 block header line, the entire block (header + brace body) is treated as a
-single sexp.  Otherwise falls back to `forward-sexp-default-function'."
+single sexp.  Otherwise falls back to the default sexp movement."
   (let ((indent-end (save-excursion
                       (beginning-of-line)
                       (skip-chars-forward " \t")
@@ -672,14 +672,14 @@ single sexp.  Otherwise falls back to `forward-sexp-default-function'."
                (goto-char indent-end)
                (looking-at taskjuggler--moveable-block-re)))
         (goto-char (taskjuggler--block-end indent-end))
-      (forward-sexp-default-function 1))))
+      (let ((forward-sexp-function nil)) (forward-sexp 1)))))
 
 (defun taskjuggler--backward-sexp-1 ()
   "Move backward past one sexp.
 When the sexp immediately before point is a TJ3 block ending with `}',
 jumps back to the start of the block header line (including any preceding
-comment lines).  Uses `forward-sexp-default-function' for brace-matching
-to avoid reentrancy through `forward-sexp-function'."
+comment lines).  Uses default sexp movement for brace-matching to avoid
+reentrancy through `forward-sexp-function'."
   (let (block-start)
     (save-excursion
       (skip-chars-backward " \t\n")
@@ -687,7 +687,7 @@ to avoid reentrancy through `forward-sexp-function'."
         (backward-char)
         (condition-case nil
             (progn
-              (forward-sexp-default-function -1) ; `}' -> matching `{'
+              (let ((forward-sexp-function nil)) (forward-sexp -1)) ; `}' -> matching `{'
               (beginning-of-line)
               (when (looking-at taskjuggler--moveable-block-re)
                 (setq block-start
@@ -695,7 +695,7 @@ to avoid reentrancy through `forward-sexp-function'."
           (error nil))))
     (if block-start
         (goto-char block-start)
-      (forward-sexp-default-function -1))))
+      (let ((forward-sexp-function nil)) (forward-sexp -1)))))
 
 (defun taskjuggler--forward-sexp (&optional arg)
   "Move forward by ARG sexps, treating TJ3 blocks as single units.
@@ -763,7 +763,7 @@ Without prefix ARG, insert a bare date: YYYY-MM-DD.
 With prefix ARG, also prompt for a time and insert YYYY-MM-DD-HH:MM."
   (interactive "P")
   (unless (require 'org nil t)
-    (user-error "taskjuggler-insert-date requires org, which is not available"))
+    (user-error "Date editing requires org, which is not available"))
   (insert (taskjuggler--org-date-to-tj (org-read-date arg) arg)))
 
 (defun taskjuggler-date-dwim (arg)
@@ -783,7 +783,7 @@ with a bare date: YYYY-MM-DD.  With prefix ARG, also prompt for a time
 and replace with YYYY-MM-DD-HH:MM."
   (interactive "P")
   (unless (require 'org nil t)
-    (user-error "taskjuggler-edit-date-at-point requires org, which is not available"))
+    (user-error "Date editing requires org, which is not available"))
   (let ((bounds (taskjuggler--date-bounds-at-point)))
     (unless bounds
       (user-error "No TaskJuggler date at point"))
