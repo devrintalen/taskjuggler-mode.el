@@ -332,7 +332,7 @@ return that opening line's position.  Return nil otherwise."
   "Return the position of the line start immediately after the block at HEADER-POS.
 If the header line contains a `{', skips to the matching `}' and returns
 the line after that.  Otherwise returns the line after the header itself
-(bare keyword with no brace body)."
+\(bare keyword with no brace body)."
   (save-excursion
     (goto-char header-pos)
     (let ((eol (line-end-position))
