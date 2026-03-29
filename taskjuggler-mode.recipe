@@ -1,3 +1,0 @@
-(taskjuggler-mode :fetcher github
-                  :repo "devrintalen/taskjuggler-mode.el"
-                  :files ("*.el" "snippets"))
