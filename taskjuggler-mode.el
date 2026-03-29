@@ -18,7 +18,6 @@
 ;;   - Duration literal highlighting: 5d, 2.5h, 3w, etc.
 ;;   - Macro reference highlighting: ${MacroName}, $(ENV_VAR)
 ;;   - Indentation based on { } and [ ] block nesting depth (line and region)
-;;   - Keyword completion via completion-at-point (works with company-capf)
 ;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
 ;;   - Flymake integration: on-the-fly error checking via tj3
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end; C-M-h marks block;
