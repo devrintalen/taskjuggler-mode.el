@@ -1,10 +1,28 @@
 ;;; taskjuggler-mode.el --- Major mode for TaskJuggler project files -*- lexical-binding: t -*-
 
+;; Copyright (C) 2025 Devrin Talen <devrin@fastmail.com>
+
+;; Author: Devrin Talen
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; URL: https://github.com/devrintalen/taskjuggler-mode.el
-;; License: GPL-3.0-or-later
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 ;;
@@ -806,10 +824,6 @@ and replace with YYYY-MM-DD-HH:MM."
 
 (defvar compilation-error-regexp-alist-alist)
 (defvar compilation-error-regexp-alist)
-(with-eval-after-load 'compile
-  (add-to-list 'compilation-error-regexp-alist-alist
-               taskjuggler--compilation-error-re)
-  (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
 
 ;;; Flymake
 
@@ -866,6 +880,18 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
 ;;; Mode definition
 
 ;;;###autoload
+(defvar taskjuggler-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "M-<up>")   #'taskjuggler-move-block-up)
+    (define-key map (kbd "M-<down>") #'taskjuggler-move-block-down)
+    (define-key map (kbd "C-M-n")    #'taskjuggler-next-block)
+    (define-key map (kbd "C-M-p")    #'taskjuggler-prev-block)
+    (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
+    (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
+    (define-key map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
+    map)
+  "Keymap for `taskjuggler-mode'.")
+
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
 
@@ -899,20 +925,22 @@ See URL `https://taskjuggler.org' for more information.
     (setq-local compile-command
                 (concat taskjuggler-tj3-program " " (shell-quote-argument (buffer-file-name)))))
   ;; Flymake
-  (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t))
+  (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
+  ;; Compilation: register TJ3 error regexp when compile is available.
+  (when (featurep 'compile)
+    (add-to-list 'compilation-error-regexp-alist-alist
+                 taskjuggler--compilation-error-re)
+    (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
+  ;; Evil: set up normal-state navigation bindings if evil is loaded.
+  (taskjuggler--setup-evil-keys)
+  ;; Yasnippet: register snippet directory if yasnippet is loaded.
+  (when (featurep 'yasnippet)
+    (taskjuggler-mode-snippets-initialize)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
-
-(define-key taskjuggler-mode-map (kbd "M-<up>")   #'taskjuggler-move-block-up)
-(define-key taskjuggler-mode-map (kbd "M-<down>") #'taskjuggler-move-block-down)
-(define-key taskjuggler-mode-map (kbd "C-M-n")    #'taskjuggler-next-block)
-(define-key taskjuggler-mode-map (kbd "C-M-p")    #'taskjuggler-prev-block)
-(define-key taskjuggler-mode-map (kbd "C-M-u")    #'taskjuggler-goto-parent)
-(define-key taskjuggler-mode-map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
-(define-key taskjuggler-mode-map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
 
 (declare-function evil-define-key* "evil-core")
 
@@ -923,22 +951,23 @@ See URL `https://taskjuggler.org' for more information.
 ;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
 ;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
 ;; [[ / ]]  — start / end of current block (defun integration)
-;; Wrapped in with-eval-after-load so the mode loads cleanly without evil.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
-(with-eval-after-load 'evil
-  (evil-define-key* 'normal taskjuggler-mode-map
-    (kbd "gj") #'taskjuggler-next-block
-    (kbd "gk") #'taskjuggler-prev-block
-    (kbd "gh") #'taskjuggler-goto-parent
-    (kbd "gl") #'taskjuggler-goto-first-child
-    (kbd "gL") #'taskjuggler-goto-last-child
-    (kbd "]t") #'taskjuggler-forward-block-sexp
-    (kbd "[t") #'taskjuggler-backward-block-sexp
-    (kbd "]B") #'taskjuggler-forward-block
-    (kbd "[B") #'taskjuggler-backward-block
-    (kbd "[[") #'beginning-of-defun
-    (kbd "]]") #'end-of-defun))
+(defun taskjuggler--setup-evil-keys ()
+  "Set up evil-mode keybindings for `taskjuggler-mode' if evil is loaded."
+  (when (fboundp 'evil-define-key*)
+    (evil-define-key* 'normal taskjuggler-mode-map
+      (kbd "gj") #'taskjuggler-next-block
+      (kbd "gk") #'taskjuggler-prev-block
+      (kbd "gh") #'taskjuggler-goto-parent
+      (kbd "gl") #'taskjuggler-goto-first-child
+      (kbd "gL") #'taskjuggler-goto-last-child
+      (kbd "]t") #'taskjuggler-forward-block-sexp
+      (kbd "[t") #'taskjuggler-backward-block-sexp
+      (kbd "]B") #'taskjuggler-forward-block
+      (kbd "[B") #'taskjuggler-backward-block
+      (kbd "[[") #'beginning-of-defun
+      (kbd "]]") #'end-of-defun)))
 
 ;;; Yasnippet
 
@@ -964,13 +993,11 @@ See URL `https://taskjuggler.org' for more information.
   ;; NOTE: we add the symbol `taskjuggler-mode-snippets-dir' rather than its
   ;; value, so that yasnippet will automatically find the directory
   ;; after this package is updated (i.e., moves directory).
+  (defvar yas-snippet-dirs)
   (unless (member 'taskjuggler-mode-snippets-dir yas-snippet-dirs)
     (add-to-list 'yas-snippet-dirs 'taskjuggler-mode-snippets-dir t)
     (yas--load-snippet-dirs)))
 
-;;;###autoload
-(eval-after-load 'yasnippet
-   '(taskjuggler-mode-snippets-initialize))
 
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here
