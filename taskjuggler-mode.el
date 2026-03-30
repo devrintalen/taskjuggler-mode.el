@@ -933,7 +933,8 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
-  ;; Yasnippet: register snippet directory if yasnippet is loaded.
+  ;; Yasnippet: register snippet directory if already loaded (the top-level
+  ;; `yas-minor-mode-hook' handles the case where yasnippet loads later).
   (when (featurep 'yasnippet)
     (taskjuggler-mode-snippets-initialize)))
 
@@ -998,6 +999,9 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'yas-snippet-dirs 'taskjuggler-mode-snippets-dir t)
     (yas--load-snippet-dirs)))
 
+;; Register snippets when yas-minor-mode activates (handles lazy yasnippet loading).
+(defvar yas-minor-mode-hook)
+(add-hook 'yas-minor-mode-hook #'taskjuggler-mode-snippets-initialize)
 
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here
