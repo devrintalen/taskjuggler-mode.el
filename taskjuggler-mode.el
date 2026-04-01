@@ -687,6 +687,20 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
 
+(defun taskjuggler-mark-block ()
+  "Mark the current block as the active region, including preceding comments.
+Point is placed at the start of any immediately preceding comment lines;
+mark is placed at the end of the closing `}' line (or the header line for
+brace-less blocks).  Signals an error if point is not inside a block."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not inside a TaskJuggler block"))
+    (let ((start (taskjuggler--block-with-comments-start header))
+          (end   (taskjuggler--block-end header)))
+      (goto-char start)
+      (push-mark end nil t))))
+
 ;;; Sexp movement
 
 (defun taskjuggler--forward-sexp-1 ()
@@ -901,6 +915,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
     (define-key map (kbd "C-M-p")    #'taskjuggler-prev-block)
     (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
     (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
+    (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
     (define-key map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
     map)
   "Keymap for `taskjuggler-mode'.")
