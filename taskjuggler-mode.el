@@ -948,23 +948,34 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
 
 ;;; tj3man
 
+(defvar taskjuggler--tj3man-keywords nil
+  "Cached list of keywords returned by `tj3man' with no arguments.
+Populated the first time `taskjuggler-mode' starts with a working tj3man.")
+
+(defun taskjuggler--populate-tj3man-keywords ()
+  "Populate `taskjuggler--tj3man-keywords' by calling tj3man with no arguments.
+Does nothing if the cache is already filled or tj3man cannot be found."
+  (unless taskjuggler--tj3man-keywords
+    (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
+      (when (executable-find tj3man)
+        (setq taskjuggler--tj3man-keywords
+              (split-string (shell-command-to-string tj3man) nil t))))))
+
 (defun taskjuggler-man (keyword)
   "Show tj3man documentation for KEYWORD in a help window.
-Prompts with completion over all known TJ3 keywords, defaulting to the
-word at point."
+Prompts with completion over the keywords listed by `tj3man',
+defaulting to the word at point."
   (interactive
-   (let* ((candidates (append taskjuggler-top-level-keywords
-                               taskjuggler-report-keywords
-                               taskjuggler-property-keywords
-                               taskjuggler-value-keywords))
+   (let* ((tj3man (taskjuggler--tj3-executable "tj3man"))
+          (_ (unless (executable-find tj3man)
+               (user-error "Cannot find tj3man executable: %s" tj3man)))
           (default (thing-at-point 'word t))
           (prompt  (if default
                        (format "tj3man keyword (default %s): " default)
                      "tj3man keyword: ")))
-     (list (completing-read prompt candidates nil nil nil nil default))))
+     (list (completing-read prompt taskjuggler--tj3man-keywords
+                            nil nil nil nil default))))
   (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
-    (unless (executable-find tj3man)
-      (user-error "Cannot find tj3man executable: %s" tj3man))
     (with-help-window "*tj3man*"
       (princ (shell-command-to-string
               (concat tj3man " " (shell-quote-argument keyword)))))))
@@ -1027,6 +1038,8 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'compilation-error-regexp-alist-alist
                  taskjuggler--compilation-error-re)
     (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
+  ;; tj3man: populate keyword cache on first mode activation.
+  (taskjuggler--populate-tj3man-keywords)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded (the top-level
