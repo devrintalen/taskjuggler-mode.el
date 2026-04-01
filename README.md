@@ -93,12 +93,28 @@ Several commands let you move through the block structure without the mouse:
 | `C-M-d`    | `taskjuggler-goto-first-child`      | Jump to the first direct child block                  |
 | `C-M-a`    | `beginning-of-defun`                | Jump to the header of the current/enclosing block     |
 | `C-M-e`    | `end-of-defun`                      | Jump past the closing `}` of the current block        |
-| `C-M-h`    | `mark-defun`                        | Mark the current block as a region                    |
+| `C-M-h`    | `taskjuggler-mark-block`            | Mark the current block as a region (incl. comments)   |
 | —          | `taskjuggler-forward-block`         | Linear scan to the next block header (any depth)      |
 | —          | `taskjuggler-backward-block`        | Linear scan to the previous block header (any depth)  |
 | —          | `taskjuggler-goto-last-child`       | Jump to the last direct child block                   |
 
-`narrow-to-defun` also works as expected, narrowing to the current block.
+`narrow-to-defun` also works as expected (via the defun integration).
+
+### Block editing
+
+| Key        | Command                             | Description                                           |
+|------------|-------------------------------------|-------------------------------------------------------|
+| `C-M-h`    | `taskjuggler-mark-block`            | Select the current block as the active region         |
+| `C-x n b`  | `taskjuggler-narrow-to-block`       | Narrow the buffer to the current block                |
+| —          | `taskjuggler-clone-block`           | Duplicate the current block immediately after itself  |
+
+- `taskjuggler-mark-block` places point at the start of any immediately
+  preceding comment lines and mark at the end of the closing `}`.
+- `taskjuggler-narrow-to-block` narrows from the header line through the
+  closing `}`; use `C-x n w` to widen again.
+- `taskjuggler-clone-block` inserts a copy of the current block (including
+  preceding comments) immediately after it with a blank-line separator and
+  leaves point on the clone's header line.
 
 ### Evil-mode bindings
 
@@ -259,8 +275,9 @@ Here is what this mode supports:
   keeping their preceding comments attached
 - Block navigation: jump to next/previous sibling, parent, and first/last
   child; linear forward/backward scan across nesting boundaries
-- `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e` /
-  `C-M-h` / `narrow-to-defun`)
+- `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e`)
+- Block editing: mark block with comments (`C-M-h`), narrow to block (`C-x n b`),
+  clone block
 - Date editing with the Org calendar picker (`C-c C-d`) — inserts a new
   date or edits the date under point
 - Evil-mode bindings for all block navigation commands

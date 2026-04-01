@@ -39,8 +39,9 @@
 ;;   - Indentation based on { } and [ ] block nesting depth (line and region)
 ;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
 ;;   - Flymake integration: on-the-fly error checking via tj3
-;;   - Defun navigation: C-M-a/C-M-e jump to block start/end; C-M-h marks block;
-;;     narrow-to-defun narrows to the current block
+;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
+;;   - Block editing: C-M-h marks block (incl. comments), C-x n b narrows to
+;;     block, clone-block duplicates the current block
 
 ;;; Code:
 
