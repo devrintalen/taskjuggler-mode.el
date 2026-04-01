@@ -76,7 +76,7 @@ The arguments are inserted between the `tj3' executable and the file name."
 ;;; Faces
 
 (defface taskjuggler-date-face
-  '((t :inherit font-lock-string-face))
+  '((t :inherit font-lock-constant-face))
   "Face for TaskJuggler date literals (e.g. 2023-01-15)."
   :group 'taskjuggler)
 
@@ -172,19 +172,19 @@ The arguments are inserted between the `tj3' executable and the file name."
     ;; regexp-opt with 'words wraps in a capturing group, making the keyword
     ;; group 1 and the identifier group 2.
     (,taskjuggler--named-declaration-re
-     (2 font-lock-function-name-face))
+     (2 font-lock-variable-name-face))
     ;; Top-level structural keywords
     (,(regexp-opt taskjuggler-top-level-keywords 'words)
      . font-lock-keyword-face)
     ;; Report type keywords
     (,(regexp-opt taskjuggler-report-keywords 'words)
-     . font-lock-builtin-face)
+     . font-lock-function-name-face)
     ;; Property keywords
     (,(regexp-opt taskjuggler-property-keywords 'words)
-     . font-lock-type-face)
+     . font-lock-function-name-face)
     ;; Value and constant keywords
     (,(regexp-opt taskjuggler-value-keywords 'words)
-     . font-lock-constant-face)
+     . font-lock-variable-name-face)
     ;; Date literals
     (,taskjuggler--date-re . 'taskjuggler-date-face)
     ;; Duration literals
@@ -220,15 +220,28 @@ The arguments are inserted between the `tj3' executable and the file name."
     table)
   "Syntax table for `taskjuggler-mode'.")
 
-;;; Syntax propertize (for # line comments)
+;;; Syntax propertize (for # line comments and scissor strings)
 
 (defconst taskjuggler--syntax-propertize
   (syntax-propertize-rules
    ;; # starts a style-b (line) comment, closed by newline ("> b").
    ;; "< b": class=comment-start, match=space (none), flag=b (style b).
    ;; syntax-propertize-rules automatically skips strings and comments.
-   ("#" (0 "< b")))
-  "Syntax propertize rules to handle # as a line comment in `taskjuggler-mode'.")
+   ("#" (0 "< b"))
+   ;; Scissors multi-line strings: -8<- ... ->8-
+   ;; Mark the last char of -8<- as a string-fence opener, then search
+   ;; forward for ->8- and mark its last char as the matching closer.
+   ;; syntax-propertize-rules skips matches inside strings/comments, so
+   ;; the opening -8<- only fires outside strings; the closing ->8- is
+   ;; inside the string we just opened, so it must be handled here.
+   ("-8<\\(-\\)"
+    (1 (prog1 (string-to-syntax "|")
+         (goto-char (match-end 0))
+         (when (re-search-forward "->8\\(-\\)" nil t)
+           (put-text-property (match-beginning 1) (match-end 1)
+                              'syntax-table (string-to-syntax "|")))))))
+  "Syntax propertize rules for `taskjuggler-mode'.
+Handles # as a line comment and -8<- … ->8- as string delimiters.")
 
 ;;; Indentation
 
