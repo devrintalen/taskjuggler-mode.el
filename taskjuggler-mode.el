@@ -766,7 +766,7 @@ Bound to \\[taskjuggler-backward-block-sexp]."
             (throw 'found (cons (match-beginning 0) (match-end 0)))))))))
 
 (defun taskjuggler--tj-date-to-org-time (date-string)
-  "Parse TJ3 DATE-STRING into an Emacs encoded time for org-read-date.
+  "Parse TJ3 DATE-STRING into an Emacs encoded time for `org-read-date'.
 Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
   ;; Replace the hyphen separating date from time with a space so that
   ;; parse-time-string can handle it: "2024-03-15-10:30" → "2024-03-15 10:30"
@@ -968,7 +968,7 @@ See URL `https://taskjuggler.org' for more information.
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
 (defun taskjuggler--setup-evil-keys ()
-  "Set up evil-mode keybindings for `taskjuggler-mode' if evil is loaded."
+  "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
   (when (fboundp 'evil-define-key*)
     (evil-define-key* 'normal taskjuggler-mode-map
       (kbd "gj") #'taskjuggler-next-block
