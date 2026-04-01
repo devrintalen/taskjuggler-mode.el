@@ -706,6 +706,15 @@ Point is left on the clone's header line."
       ;; Move point to the clone's header line.
       (goto-char (+ end 1 header-offset)))))
 
+(defun taskjuggler-narrow-to-block ()
+  "Narrow the buffer to the current block (header through closing `}').
+Signals an error if point is not inside a moveable block."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not inside a TaskJuggler block"))
+    (narrow-to-region header (taskjuggler--block-end header))))
+
 (defun taskjuggler-mark-block ()
   "Mark the current block as the active region, including preceding comments.
 Point is placed at the start of any immediately preceding comment lines;
@@ -935,6 +944,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
     (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
     (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
     (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
+    (define-key map (kbd "C-x n b") #'taskjuggler-narrow-to-block)
     (define-key map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
     map)
   "Keymap for `taskjuggler-mode'.")

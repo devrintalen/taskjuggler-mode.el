@@ -10,7 +10,7 @@
   itself with a blank-line separator, leaving point on the clone's header.
   Useful for creating a new task based on an existing one.
 
-- [ ] `taskjuggler-narrow-to-block` — narrow the buffer to the current block
+- [x] `taskjuggler-narrow-to-block` — narrow the buffer to the current block
   (header through closing `}`). Thin wrapper around `narrow-to-region` using
   the existing bounds helpers. Bind to `C-x n b`.
 
