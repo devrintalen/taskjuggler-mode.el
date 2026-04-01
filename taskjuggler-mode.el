@@ -954,12 +954,16 @@ Populated the first time `taskjuggler-mode' starts with a working tj3man.")
 
 (defun taskjuggler--populate-tj3man-keywords ()
   "Populate `taskjuggler--tj3man-keywords' by calling tj3man with no arguments.
-Does nothing if the cache is already filled or tj3man cannot be found."
+Does nothing if the cache is already filled or tj3man cannot be found.
+Only lines that look like TJ3 identifiers (lowercase, may contain
+dots and hyphens) are kept; the copyright header is discarded."
   (unless taskjuggler--tj3man-keywords
     (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
       (when (executable-find tj3man)
         (setq taskjuggler--tj3man-keywords
-              (split-string (shell-command-to-string tj3man) nil t))))))
+              (seq-filter
+               (lambda (s) (string-match-p "\\`[a-z][a-z0-9._-]*\\'" s))
+               (split-string (shell-command-to-string tj3man) "\n" t)))))))
 
 (defun taskjuggler-man (keyword)
   "Show tj3man documentation for KEYWORD in a help window.
