@@ -39,6 +39,7 @@
 ;;   - Indentation based on { } and [ ] block nesting depth (line and region)
 ;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
 ;;   - Flymake integration: on-the-fly error checking via tj3
+;;   - tj3man integration: C-c C-m looks up keyword docs with completion
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
 ;;   - Block editing: C-M-h marks block (incl. comments), C-x n b narrows to
 ;;     block, clone-block duplicates the current block
@@ -58,21 +59,32 @@
   :type 'integer
   :group 'taskjuggler)
 
-(defcustom taskjuggler-tj3-program "tj3"
-  "Name or path of the tj3 executable used by the Flymake backend and compilation.
-If tj3 is not on your PATH, set this to the full path, e.g.:
-  (setq taskjuggler-tj3-program \"/opt/tj3/bin/tj3\")"
-  :type 'string
+(defcustom taskjuggler-tj3-bin-dir nil
+  "Directory containing the tj3 executables (tj3, tj3man), or nil to use PATH.
+When non-nil, both `tj3' and `tj3man' are resolved relative to this directory.
+Example: (setq taskjuggler-tj3-bin-dir \"/opt/tj3/bin\")"
+  :type '(choice (const :tag "Use PATH" nil)
+                 (directory :tag "Directory"))
   :group 'taskjuggler)
 
 (defcustom taskjuggler-tj3-extra-args nil
-  "List of additional command-line arguments passed to tj3 by the flymake backend.
+  "List of additional command-line arguments passed to tj3 by the Flymake backend.
 Use this to supply flags your project requires, such as:
   (setq-local taskjuggler-tj3-extra-args \\='(\"--prefix\" \"/opt/tj3\"))
 The arguments are inserted between the `tj3' executable and the file name."
   :type '(repeat string)
   :safe #'listp
   :group 'taskjuggler)
+
+;;; Helpers
+
+(defun taskjuggler--tj3-executable (name)
+  "Return the path to the tj3 executable NAME.
+When `taskjuggler-tj3-bin-dir' is non-nil, NAME is resolved relative to
+that directory.  Otherwise NAME is returned as-is for PATH lookup."
+  (if taskjuggler-tj3-bin-dir
+      (expand-file-name name taskjuggler-tj3-bin-dir)
+    name))
 
 ;;; Faces
 
@@ -889,8 +901,8 @@ and replace with YYYY-MM-DD-HH:MM."
 (defun taskjuggler-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
 Runs tj3 on the current file and reports errors via REPORT-FN."
-  (unless (executable-find taskjuggler-tj3-program)
-    (error "Cannot find tj3 executable: %s" taskjuggler-tj3-program))
+  (unless (executable-find (taskjuggler--tj3-executable "tj3"))
+    (error "Cannot find tj3 executable: %s" (taskjuggler--tj3-executable "tj3")))
   (when (process-live-p taskjuggler--flymake-proc)
     (kill-process taskjuggler--flymake-proc))
   (let* ((source (current-buffer))
@@ -904,7 +916,8 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
              :noquery t
              :connection-type 'pipe
              :buffer (generate-new-buffer " *taskjuggler-flymake*")
-             :command (append (list taskjuggler-tj3-program) taskjuggler-tj3-extra-args (list file))
+             :command (append (list (taskjuggler--tj3-executable "tj3"))
+                              taskjuggler-tj3-extra-args (list file))
              :sentinel
              (lambda (proc _event)
                (when (memq (process-status proc) '(exit signal))
@@ -933,6 +946,29 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
                        (flymake-log :debug "Canceling obsolete check %s" proc))
                    (kill-buffer (process-buffer proc))))))))))
 
+;;; tj3man
+
+(defun taskjuggler-man (keyword)
+  "Show tj3man documentation for KEYWORD in a help window.
+Prompts with completion over all known TJ3 keywords, defaulting to the
+word at point."
+  (interactive
+   (let* ((candidates (append taskjuggler-top-level-keywords
+                               taskjuggler-report-keywords
+                               taskjuggler-property-keywords
+                               taskjuggler-value-keywords))
+          (default (thing-at-point 'word t))
+          (prompt  (if default
+                       (format "tj3man keyword (default %s): " default)
+                     "tj3man keyword: ")))
+     (list (completing-read prompt candidates nil nil nil nil default))))
+  (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
+    (unless (executable-find tj3man)
+      (user-error "Cannot find tj3man executable: %s" tj3man))
+    (with-help-window "*tj3man*"
+      (princ (shell-command-to-string
+              (concat tj3man " " (shell-quote-argument keyword)))))))
+
 ;;; Mode definition
 
 ;;;###autoload
@@ -947,6 +983,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
     (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
     (define-key map (kbd "C-x n b") #'taskjuggler-narrow-to-block)
     (define-key map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
+    (define-key map (kbd "C-c C-m")  #'taskjuggler-man)
     map)
   "Keymap for `taskjuggler-mode'.")
 
@@ -981,7 +1018,8 @@ See URL `https://taskjuggler.org' for more information.
   ;; Compilation: pre-fill compile-command with tj3 and the current file.
   (when (buffer-file-name)
     (setq-local compile-command
-                (concat taskjuggler-tj3-program " " (shell-quote-argument (buffer-file-name)))))
+                (concat (taskjuggler--tj3-executable "tj3") " "
+                        (shell-quote-argument (buffer-file-name)))))
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.

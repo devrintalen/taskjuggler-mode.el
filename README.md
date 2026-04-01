@@ -18,6 +18,7 @@ good luck. I also offer you this package to help.
 - s-expression movement
 - Evil-mode bindings
 - Compilation and `flymake` support
+- `tj3man` keyword documentation (`C-c C-m`)
 - snippets (if `yasnippet` is present)
 - `org`-inspired date editing (if `org-mode` is present)
 
@@ -152,12 +153,23 @@ Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
 
 `org` ships with Emacs and is loaded on demand when `C-c C-d` is invoked.
 
+### tj3man integration
+
+`C-c C-m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
+
+- Prompts with completion over all known TJ3 keywords.
+- Defaults to the word at point, so placing the cursor on a keyword and
+  pressing `C-c C-m RET` shows its documentation immediately.
+- Output is shown in a `*tj3man*` help window (press `q` to dismiss).
+
+`tj3man` is resolved via `taskjuggler-tj3-bin-dir` just like `tj3`.
+
 ### Compilation support
 
 The mode supports the standard `compile-command` features. If `tj3` is
-not in `PATH`, then customize `taskjuggler-tj3-program` with the
-absolute path of the binary. This will then get used for all
-compilation support.
+not in `PATH`, then customize `taskjuggler-tj3-bin-dir` with the
+directory containing the binary. This will then get used for all
+compilation and tj3man support.
 
 When you open a `.tjp` file, `compile-command` is pre-filled with
 `<taskjuggler-tj3-program> <filename>`, so `M-x compile` (or `C-c C-c`
@@ -223,7 +235,7 @@ This probably the easiest way, if you already use `straight.el`.
 							  :files ("*.el" "snippets"))
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
   :custom
-  (taskjuggler-tj3-program "~/bin/tj3"))
+  (taskjuggler-tj3-bin-dir "~/bin"))
 
 (add-hook 'taskjuggler-mode-hook #'flymake-mode) ;; Optional, for flymake integration
 
@@ -237,7 +249,7 @@ RET taskjuggler RET`). The table below lists every option with its default value
 | Option                       | Default | Description                                               |
 |------------------------------|---------|-----------------------------------------------------------|
 | `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
-| `taskjuggler-tj3-program`    | `"tj3"` | Name or full path of the `tj3` executable                 |
+| `taskjuggler-tj3-bin-dir`    | `nil`   | Directory containing `tj3` and `tj3man`, or nil for PATH  |
 | `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
@@ -246,7 +258,8 @@ per-project with a `.dir-locals.el`:
 ```emacs-lisp
 ;; .dir-locals.el
 ((taskjuggler-mode
-  . ((taskjuggler-tj3-extra-args . ("--prefix" "/opt/myproject/tj3")))))
+  . ((taskjuggler-tj3-bin-dir    . "/opt/myproject/tj3/bin")
+     (taskjuggler-tj3-extra-args . ("--prefix" "/opt/myproject/tj3")))))
 ```
 
 ## Credits
@@ -270,6 +283,7 @@ Here is what this mode supports:
   including continuation-line alignment for comma-terminated argument lists
 - First-class Flymake integration running `tj3` on-the-fly
 - `compilation-mode` error navigation pre-wired for TJ3's error format
+- `tj3man` keyword documentation lookup (`C-c C-m`) with completion
 - yasnippet snippet collection for common constructs
 - Block movement (`M-<up>` / `M-<down>`) swaps sibling blocks while
   keeping their preceding comments attached
