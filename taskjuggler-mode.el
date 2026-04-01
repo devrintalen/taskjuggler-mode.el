@@ -986,6 +986,12 @@ defaulting to the word at point."
 
 ;;; Mode definition
 
+(defvar taskjuggler-command-map (make-sparse-keymap)
+  "Keymap for TaskJuggler commands, bound under prefix \\`C-c C-g'.")
+(define-prefix-command 'taskjuggler-command-prefix 'taskjuggler-command-map)
+(define-key taskjuggler-command-map (kbd "d") #'taskjuggler-date-dwim)
+(define-key taskjuggler-command-map (kbd "m") #'taskjuggler-man)
+
 ;;;###autoload
 (defvar taskjuggler-mode-map
   (let ((map (make-sparse-keymap)))
@@ -996,9 +1002,8 @@ defaulting to the word at point."
     (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
     (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
     (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
-    (define-key map (kbd "C-x n b") #'taskjuggler-narrow-to-block)
-    (define-key map (kbd "C-c C-d")  #'taskjuggler-date-dwim)
-    (define-key map (kbd "C-c C-m")  #'taskjuggler-man)
+    (define-key map (kbd "C-x n b")  #'taskjuggler-narrow-to-block)
+    (define-key map (kbd "C-c C-g")  'taskjuggler-command-prefix)
     map)
   "Keymap for `taskjuggler-mode'.")
 

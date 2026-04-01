@@ -138,9 +138,18 @@ When `evil-mode` is active, additional normal-state bindings are registered:
 These bindings are registered with `with-eval-after-load 'evil` so the mode
 loads cleanly without evil present.
 
+### Command prefix (`C-c C-g`)
+
+Mode-specific commands are grouped under the `C-c C-g` prefix:
+
+| Key           | Command                    | Description                        |
+|---------------|----------------------------|------------------------------------|
+| `C-c C-g d`   | `taskjuggler-date-dwim`    | Insert or edit a date at point     |
+| `C-c C-g m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
+
 ### Date editing
 
-`C-c C-d` (`taskjuggler-date-dwim`) is a unified entry point for working with
+`C-c C-g d` (`taskjuggler-date-dwim`) is a unified entry point for working with
 TJ3 date literals:
 
 - **Point is on a date**: opens the Org calendar with the existing date
@@ -151,15 +160,15 @@ Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
 `C-u`, the Org time picker is also shown and the result is
 `YYYY-MM-DD-HH:MM`.
 
-`org` ships with Emacs and is loaded on demand when `C-c C-d` is invoked.
+`org` ships with Emacs and is loaded on demand when `C-c C-g d` is invoked.
 
 ### tj3man integration
 
-`C-c C-m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
+`C-c C-g m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
 
 - Prompts with completion over all known TJ3 keywords.
 - Defaults to the word at point, so placing the cursor on a keyword and
-  pressing `C-c C-m RET` shows its documentation immediately.
+  pressing `C-c C-g m RET` shows its documentation immediately.
 - Output is shown in a `*tj3man*` help window (press `q` to dismiss).
 
 `tj3man` is resolved via `taskjuggler-tj3-bin-dir` just like `tj3`.
