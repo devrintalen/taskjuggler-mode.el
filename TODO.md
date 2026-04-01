@@ -6,7 +6,7 @@
   comments) as an active region. Bind to `C-M-h` or wire up via `mark-defun`
   once defun integration is done.
 
-- [ ] `taskjuggler-clone-block` — duplicate the current block immediately after
+- [x] `taskjuggler-clone-block` — duplicate the current block immediately after
   itself with a blank-line separator, leaving point on the clone's header.
   Useful for creating a new task based on an existing one.
 

@@ -687,6 +687,25 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
 
+(defun taskjuggler-clone-block ()
+  "Duplicate the current block immediately after itself.
+A blank line separates the original from the clone.  The clone includes any
+comment lines immediately preceding the block header.
+Point is left on the clone's header line."
+  (interactive)
+  (let ((header (taskjuggler--current-block-header)))
+    (unless header
+      (user-error "Not inside a TaskJuggler block"))
+    (let* ((start      (taskjuggler--block-with-comments-start header))
+           (end        (taskjuggler--block-end header))
+           (block-text (buffer-substring start end))
+           (header-offset (- header start)))
+      ;; end is the position of the first line after the block; insert there.
+      (goto-char end)
+      (insert "\n" block-text)
+      ;; Move point to the clone's header line.
+      (goto-char (+ end 1 header-offset)))))
+
 (defun taskjuggler-mark-block ()
   "Mark the current block as the active region, including preceding comments.
 Point is placed at the start of any immediately preceding comment lines;
