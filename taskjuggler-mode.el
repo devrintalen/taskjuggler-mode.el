@@ -103,6 +103,48 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
   "Face for TaskJuggler macro and environment variable references."
   :group 'taskjuggler)
 
+;; Calendar popup faces
+
+(defface taskjuggler-cal-face
+  '((((class color) (background light))
+     :foreground "#333333" :background "#e8e8e8")
+    (((class color) (background dark))
+     :foreground "#e0e0e0" :background "#3a3a3a"))
+  "Base face for the calendar popup background and day cells."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-header-face
+  '((((class color) (background light))
+     :foreground "#ffffff" :background "#5974ab" :weight bold)
+    (((class color) (background dark))
+     :foreground "#ffffff" :background "#4a6291" :weight bold))
+  "Face for the calendar month title and day-of-week header."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-selected-face
+  '((((class color) (background light))
+     :foreground "#ffffff" :background "#3a5ea0" :weight bold)
+    (((class color) (background dark))
+     :foreground "#ffffff" :background "#5a7ec0" :weight bold))
+  "Face for the currently selected day in the calendar."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-today-face
+  '((((class color) (background light))
+     :foreground "#3a5ea0" :background "#d0d8e8" :weight bold)
+    (((class color) (background dark))
+     :foreground "#8ab4f8" :background "#2a3a50" :weight bold))
+  "Face for today's date when visible but not selected."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-inactive-face
+  '((((class color) (background light))
+     :foreground "#999999" :background "#e8e8e8")
+    (((class color) (background dark))
+     :foreground "#666666" :background "#3a3a3a"))
+  "Face for days from the previous or next month."
+  :group 'taskjuggler)
+
 ;;; Keyword lists
 
 (defconst taskjuggler-top-level-keywords
@@ -877,66 +919,95 @@ Return a (YEAR MONTH DAY) list."
        (list new-year new-month new-day)))))
 
 ;; --- Calendar rendering ---
+;;
+;; The calendar is rendered as a list of propertized strings (one per
+;; line).  Each cell carries the appropriate face: header, selected,
+;; today, inactive (prev/next month), or the base calendar face.
+;; No box border is drawn; the face background provides the visual
+;; container.
 
 (defconst taskjuggler--cal-month-names
   ["January" "February" "March" "April" "May" "June"
    "July" "August" "September" "October" "November" "December"]
   "Month names for the calendar header.")
 
-(defconst taskjuggler--cal-day-header "Su Mo Tu We Th Fr Sa"
-  "Day-of-week header row for the calendar.")
+(defconst taskjuggler--cal-day-header " Su Mo Tu We Th Fr Sa "
+  "Day-of-week header row for the calendar (padded to full width).")
 
-(defconst taskjuggler--cal-width 24
-  "Width of the calendar popup (including box-drawing border).")
+(defconst taskjuggler--cal-width 22
+  "Width of the calendar popup in characters.")
 
 (defun taskjuggler--cal-render (year month day)
-  "Render a calendar grid for MONTH of YEAR with DAY highlighted.
-Return a multi-line string with a box border."
-  (let* ((title (taskjuggler--cal-title-line year month))
+  "Render a calendar grid for MONTH of YEAR with DAY selected.
+Return a list of propertized strings, one per line."
+  (let* ((today (decode-time))
+         (today-day (nth 3 today))
+         (today-month (nth 4 today))
+         (today-year (nth 5 today))
+         (title (taskjuggler--cal-pad-line
+                 (taskjuggler--cal-title-line year month)))
          (day-hdr taskjuggler--cal-day-header)
-         (weeks (taskjuggler--cal-week-lines year month day))
-         (inner-width (- taskjuggler--cal-width 2))
-         (top    (concat "+" (make-string inner-width ?-) "+"))
-         (bottom (concat "+" (make-string inner-width ?-) "+"))
-         (lines (list top
-                      (taskjuggler--cal-box-line title inner-width)
-                      (taskjuggler--cal-box-line day-hdr inner-width))))
+         (weeks (taskjuggler--cal-week-lines year month day
+                                             today-year today-month today-day))
+         (lines (list (propertize title 'face 'taskjuggler-cal-header-face)
+                      (propertize day-hdr 'face 'taskjuggler-cal-header-face))))
     (dolist (week weeks)
-      (setq lines (nconc lines (list (taskjuggler--cal-box-line week inner-width)))))
-    (setq lines (nconc lines (list bottom)))
-    (mapconcat #'identity lines "\n")))
+      (setq lines (nconc lines (list week))))
+    lines))
 
 (defun taskjuggler--cal-title-line (year month)
   "Return the centred title string for MONTH of YEAR."
   (let ((name (aref taskjuggler--cal-month-names (1- month))))
     (format "%s %d" name year)))
 
-(defun taskjuggler--cal-box-line (text inner-width)
-  "Wrap TEXT in box-drawing borders, padded/centred to INNER-WIDTH."
+(defun taskjuggler--cal-pad-line (text)
+  "Pad or centre TEXT to `taskjuggler--cal-width'."
   (let* ((len (length text))
-         (pad-total (- inner-width len))
+         (pad-total (max 0 (- taskjuggler--cal-width len)))
          (pad-left (/ pad-total 2))
          (pad-right (- pad-total pad-left)))
-    (concat "|" (make-string pad-left ?\s) text (make-string pad-right ?\s) "|")))
+    (concat (make-string pad-left ?\s) text (make-string pad-right ?\s))))
 
-(defun taskjuggler--cal-week-lines (year month selected-day)
-  "Return a list of week-row strings for MONTH of YEAR.
-SELECTED-DAY is shown in [brackets]."
+(defun taskjuggler--cal-week-lines (year month selected-day
+                                         today-year today-month today-day)
+  "Return a list of propertized week-row strings for MONTH of YEAR.
+SELECTED-DAY is highlighted.  TODAY-YEAR, TODAY-MONTH, TODAY-DAY
+identify today's date for the today face.  Leading and trailing
+cells are filled with days from adjacent months."
   (let* ((days-in-month (taskjuggler--cal-days-in-month year month))
          (start-dow (taskjuggler--cal-day-of-week year month 1))
-         (cells '())
-         (d 1))
-    ;; Leading blanks for days before the 1st.
-    (dotimes (_ start-dow)
-      (push "  " cells))
-    ;; Day cells.
-    (while (<= d days-in-month)
-      (push (if (= d selected-day)
-                (format "[%d]" d)
-              (format "%2d" d))
-            cells)
-      (setq d (1+ d)))
-    ;; Group into weeks of 7.
+         (cells '()))
+    ;; Leading cells from the previous month.
+    (when (> start-dow 0)
+      (let* ((prev (taskjuggler--cal-adjust-date year month 1 -1 :month))
+             (prev-year (nth 0 prev))
+             (prev-month (nth 1 prev))
+             (prev-dim (taskjuggler--cal-days-in-month prev-year prev-month))
+             (first-prev (1+ (- prev-dim start-dow))))
+        (dotimes (i start-dow)
+          (push (taskjuggler--cal-make-cell
+                 (+ first-prev i) 'taskjuggler-cal-inactive-face)
+                cells))))
+    ;; Days of the current month.
+    (dotimes (i days-in-month)
+      (let* ((d (1+ i))
+             (face (cond
+                    ((= d selected-day) 'taskjuggler-cal-selected-face)
+                    ((and (= year today-year)
+                          (= month today-month)
+                          (= d today-day))
+                     'taskjuggler-cal-today-face)
+                    (t 'taskjuggler-cal-face))))
+        (push (taskjuggler--cal-make-cell d face) cells)))
+    ;; Trailing cells from the next month.
+    (let ((trailing (% (length cells) 7)))
+      (when (> trailing 0)
+        (let ((need (- 7 trailing)))
+          (dotimes (i need)
+            (push (taskjuggler--cal-make-cell
+                   (1+ i) 'taskjuggler-cal-inactive-face)
+                  cells)))))
+    ;; Group into weeks of 7 and format.
     (let ((all-cells (nreverse cells))
           (weeks '())
           (row '()))
@@ -945,28 +1016,22 @@ SELECTED-DAY is shown in [brackets]."
         (when (= (length row) 7)
           (push (taskjuggler--cal-format-week (nreverse row)) weeks)
           (setq row nil)))
-      (when row
-        ;; Pad final partial week with blanks.
-        (while (< (length row) 7)
-          (push "  " row))
-        (push (taskjuggler--cal-format-week (nreverse row)) weeks))
       (nreverse weeks))))
 
+(defun taskjuggler--cal-make-cell (day face)
+  "Return a propertized 2-character string for DAY with FACE."
+  (propertize (format "%2d" day) 'face face))
+
 (defun taskjuggler--cal-format-week (cells)
-  "Join a list of 7 day CELLS into a single week-row string.
-Handle the variable width of [DD] bracket markers."
-  (let ((parts '())
-        (col 0))
-    (dolist (cell cells)
-      ;; Each column occupies 3 characters (2 digit + 1 space), except last.
-      (let ((target-col (* col 3)))
-        (when (> target-col (length (apply #'concat parts)))
-          (push (make-string (- target-col (length (apply #'concat parts))) ?\s)
-                parts))
-        ;; Bracketed day is 1 char wider; we let it eat into the next separator.
-        (push cell parts))
-      (setq col (1+ col)))
-    (string-trim-right (apply #'concat (nreverse parts)))))
+  "Join a list of 7 propertized day CELLS into a single week-row string.
+Each cell is separated by a space with the base calendar face.
+The row is padded to `taskjuggler--cal-width'."
+  (let* ((sep (propertize " " 'face 'taskjuggler-cal-face))
+         (body (mapconcat #'identity cells sep))
+         ;; Pad left and right with base-face spaces to full width.
+         (pad-left (propertize " " 'face 'taskjuggler-cal-face))
+         (pad-right (propertize " " 'face 'taskjuggler-cal-face)))
+    (concat pad-left body pad-right)))
 
 ;; --- Overlay management ---
 ;;
@@ -1020,8 +1085,7 @@ of YEAR with DAY highlighted."
   (taskjuggler--cal-remove-overlay)
   (unless taskjuggler--cal-column
     (setq taskjuggler--cal-column (current-column)))
-  (let* ((calendar-text (taskjuggler--cal-render year month day))
-         (cal-lines (split-string calendar-text "\n"))
+  (let* ((cal-lines (taskjuggler--cal-render year month day))
          (n-lines (length cal-lines))
          (col taskjuggler--cal-column))
     (save-excursion

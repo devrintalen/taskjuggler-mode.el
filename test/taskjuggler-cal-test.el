@@ -119,26 +119,57 @@
 
 ;; ---- Calendar rendering ----
 
-(ert-deftest tj-cal-render-basic-structure ()
-  "Test that rendered calendar has correct structure."
-  (let ((output (taskjuggler--cal-render 2026 3 1)))
-    ;; Has box borders.
-    (should (string-prefix-p "+" output))
-    (should (string-suffix-p "+" output))
-    ;; Contains the month title.
-    (should (string-match-p "March 2026" output))
-    ;; Contains the day header.
-    (should (string-match-p "Su Mo Tu We Th Fr Sa" output))
-    ;; Contains the selected day in brackets.
-    (should (string-match-p "\\[1\\]" output))))
+(ert-deftest tj-cal-render-returns-list ()
+  "Test that render returns a list of strings with expected structure."
+  (let ((lines (taskjuggler--cal-render 2026 3 1)))
+    ;; Returns a list, not a string.
+    (should (listp lines))
+    ;; First line is title, second is day header, rest are weeks.
+    (should (>= (length lines) 4))
+    ;; Title contains month and year.
+    (should (string-match-p "March 2026" (substring-no-properties (nth 0 lines))))
+    ;; Day header row.
+    (should (string-match-p "Su Mo Tu We Th Fr Sa" (substring-no-properties (nth 1 lines))))))
 
-(ert-deftest tj-cal-render-selected-day ()
-  "Test that the selected day is bracketed and others are not."
-  (let ((output (taskjuggler--cal-render 2024 1 15)))
-    (should (string-match-p "\\[15\\]" output))
-    ;; Day 14 should not be bracketed.
-    (should (string-match-p "14" output))
-    (should-not (string-match-p "\\[14\\]" output))))
+(ert-deftest tj-cal-render-selected-day-face ()
+  "Test that the selected day has the selected face."
+  (let* ((lines (taskjuggler--cal-render 2024 1 15))
+         (all (mapconcat #'identity lines "\n"))
+         ;; Find "15" in the output.
+         (pos (string-match "15" all)))
+    (should pos)
+    (should (eq 'taskjuggler-cal-selected-face (get-text-property pos 'face all)))))
+
+(ert-deftest tj-cal-render-inactive-days ()
+  "Test that prev/next month fill days have the inactive face."
+  ;; March 2026 starts on Sunday — no leading inactive days.
+  ;; It has 31 days, and the grid has 5 weeks (35 cells), so 4 trailing.
+  (let* ((lines (taskjuggler--cal-render 2026 3 15))
+         (last-week (substring-no-properties (car (last lines)))))
+    ;; Last week should contain days 1-4 from April (inactive).
+    (should (string-match-p " 1" last-week))
+    ;; Check the face on a trailing day.
+    (let* ((last-line (car (last lines)))
+           (pos (string-match " 1" last-line)))
+      ;; The "1" character (pos+1) should have inactive face.
+      (should (eq 'taskjuggler-cal-inactive-face
+                  (get-text-property (1+ pos) 'face last-line))))))
+
+(ert-deftest tj-cal-render-leading-inactive ()
+  "Test that leading days from the previous month are shown."
+  ;; Feb 2026 starts on Sunday — no leading days.
+  ;; Jan 2026 starts on Thursday (dow=4) — 4 leading days from Dec 2025.
+  (let* ((lines (taskjuggler--cal-render 2026 1 10))
+         (first-week (substring-no-properties (nth 2 lines))))
+    ;; First week row should start with Dec 28 (Sun), 29, 30, 31.
+    (should (string-match-p "28" first-week))
+    (should (string-match-p "31" first-week))))
+
+(ert-deftest tj-cal-render-consistent-width ()
+  "Test that all lines have the same width."
+  (let* ((lines (taskjuggler--cal-render 2026 3 15))
+         (widths (mapcar #'length lines)))
+    (should (= 1 (length (delete-dups widths))))))
 
 ;; ---- Line splicing ----
 
