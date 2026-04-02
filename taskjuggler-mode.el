@@ -1026,25 +1026,19 @@ Walks up the brace-nesting hierarchy from the innermost block at point,
 collecting the IDs of every ancestor `task' block, and joins them with `.'.
 Returns nil when point is not inside any `task' block."
   (save-excursion
-    (let ((header (taskjuggler--current-block-header))
-          (ids '()))
-      (when header
-        (goto-char header)
-        (let (done)
-          (while (not done)
-            (let ((id (taskjuggler--block-header-task-id (point))))
-              (when id (push id ids)))
-            ;; Prefer (nth 1 (syntax-ppss)) over up-list: scan-lists can land
-            ;; on a sibling's { when scanning backward past balanced pairs.
-            (let* ((ppss (syntax-ppss))
-                   (parent-open (nth 1 ppss)))
-              (if parent-open
-                  (progn
-                    (goto-char parent-open)
-                    (beginning-of-line))
-                (setq done t))))))
-      (when ids
-        (mapconcat #'identity ids ".")))))
+    (when-let ((header (taskjuggler--current-block-header)))
+      (goto-char header)
+      (let (ids parent-open)
+        ;; Prefer (nth 1 (syntax-ppss)) over up-list: scan-lists can land
+        ;; on a sibling's { when scanning backward past balanced pairs.
+        (while (progn
+                 (when-let ((id (taskjuggler--block-header-task-id (point))))
+                   (push id ids))
+                 (setq parent-open (nth 1 (syntax-ppss))))
+          (goto-char parent-open)
+          (beginning-of-line))
+        (when ids
+          (mapconcat #'identity ids "."))))))
 
 (defun taskjuggler--cursor-file ()
   "Return the absolute path to the tj-cursor.js sidecar file, or nil.
@@ -1054,13 +1048,14 @@ location), and directly in the buffer's directory otherwise.
 Returns nil when the buffer is not visiting a file.
 Result is cached in `taskjuggler--cursor-file-cache'."
   (or taskjuggler--cursor-file-cache
-      (when (buffer-file-name)
-        (let* ((dir (file-name-directory (buffer-file-name)))
+      (when-let ((file (buffer-file-name)))
+        (let* ((dir (file-name-directory file))
                (js-dir (expand-file-name "js" dir)))
           (setq taskjuggler--cursor-file-cache
-                (if (file-exists-p (expand-file-name "tjchart.js" js-dir))
-                    (expand-file-name "tj-cursor.js" js-dir)
-                  (expand-file-name "tj-cursor.js" dir)))))))
+                (expand-file-name "tj-cursor.js"
+                                  (if (file-exists-p (expand-file-name "tjchart.js" js-dir))
+                                      js-dir
+                                    dir)))))))
 
 (defun taskjuggler--write-cursor-json (task-id)
   "Write TASK-ID (a string or nil) to the tj-cursor.js sidecar file.
@@ -1068,12 +1063,12 @@ Writes a JS assignment setting window._tjCursorTaskId to the quoted ID
 string or null.  Uses a .js file so the browser can load it via a script
 tag, which works under file:// without CORS restrictions.
 Does nothing when the buffer is not visiting a file."
-  (let ((file (taskjuggler--cursor-file)))
-    (when file
-      (let ((js (if task-id
-                    (concat "window._tjCursorTaskId=\"" task-id "\";\n")
-                  "window._tjCursorTaskId=null;\n")))
-        (write-region js nil file nil 'quiet)))))
+  (when-let ((file (taskjuggler--cursor-file)))
+    (write-region
+     (if task-id
+         (concat "window._tjCursorTaskId=\"" task-id "\";\n")
+       "window._tjCursorTaskId=null;\n")
+     nil file nil 'quiet)))
 
 (defun taskjuggler--start-cursor-tracking ()
   "Start idle-timer-based task-at-point tracking for the current buffer.
