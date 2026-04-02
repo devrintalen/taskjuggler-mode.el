@@ -41,7 +41,7 @@
 ;;   - Flymake integration: on-the-fly error checking via tj3
 ;;   - tj3man integration: C-c C-m looks up keyword docs with completion
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
-;;   - Block editing: C-M-h marks block (incl. comments), C-x n b narrows to
+;;   - Block editing: C-M-h marks block (incl.  comments), C-c C-t n narrows to
 ;;     block, clone-block duplicates the current block
 
 ;;; Code:
@@ -1101,10 +1101,11 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
 ;;; Mode definition
 
 (defvar taskjuggler-command-map (make-sparse-keymap)
-  "Keymap for TaskJuggler commands, bound under prefix \\`C-c C-g'.")
+  "Keymap for TaskJuggler commands.")
 (define-prefix-command 'taskjuggler-command-prefix 'taskjuggler-command-map)
 (define-key taskjuggler-command-map (kbd "d") #'taskjuggler-date-dwim)
 (define-key taskjuggler-command-map (kbd "m") #'taskjuggler-man)
+(define-key taskjuggler-command-map (kbd "n") #'taskjuggler-narrow-to-block)
 
 ;;;###autoload
 (defvar taskjuggler-mode-map
@@ -1116,8 +1117,7 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
     (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
     (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
     (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
-    (define-key map (kbd "C-x n b")  #'taskjuggler-narrow-to-block)
-    (define-key map (kbd "C-c C-g")  'taskjuggler-command-prefix)
+    (define-key map (kbd "C-c C-t")  'taskjuggler-command-prefix)
     map)
   "Keymap for `taskjuggler-mode'.")
 
