@@ -100,22 +100,60 @@
   (should (equal "2024-03-15" (taskjuggler--format-tj-date 2024 3 15)))
   (should (equal "2024-01-01" (taskjuggler--format-tj-date 2024 1 1))))
 
-;; ---- Digit input parsing ----
+;; ---- Typed prefix parsing ----
 
-(ert-deftest tj-cal-parse-digit-input ()
-  "Test parsing various digit input formats."
-  ;; DD
-  (should (equal '(2024 3 15) (taskjuggler--cal-parse-digit-input "15" 2024 3)))
-  ;; MMDD
-  (should (equal '(2024 4 1) (taskjuggler--cal-parse-digit-input "0401" 2024 3)))
-  ;; YYYYMMDD
-  (should (equal '(2025 6 15) (taskjuggler--cal-parse-digit-input "20250615" 2024 3)))
-  ;; MM-DD
-  (should (equal '(2024 4 1) (taskjuggler--cal-parse-digit-input "4-1" 2024 3)))
-  ;; YYYY-MM-DD
-  (should (equal '(2025 6 15) (taskjuggler--cal-parse-digit-input "2025-6-15" 2024 3)))
-  ;; Invalid
-  (should-not (taskjuggler--cal-parse-digit-input "abc" 2024 3)))
+(ert-deftest tj-cal-parse-typed-prefix-year ()
+  "Test parsing after the year portion is typed."
+  (with-temp-buffer
+    (insert "2025-04-01")
+    ;; 4 chars typed → year parsed, month/day from default.
+    (should (equal '(2025 3 15)
+                   (taskjuggler--cal-parse-typed-prefix 1 4 '(2024 3 15))))
+    ;; 7 chars typed → year and month parsed.
+    (should (equal '(2025 4 15)
+                   (taskjuggler--cal-parse-typed-prefix 1 7 '(2024 3 15))))
+    ;; 10 chars typed → full date.
+    (should (equal '(2025 4 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 10 '(2024 3 15))))))
+
+(ert-deftest tj-cal-parse-typed-prefix-clamps-day ()
+  "Test that day is clamped when month changes."
+  (with-temp-buffer
+    ;; Feb has 28 days in 2025, default day=31 should clamp.
+    (insert "2025-02-28")
+    (should (equal '(2025 2 28)
+                   (taskjuggler--cal-parse-typed-prefix 1 7 '(2025 1 31))))))
+
+(ert-deftest tj-cal-valid-char-at-p ()
+  "Test character validation at each position."
+  ;; Digits at non-hyphen positions.
+  (should (taskjuggler--cal-valid-char-at-p ?2 0))
+  (should (taskjuggler--cal-valid-char-at-p ?0 3))
+  ;; Hyphens at positions 4 and 7.
+  (should (taskjuggler--cal-valid-char-at-p ?- 4))
+  (should (taskjuggler--cal-valid-char-at-p ?- 7))
+  ;; Digits not valid at hyphen positions.
+  (should-not (taskjuggler--cal-valid-char-at-p ?1 4))
+  ;; Hyphens not valid at digit positions.
+  (should-not (taskjuggler--cal-valid-char-at-p ?- 0)))
+
+;; ---- Face application ----
+
+(ert-deftest tj-cal-apply-faces ()
+  "Test that typing and pending faces are applied correctly."
+  (with-temp-buffer
+    (insert "2024-03-15")
+    (taskjuggler--cal-apply-faces 1 4)
+    ;; First 4 chars should have typing face.
+    (should (eq 'taskjuggler-cal-typing-face
+                (get-text-property 1 'face)))
+    ;; Remaining chars should have pending face.
+    (should (eq 'taskjuggler-cal-pending-face
+                (get-text-property 5 'face)))
+    ;; Remove faces.
+    (taskjuggler--cal-remove-faces 1)
+    (should-not (get-text-property 1 'face))
+    (should-not (get-text-property 5 'face))))
 
 ;; ---- Calendar rendering ----
 

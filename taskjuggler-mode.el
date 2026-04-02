@@ -145,6 +145,24 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
   "Face for days from the previous or next month."
   :group 'taskjuggler)
 
+(defface taskjuggler-cal-pending-face
+  '((((class color) (background light))
+     :foreground "#333333" :background "#c8d8f0")
+    (((class color) (background dark))
+     :foreground "#e0e0e0" :background "#2a3a55"))
+  "Face for the pre-filled date in the buffer during calendar editing.
+This face indicates the date that will be committed on RET."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-typing-face
+  '((((class color) (background light))
+     :foreground "#000000" :background "#a0c8f0" :weight bold)
+    (((class color) (background dark))
+     :foreground "#ffffff" :background "#3a5a8a" :weight bold))
+  "Face for the user-typed portion of the date during calendar editing.
+Distinguishes characters the user has typed from the pre-filled suffix."
+  :group 'taskjuggler)
+
 ;;; Keyword lists
 
 (defconst taskjuggler-top-level-keywords
@@ -1081,8 +1099,10 @@ Returns a single string with embedded newlines."
   "Display or update the calendar overlay below the current line.
 The calendar is spliced into each line's display at the anchored
 column, preserving buffer text to the left and right.  Shows MONTH
-of YEAR with DAY highlighted."
-  (taskjuggler--cal-remove-overlay)
+of YEAR with DAY highlighted.
+
+On the first call the overlay is created; subsequent calls reuse it
+and only update its `before-string'."
   (unless taskjuggler--cal-column
     (setq taskjuggler--cal-column (current-column)))
   (let* ((cal-lines (taskjuggler--cal-render year month day))
@@ -1091,28 +1111,38 @@ of YEAR with DAY highlighted."
     (save-excursion
       (forward-line 1)
       (let* ((beg (point))
-             ;; Collect the original buffer lines that will be covered.
-             (old-lines (let ((lines '())
-                              (i 0))
-                          (while (and (< i n-lines) (not (eobp)))
-                            (push (buffer-substring
-                                   (line-beginning-position)
-                                   (line-end-position))
-                                  lines)
-                            (forward-line 1)
-                            (setq i (1+ i)))
-                          (nreverse lines)))
+             (old-lines (taskjuggler--cal-collect-lines n-lines))
              (end (point))
              (display-str (taskjuggler--cal-build-display
-                           cal-lines old-lines col))
-             (ov (make-overlay beg end nil t)))
-        (overlay-put ov 'display "")
-        (overlay-put ov 'before-string (concat display-str "\n"))
-        (overlay-put ov 'line-prefix "")
-        (overlay-put ov 'window (selected-window))
-        (overlay-put ov 'priority 111)
-        (overlay-put ov 'taskjuggler-calendar t)
-        (setq taskjuggler--cal-overlay ov)))))
+                           cal-lines old-lines col)))
+        (if taskjuggler--cal-overlay
+            ;; Reuse existing overlay — just update the display content.
+            ;; Move it if the region changed (e.g. different week count).
+            (progn
+              (move-overlay taskjuggler--cal-overlay beg end)
+              (overlay-put taskjuggler--cal-overlay
+                           'before-string (concat display-str "\n")))
+          ;; First call — create the overlay.
+          (let ((ov (make-overlay beg end nil t)))
+            (overlay-put ov 'display "")
+            (overlay-put ov 'before-string (concat display-str "\n"))
+            (overlay-put ov 'line-prefix "")
+            (overlay-put ov 'window (selected-window))
+            (overlay-put ov 'priority 111)
+            (overlay-put ov 'taskjuggler-calendar t)
+            (setq taskjuggler--cal-overlay ov)))))))
+
+(defun taskjuggler--cal-collect-lines (n)
+  "Collect N buffer lines starting from point, preserving text properties.
+Advances point past the collected lines.  Returns a list of strings."
+  (let ((lines '())
+        (i 0))
+    (while (and (< i n) (not (eobp)))
+      (push (buffer-substring (line-beginning-position) (line-end-position))
+            lines)
+      (forward-line 1)
+      (setq i (1+ i)))
+    (nreverse lines)))
 
 (defun taskjuggler--cal-remove-overlay ()
   "Remove the calendar overlay if it exists."
@@ -1120,125 +1150,235 @@ of YEAR with DAY highlighted."
     (delete-overlay taskjuggler--cal-overlay)
     (setq taskjuggler--cal-overlay nil)))
 
-;; --- Digit input accumulator ---
+;; --- In-buffer date editing ---
+;;
+;; The date text lives in the buffer during editing.  A "typed-len"
+;; counter tracks how many characters from the left the user has
+;; explicitly typed (shown with `taskjuggler-cal-typing-face'); the
+;; remainder uses `taskjuggler-cal-pending-face' to indicate the
+;; pre-filled value that RET will commit.
 
-(defun taskjuggler--cal-read-digits (first-char)
-  "Read a date from digit input, starting with FIRST-CHAR.
-Accumulate digits and hyphens; return the string when a non-digit,
-non-hyphen key is pressed.  The terminating key is returned to the
-event queue via `unread-command-events'."
-  (let ((chars (list first-char)))
-    (catch 'done
-      (while t
-        (let* ((prompt (concat "Date: " (apply #'string (reverse chars))))
-               (ch (read-char prompt)))
-          (if (or (<= ?0 ch ?9) (= ch ?-))
-              (push ch chars)
-            ;; Put the terminating key back so the main loop can handle it.
-            (push (cons t ch) unread-command-events)
-            (throw 'done (apply #'string (reverse chars)))))))))
+(defconst taskjuggler--cal-date-len 10
+  "Length of a YYYY-MM-DD date string.")
 
-(defun taskjuggler--cal-parse-digit-input (input year month)
-  "Parse digit INPUT into a (YEAR MONTH DAY) list.
-INPUT can be DD, MMDD, YYYYMMDD, MM-DD, or YYYY-MM-DD.
-YEAR and MONTH are defaults for unspecified components."
-  (cond
-   ;; YYYY-MM-DD
-   ((string-match "\\`\\([0-9]\\{4\\}\\)-\\([0-9]\\{1,2\\}\\)-\\([0-9]\\{1,2\\}\\)\\'" input)
-    (list (string-to-number (match-string 1 input))
-          (string-to-number (match-string 2 input))
-          (string-to-number (match-string 3 input))))
-   ;; MM-DD
-   ((string-match "\\`\\([0-9]\\{1,2\\}\\)-\\([0-9]\\{1,2\\}\\)\\'" input)
-    (list year
-          (string-to-number (match-string 1 input))
-          (string-to-number (match-string 2 input))))
-   ;; YYYYMMDD (8 digits)
-   ((string-match "\\`\\([0-9]\\{4\\}\\)\\([0-9]\\{2\\}\\)\\([0-9]\\{2\\}\\)\\'" input)
-    (list (string-to-number (match-string 1 input))
-          (string-to-number (match-string 2 input))
-          (string-to-number (match-string 3 input))))
-   ;; MMDD (4 digits)
-   ((string-match "\\`\\([0-9]\\{2\\}\\)\\([0-9]\\{2\\}\\)\\'" input)
-    (list year
-          (string-to-number (match-string 1 input))
-          (string-to-number (match-string 2 input))))
-   ;; DD (1-2 digits)
-   ((string-match "\\`\\([0-9]\\{1,2\\}\\)\\'" input)
-    (list year month (string-to-number (match-string 1 input))))
-   (t nil)))
+(defconst taskjuggler--cal-date-template "YYYY-MM-DD"
+  "Expected format for typed date input.")
+
+(defconst taskjuggler--cal-help-message
+  "S-arrows: day/week  S-PgUp/Dn: month  Type: YYYY-MM-DD  RET: confirm  C-g: cancel"
+  "Help text shown in the echo area during calendar editing.")
+
+(defun taskjuggler--cal-valid-char-at-p (ch pos)
+  "Return non-nil if CH is valid at position POS in a YYYY-MM-DD string."
+  (if (or (= pos 4) (= pos 7))
+      (= ch ?-)
+    (<= ?0 ch ?9)))
+
+(defun taskjuggler--cal-apply-faces (date-beg typed-len)
+  "Apply typing and pending faces to the date string at DATE-BEG.
+Characters 0..TYPED-LEN-1 get the typing face; the rest get pending."
+  (let ((date-end (+ date-beg taskjuggler--cal-date-len)))
+    (when (> typed-len 0)
+      (put-text-property date-beg (+ date-beg typed-len)
+                         'face 'taskjuggler-cal-typing-face))
+    (when (< typed-len taskjuggler--cal-date-len)
+      (put-text-property (+ date-beg typed-len) date-end
+                         'face 'taskjuggler-cal-pending-face))))
+
+(defun taskjuggler--cal-remove-faces (date-beg)
+  "Remove the typing/pending faces from the date string at DATE-BEG."
+  (remove-text-properties date-beg (+ date-beg taskjuggler--cal-date-len)
+                          '(face nil)))
+
+(defun taskjuggler--cal-update-prefill (date-beg typed-len year month day)
+  "Update the pre-filled suffix of the date at DATE-BEG.
+The first TYPED-LEN characters are left untouched.  The rest are
+filled with the formatted YEAR-MONTH-DAY date."
+  (let* ((full-date (taskjuggler--format-tj-date year month day))
+         (suffix (substring full-date typed-len)))
+    (save-excursion
+      (goto-char (+ date-beg typed-len))
+      (delete-char (length suffix))
+      (insert suffix))))
+
+(defun taskjuggler--cal-parse-typed-prefix (date-beg typed-len default-date)
+  "Parse the typed prefix at DATE-BEG and return (YEAR MONTH DAY).
+Uses DEFAULT-DATE (a (YEAR MONTH DAY) list) for components not yet
+typed.  TYPED-LEN is how many characters have been typed so far."
+  (let* ((year (nth 0 default-date))
+         (month (nth 1 default-date))
+         (day (nth 2 default-date))
+         (typed (buffer-substring-no-properties
+                 date-beg (+ date-beg typed-len))))
+    (when (>= typed-len 4)
+      (let ((y (string-to-number (substring typed 0 4))))
+        (when (> y 0) (setq year y))))
+    (when (>= typed-len 7)
+      (let ((m (string-to-number (substring typed 5 7))))
+        (when (<= 1 m 12) (setq month m))))
+    (when (>= typed-len 10)
+      (let ((d (string-to-number (substring typed 8 10))))
+        (when (>= d 1)
+          (setq day (min d (taskjuggler--cal-days-in-month year month))))))
+    (list year month (taskjuggler--cal-clamp-day year month day))))
 
 ;; --- Main event loop ---
 
-(defun taskjuggler--cal-read-date (year month day)
-  "Show an inline calendar and let the user pick a date.
-Start at YEAR-MONTH-DAY.  Return (YEAR MONTH DAY) on RET, or nil on C-g."
-  (taskjuggler--cal-show-overlay year month day)
-  (unwind-protect
-      (catch 'taskjuggler--cal-done
-        (while t
-          (let* ((key (read-key-sequence-vector
-                       (format "TJ3 date: %s  (arrows/digits/RET/C-g)"
-                               (taskjuggler--format-tj-date year month day))))
-                 (event (aref key 0)))
-            (pcase event
-              ;; Confirm
-              ('return
-               (throw 'taskjuggler--cal-done (list year month day)))
-              ;; Cancel
-              ((pred (lambda (e) (or (equal e ?\C-g)
-                                     (equal e 'escape))))
-               (throw 'taskjuggler--cal-done nil))
-              ;; Navigation: shift-arrows
-              ('S-right
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day 1 :day)))
-                 (setq year y month m day d)))
-              ('S-left
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day -1 :day)))
-                 (setq year y month m day d)))
-              ('S-down
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day 1 :week)))
-                 (setq year y month m day d)))
-              ('S-up
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day -1 :week)))
-                 (setq year y month m day d)))
-              ('S-next
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day 1 :month)))
-                 (setq year y month m day d)))
-              ('S-prior
-               (pcase-let ((`(,y ,m ,d) (taskjuggler--cal-adjust-date year month day -1 :month)))
-                 (setq year y month m day d)))
-              ;; Digit input: accumulate and parse as a date.
-              ((pred (lambda (e) (and (integerp e) (<= ?0 e ?9))))
-               (let* ((input (taskjuggler--cal-read-digits event))
-                      (parsed (taskjuggler--cal-parse-digit-input input year month)))
-                 (if parsed
-                     (pcase-let ((`(,y ,m ,d) parsed))
-                       (setq year y
-                             month (max 1 (min 12 m))
-                             day (taskjuggler--cal-clamp-day
-                                  year month (max 1 d))))
-                   (message "Could not parse date: %s" input)
-                   (sit-for 1))))
-              ;; Unknown key — ignore.
-              (_ nil))
-            ;; Refresh the overlay after every navigation.
-            (taskjuggler--cal-show-overlay year month day))))
-    ;; Cleanup: always remove overlay and reset anchored column.
-    (taskjuggler--cal-remove-overlay)
-    (setq taskjuggler--cal-column nil)))
+(defun taskjuggler--cal-classify-event (event)
+  "Classify EVENT into an action keyword for the calendar event loop.
+Returns one of: `confirm', `cancel', `backspace', a shift-arrow
+symbol (S-right etc.), `digit', or nil for unrecognised events."
+  (cond
+   ;; Confirm: RET / C-m / Enter.
+   ((or (eq event 'return) (equal event ?\C-m)
+        (eq event 'RET))
+    'confirm)
+   ;; Cancel: C-g / Escape.
+   ((or (equal event ?\C-g) (eq event 'escape)
+        (equal event ?\e))
+    'cancel)
+   ;; Backspace / DEL.
+   ((and (integerp event) (or (= event ?\C-?) (= event ?\C-h)))
+    'backspace)
+   ;; Shift-arrows and shift-pgup/pgdn.
+   ((memq event '(S-right S-left S-down S-up S-next S-prior))
+    event)
+   ;; Digit or hyphen for date input.
+   ((and (integerp event) (or (<= ?0 event ?9) (= event ?-)))
+    'digit)
+   (t nil)))
+
+(defun taskjuggler--cal-nav-delta (event)
+  "Return (DELTA . UNIT) for a shift-arrow EVENT."
+  (pcase event
+    ('S-right '(1 . :day))
+    ('S-left  '(-1 . :day))
+    ('S-down  '(1 . :week))
+    ('S-up    '(-1 . :week))
+    ('S-next  '(1 . :month))
+    ('S-prior '(-1 . :month))))
+
+(defun taskjuggler--cal-edit (date-beg year month day was-inserted)
+  "Run the calendar editing loop with the date at DATE-BEG.
+YEAR, MONTH, DAY are the initial date.  WAS-INSERTED is non-nil if
+the date was freshly inserted (should be deleted on cancel).
+Point is at DATE-BEG on entry.  Returns non-nil if the date was
+committed, nil if cancelled."
+  (let ((typed-len 0)
+        (orig-date (list year month day))
+        (committed nil))
+    (taskjuggler--cal-apply-faces date-beg typed-len)
+    (taskjuggler--cal-show-overlay year month day)
+    (unwind-protect
+        (catch 'taskjuggler--cal-done
+          (while t
+            (message "%s" taskjuggler--cal-help-message)
+            (let* ((event (read-event))
+                   (action (taskjuggler--cal-classify-event event)))
+              (pcase action
+                ;; --- Confirm ---
+                ('confirm
+                 (setq committed t)
+                 (throw 'taskjuggler--cal-done t))
+                ;; --- Cancel ---
+                ('cancel
+                 (throw 'taskjuggler--cal-done nil))
+                ;; --- Backspace while typing ---
+                ('backspace
+                 (when (> typed-len 0)
+                   (setq typed-len (1- typed-len))
+                   ;; If backspace lands on a hyphen, skip past it too.
+                   (when (and (> typed-len 0)
+                              (memq typed-len '(4 7)))
+                     (setq typed-len (1- typed-len)))
+                   ;; Re-derive date from remaining typed prefix.
+                   (let ((parsed (taskjuggler--cal-parse-typed-prefix
+                                  date-beg typed-len orig-date)))
+                     (setq year (nth 0 parsed)
+                           month (nth 1 parsed)
+                           day (nth 2 parsed)))
+                   (taskjuggler--cal-update-prefill
+                    date-beg typed-len year month day)
+                   (taskjuggler--cal-apply-faces date-beg typed-len)
+                   (goto-char (+ date-beg typed-len))
+                   (taskjuggler--cal-show-overlay year month day)))
+                ;; --- Navigation: shift-arrows ---
+                ((and (pred symbolp)
+                      (pred (lambda (a) (taskjuggler--cal-nav-delta a))))
+                 (let* ((delta-unit (taskjuggler--cal-nav-delta action))
+                        (adjusted (taskjuggler--cal-adjust-date
+                                   year month day
+                                   (car delta-unit) (cdr delta-unit))))
+                   (setq year (nth 0 adjusted)
+                         month (nth 1 adjusted)
+                         day (nth 2 adjusted))
+                   ;; Reset typing state — arrow nav replaces entire date.
+                   (setq typed-len 0)
+                   (taskjuggler--cal-update-prefill date-beg 0
+                                                    year month day)
+                   (taskjuggler--cal-apply-faces date-beg typed-len)
+                   (goto-char date-beg)
+                   (taskjuggler--cal-show-overlay year month day)))
+                ;; --- Digit / hyphen input ---
+                ('digit
+                 (when (and (< typed-len taskjuggler--cal-date-len)
+                            (taskjuggler--cal-valid-char-at-p
+                             event typed-len))
+                   ;; Auto-insert hyphens at positions 4 and 7.
+                   (when (and (or (= typed-len 4) (= typed-len 7))
+                              (/= event ?-))
+                     (setq typed-len (1+ typed-len)))
+                   ;; Write the character into the buffer.
+                   (save-excursion
+                     (goto-char (+ date-beg typed-len))
+                     (delete-char 1)
+                     (insert (char-to-string event)))
+                   (setq typed-len (1+ typed-len))
+                   ;; Auto-advance past hyphens.
+                   (when (and (< typed-len taskjuggler--cal-date-len)
+                              (or (= typed-len 4) (= typed-len 7)))
+                     (setq typed-len (1+ typed-len)))
+                   ;; Parse what's been typed and update.
+                   (let ((parsed (taskjuggler--cal-parse-typed-prefix
+                                  date-beg typed-len orig-date)))
+                     (setq year (nth 0 parsed)
+                           month (nth 1 parsed)
+                           day (nth 2 parsed)))
+                   (taskjuggler--cal-update-prefill
+                    date-beg typed-len year month day)
+                   (taskjuggler--cal-apply-faces date-beg typed-len)
+                   (goto-char (+ date-beg typed-len))
+                   (taskjuggler--cal-show-overlay year month day)))
+                ;; --- Unknown key — ignore ---
+                (_ nil)))))
+      ;; Cleanup.
+      (taskjuggler--cal-remove-overlay)
+      (setq taskjuggler--cal-column nil)
+      (if committed
+          ;; Commit: remove editing faces, leave the date text.
+          (taskjuggler--cal-remove-faces date-beg)
+        ;; Cancel: restore original state.
+        (if was-inserted
+            ;; Date was freshly inserted — delete it.
+            (delete-region date-beg (+ date-beg taskjuggler--cal-date-len))
+          ;; Date existed — restore the original text.
+          (save-excursion
+            (goto-char date-beg)
+            (delete-char taskjuggler--cal-date-len)
+            (insert (apply #'taskjuggler--format-tj-date orig-date)))
+          (taskjuggler--cal-remove-faces date-beg))))))
 
 ;; --- Public date commands ---
 
 (defun taskjuggler-insert-date ()
   "Insert a TaskJuggler date literal at point using an inline calendar.
-The calendar defaults to today's date."
+Inserts today's date with a pending face and opens the calendar picker."
   (interactive)
   (pcase-let ((`(,_ ,_min ,_hour ,day ,month ,year . ,_) (decode-time)))
-    (let ((result (taskjuggler--cal-read-date year month day)))
-      (when result
-        (pcase-let ((`(,y ,m ,d) result))
-          (insert (taskjuggler--format-tj-date y m d)))))))
+    (let ((date-beg (point)))
+      (insert (taskjuggler--format-tj-date year month day))
+      (goto-char date-beg)
+      (taskjuggler--cal-edit date-beg year month day t))))
 
 (defun taskjuggler-date-dwim ()
   "Insert or edit a TaskJuggler date literal depending on context.
@@ -1256,16 +1396,14 @@ The existing date pre-fills the calendar."
   (let ((bounds (taskjuggler--date-bounds-at-point)))
     (unless bounds
       (user-error "No TaskJuggler date at point"))
-    (let* ((old-string (buffer-substring-no-properties (car bounds) (cdr bounds)))
+    (let* ((date-beg (car bounds))
+           (old-string (buffer-substring-no-properties date-beg (cdr bounds)))
            (parsed (taskjuggler--parse-tj-date old-string)))
       (unless parsed
         (user-error "Cannot parse date: %s" old-string))
       (pcase-let ((`(,year ,month ,day) parsed))
-        (let ((result (taskjuggler--cal-read-date year month day)))
-          (when result
-            (pcase-let ((`(,y ,m ,d) result))
-              (delete-region (car bounds) (cdr bounds))
-              (insert (taskjuggler--format-tj-date y m d)))))))))
+        (goto-char date-beg)
+        (taskjuggler--cal-edit date-beg year month day nil)))))
 
 ;;; Compilation
 
