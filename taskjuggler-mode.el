@@ -707,6 +707,8 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
 
+;;; Block editing
+
 (defun taskjuggler-clone-block ()
   "Duplicate the current block immediately after itself.
 A blank line separates the original from the clone.  The clone includes any
@@ -1093,6 +1095,34 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
     (setq taskjuggler--cursor-idle-timer nil))
   (taskjuggler--write-cursor-json nil))
 
+;;; Evil integration
+
+(declare-function evil-define-key* "evil-core")
+
+;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
+;; gh       — parent block (mirrors C-M-u)
+;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
+;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
+;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
+;; [[ / ]]  — start / end of current block (defun integration)
+;; evil-define-key* (function) is used instead of evil-define-key (macro)
+;; so the call survives byte-compilation without evil present.
+(defun taskjuggler--setup-evil-keys ()
+  "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
+  (when (fboundp 'evil-define-key*)
+    (evil-define-key* 'normal taskjuggler-mode-map
+      (kbd "gj") #'taskjuggler-next-block
+      (kbd "gk") #'taskjuggler-prev-block
+      (kbd "gh") #'taskjuggler-goto-parent
+      (kbd "gl") #'taskjuggler-goto-first-child
+      (kbd "gL") #'taskjuggler-goto-last-child
+      (kbd "]t") #'taskjuggler-forward-block-sexp
+      (kbd "[t") #'taskjuggler-backward-block-sexp
+      (kbd "]B") #'taskjuggler-forward-block
+      (kbd "[B") #'taskjuggler-backward-block
+      (kbd "[[") #'beginning-of-defun
+      (kbd "]]") #'end-of-defun)))
+
 ;;; Mode definition
 
 (defvar taskjuggler-command-map (make-sparse-keymap)
@@ -1172,33 +1202,6 @@ See URL `https://taskjuggler.org' for more information.
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
-
-(declare-function evil-define-key* "evil-core")
-
-;; Evil-mode navigation bindings (normal state).
-;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
-;; gh       — parent block (mirrors C-M-u)
-;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
-;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
-;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
-;; [[ / ]]  — start / end of current block (defun integration)
-;; evil-define-key* (function) is used instead of evil-define-key (macro)
-;; so the call survives byte-compilation without evil present.
-(defun taskjuggler--setup-evil-keys ()
-  "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
-  (when (fboundp 'evil-define-key*)
-    (evil-define-key* 'normal taskjuggler-mode-map
-      (kbd "gj") #'taskjuggler-next-block
-      (kbd "gk") #'taskjuggler-prev-block
-      (kbd "gh") #'taskjuggler-goto-parent
-      (kbd "gl") #'taskjuggler-goto-first-child
-      (kbd "gL") #'taskjuggler-goto-last-child
-      (kbd "]t") #'taskjuggler-forward-block-sexp
-      (kbd "[t") #'taskjuggler-backward-block-sexp
-      (kbd "]B") #'taskjuggler-forward-block
-      (kbd "[B") #'taskjuggler-backward-block
-      (kbd "[[") #'beginning-of-defun
-      (kbd "]]") #'end-of-defun)))
 
 ;;; Yasnippet
 
