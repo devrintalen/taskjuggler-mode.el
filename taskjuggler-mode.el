@@ -1004,7 +1004,13 @@ defaulting to the word at point."
 ;; the sidecar file can land next to the generated HTML when they differ.
 
 (defvar-local taskjuggler--cursor-idle-timer nil
-  "Idle timer that updates tj-cursor.json while this buffer is live.")
+  "Idle timer that updates tj-cursor.js while this buffer is live.")
+
+(defvar-local taskjuggler--cursor-last-id :unset
+  "Last task ID written to tj-cursor.js; :unset before the first write.")
+
+(defvar-local taskjuggler--cursor-file-cache nil
+  "Cached path to the tj-cursor.js sidecar file for this buffer.")
 
 (defun taskjuggler--block-header-task-id (header-pos)
   "If the line at HEADER-POS is a `task' declaration, return its ID string.
@@ -1026,13 +1032,10 @@ Returns nil when point is not inside any `task' block."
         (goto-char header)
         (let (done)
           (while (not done)
-            ;; Collect this level's task ID (nil for non-task blocks).
             (let ((id (taskjuggler--block-header-task-id (point))))
               (when id (push id ids)))
-            ;; Walk up using (nth 1 (syntax-ppss)), which directly gives the
-            ;; buffer position of the enclosing {.  This is more reliable than
-            ;; up-list, which uses scan-lists and can land on a preceding
-            ;; sibling's { when scanning backward through balanced pairs.
+            ;; Prefer (nth 1 (syntax-ppss)) over up-list: scan-lists can land
+            ;; on a sibling's { when scanning backward past balanced pairs.
             (let* ((ppss (syntax-ppss))
                    (parent-open (nth 1 ppss)))
               (if parent-open
@@ -1048,13 +1051,16 @@ Returns nil when point is not inside any `task' block."
 The file is placed in the js/ subdirectory of the buffer's directory when
 js/tjchart.js exists there (indicating that is the HTML report output
 location), and directly in the buffer's directory otherwise.
-Returns nil when the buffer is not visiting a file."
-  (when (buffer-file-name)
-    (let* ((dir (file-name-directory (buffer-file-name)))
-           (js-dir (expand-file-name "js" dir)))
-      (if (file-exists-p (expand-file-name "tjchart.js" js-dir))
-          (expand-file-name "tj-cursor.js" js-dir)
-        (expand-file-name "tj-cursor.js" dir)))))
+Returns nil when the buffer is not visiting a file.
+Result is cached in `taskjuggler--cursor-file-cache'."
+  (or taskjuggler--cursor-file-cache
+      (when (buffer-file-name)
+        (let* ((dir (file-name-directory (buffer-file-name)))
+               (js-dir (expand-file-name "js" dir)))
+          (setq taskjuggler--cursor-file-cache
+                (if (file-exists-p (expand-file-name "tjchart.js" js-dir))
+                    (expand-file-name "tj-cursor.js" js-dir)
+                  (expand-file-name "tj-cursor.js" dir)))))))
 
 (defun taskjuggler--write-cursor-json (task-id)
   "Write TASK-ID (a string or nil) to the tj-cursor.js sidecar file.
@@ -1069,10 +1075,6 @@ Does nothing when the buffer is not visiting a file."
                   "window._tjCursorTaskId=null;\n")))
         (write-region js nil file nil 'quiet)))))
 
-(defun taskjuggler--cursor-update ()
-  "Recompute the task at point and write tj-cursor.json."
-  (taskjuggler--write-cursor-json (taskjuggler--full-task-id-at-point)))
-
 (defun taskjuggler--start-cursor-tracking ()
   "Start idle-timer-based task-at-point tracking for the current buffer.
 Does nothing when `taskjuggler-cursor-idle-delay' is nil."
@@ -1084,10 +1086,13 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
              (lambda ()
                (when (buffer-live-p buf)
                  (with-current-buffer buf
-                   (taskjuggler--cursor-update)))))))))
+                   (let ((id (taskjuggler--full-task-id-at-point)))
+                     (unless (equal id taskjuggler--cursor-last-id)
+                       (setq taskjuggler--cursor-last-id id)
+                       (taskjuggler--write-cursor-json id)))))))))))
 
 (defun taskjuggler--stop-cursor-tracking ()
-  "Cancel the cursor-tracking timer and write {\"taskId\":null} to the sidecar file."
+  "Cancel the cursor-tracking timer and write null to the tj-cursor.js sidecar file."
   (when (timerp taskjuggler--cursor-idle-timer)
     (cancel-timer taskjuggler--cursor-idle-timer)
     (setq taskjuggler--cursor-idle-timer nil))
