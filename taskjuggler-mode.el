@@ -1355,8 +1355,11 @@ committed, nil if cancelled."
       (taskjuggler--cal-remove-overlay)
       (setq taskjuggler--cal-column nil)
       (if committed
-          ;; Commit: remove editing faces, leave the date text.
-          (taskjuggler--cal-remove-faces date-beg)
+          ;; Commit: remove editing faces, leave the date text, and
+          ;; move point to just after the date.
+          (progn
+            (taskjuggler--cal-remove-faces date-beg)
+            (goto-char (+ date-beg taskjuggler--cal-date-len)))
         ;; Cancel: restore original state.
         (if was-inserted
             ;; Date was freshly inserted — delete it.
