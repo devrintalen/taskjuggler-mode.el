@@ -1011,8 +1011,9 @@ defaulting to the word at point."
 (defvar-local taskjuggler--cursor-last-id :unset
   "Last task ID written to tj-cursor.js; :unset before the first write.")
 
-(defvar-local taskjuggler--cursor-file-cache nil
-  "Cached path to the tj-cursor.js sidecar file for this buffer.")
+(defvar-local taskjuggler--cursor-file-cache :unset
+  "Cached path to the tj-cursor.js sidecar file, or nil if js/ is absent.
+:unset before the first lookup.")
 
 (defun taskjuggler--block-header-task-id (header-pos)
   "If the line at HEADER-POS is a `task' declaration, return its ID string.
@@ -1044,20 +1045,20 @@ Returns nil when point is not inside any `task' block."
 
 (defun taskjuggler--cursor-file ()
   "Return the absolute path to the tj-cursor.js sidecar file, or nil.
-The file is placed in the js/ subdirectory of the buffer's directory when
-js/tjchart.js exists there (indicating that is the HTML report output
-location), and directly in the buffer's directory otherwise.
-Returns nil when the buffer is not visiting a file.
-Result is cached in `taskjuggler--cursor-file-cache'."
-  (or taskjuggler--cursor-file-cache
-      (when-let ((file (buffer-file-name)))
-        (let* ((dir (file-name-directory file))
-               (js-dir (expand-file-name "js" dir)))
-          (setq taskjuggler--cursor-file-cache
-                (expand-file-name "tj-cursor.js"
-                                  (if (file-exists-p (expand-file-name "tjchart.js" js-dir))
-                                      js-dir
-                                    dir)))))))
+The file is placed in the js/ subdirectory of the buffer's directory.
+Returns nil when the buffer is not visiting a file or js/ does not exist.
+Result is cached in `taskjuggler--cursor-file-cache'; the not-found
+message is emitted only once per buffer."
+  (if (not (eq taskjuggler--cursor-file-cache :unset))
+      taskjuggler--cursor-file-cache
+    (setq taskjuggler--cursor-file-cache
+          (when-let ((file (buffer-file-name)))
+            (let ((js-dir (expand-file-name "js" (file-name-directory file))))
+              (if (file-directory-p js-dir)
+                  (expand-file-name "tj-cursor.js" js-dir)
+                (message "taskjuggler: js/ not found in %s; cursor tracking disabled"
+                         (file-name-directory file))
+                nil))))))
 
 (defun taskjuggler--write-cursor-json (task-id)
   "Write TASK-ID (a string or nil) to the tj-cursor.js sidecar file.
@@ -1094,6 +1095,16 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
     (cancel-timer taskjuggler--cursor-idle-timer)
     (setq taskjuggler--cursor-idle-timer nil))
   (taskjuggler--write-cursor-json nil))
+
+(defun taskjuggler--reset-cursor-file-cache (&rest _)
+  "Reset the cursor file cache in all live `taskjuggler-mode' buffers.
+Added to `compilation-finish-functions' so the js/ directory is
+re-checked after a compile run that may have created it."
+  (dolist (buf (buffer-list))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (when (derived-mode-p 'taskjuggler-mode)
+          (setq taskjuggler--cursor-file-cache :unset))))))
 
 ;;; Evil integration
 
@@ -1191,6 +1202,7 @@ See URL `https://taskjuggler.org' for more information.
   ;; Cursor tracking: write tj-cursor.json while this buffer is live.
   (taskjuggler--start-cursor-tracking)
   (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
+  (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded (the top-level
