@@ -105,60 +105,74 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
 
 ;; Calendar popup faces
 
+;; Based on the rendering code, here's the mapping:
+
+;; ```
+;;   Buffer (in-place date text)
+;;   ───────────────────────────
+;;   start 2026-04-15
+;;         ╔════╗╔══════╗
+;;         ║2026║║-04-15║
+;;         ╚════╝╚══════╝
+;;            │      └── taskjuggler-cal-pending-face
+;;            └───────── taskjuggler-cal-typing-face
+;;           (typed-len=4 here)
+
+;;   Overlay (popup below current line)
+;;   ────────────────────────────────────────────
+;;   ╔══════════════════════╗
+;;   ║     April 2026       ║  taskjuggler-cal-header-face
+;;   ║  Su Mo Tu We Th Fr Sa║  taskjuggler-cal-header-face
+;;   ║ 29 30 31  1 [2] 3  4 ║  ┐
+;;   ║  5  6  7  8  9 10 11 ║  │  space separators between
+;;   ║ 12 13 14[15]16 17 18 ║  │  cells: taskjuggler-cal-face
+;;   ║ 19 20 21 22 23 24 25 ║  │
+;;   ║ 26 27 28 29 30  1  2 ║  ┘
+;;   ╚══════════════════════╝
+
+;;   Cell faces (2-char cells only; spaces use taskjuggler-cal-face):
+;;     29 30 31          → taskjuggler-cal-inactive-face  (prev month)
+;;      1  3  4 ...      → taskjuggler-cal-face           (regular days)
+;;     [2]               → taskjuggler-cal-today-face     (today, not selected)
+;;    [15]               → taskjuggler-cal-selected-face  (selected day)
+;;      1  2  (last row) → taskjuggler-cal-inactive-face  (next month)
+;; ```
+
+;; The box borders are not rendered — they're just here for clarity. The face backgrounds provide the visual container.
+
 (defface taskjuggler-cal-face
-  '((((class color) (background light))
-     :foreground "#333333" :background "#e8e8e8")
-    (((class color) (background dark))
-     :foreground "#e0e0e0" :background "#3a3a3a"))
+  '((t :inherit tooltip))
   "Base face for the calendar popup background and day cells."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-header-face
-  '((((class color) (background light))
-     :foreground "#ffffff" :background "#5974ab" :weight bold)
-    (((class color) (background dark))
-     :foreground "#ffffff" :background "#4a6291" :weight bold))
+  '((t :inherit header-line :weight bold))
   "Face for the calendar month title and day-of-week header."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-selected-face
-  '((((class color) (background light))
-     :foreground "#ffffff" :background "#3a5ea0" :weight bold)
-    (((class color) (background dark))
-     :foreground "#ffffff" :background "#5a7ec0" :weight bold))
+  '((t :inherit highlight))
   "Face for the currently selected day in the calendar."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-today-face
-  '((((class color) (background light))
-     :foreground "#3a5ea0" :background "#d0d8e8" :weight bold)
-    (((class color) (background dark))
-     :foreground "#8ab4f8" :background "#2a3a50" :weight bold))
+  '((t :inherit warning :weight bold))
   "Face for today's date when visible but not selected."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-inactive-face
-  '((((class color) (background light))
-     :foreground "#999999" :background "#e8e8e8")
-    (((class color) (background dark))
-     :foreground "#666666" :background "#3a3a3a"))
+  '((t :inherit (shadow tooltip)))
   "Face for days from the previous or next month."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-pending-face
-  '((((class color) (background light))
-     :foreground "#333333" :background "#c8d8f0")
-    (((class color) (background dark))
-     :foreground "#e0e0e0" :background "#2a3a55"))
+  '((t :inherit secondary-selection))
   "Face for the pre-filled date in the buffer during calendar editing.
 This face indicates the date that will be committed on RET."
   :group 'taskjuggler)
 
 (defface taskjuggler-cal-typing-face
-  '((((class color) (background light))
-     :foreground "#000000" :background "#a0c8f0" :weight bold)
-    (((class color) (background dark))
-     :foreground "#ffffff" :background "#3a5a8a" :weight bold))
+  '((t :inherit isearch :weight bold))
   "Face for the user-typed portion of the date during calendar editing.
 Distinguishes characters the user has typed from the pre-filled suffix."
   :group 'taskjuggler)
@@ -1295,10 +1309,6 @@ committed, nil if cancelled."
                 ('backspace
                  (when (> typed-len 0)
                    (setq typed-len (1- typed-len))
-                   ;; If backspace lands on a hyphen, skip past it too.
-                   (when (and (> typed-len 0)
-                              (memq typed-len '(4 7)))
-                     (setq typed-len (1- typed-len)))
                    ;; Re-derive date from remaining typed prefix.
                    (let ((parsed (taskjuggler--cal-parse-typed-prefix
                                   date-beg typed-len orig-date)))
@@ -1324,20 +1334,12 @@ committed, nil if cancelled."
                  (when (and (< typed-len taskjuggler--cal-date-len)
                             (taskjuggler--cal-valid-char-at-p
                              event typed-len))
-                   ;; Auto-insert hyphens at positions 4 and 7.
-                   (when (and (or (= typed-len 4) (= typed-len 7))
-                              (/= event ?-))
-                     (setq typed-len (1+ typed-len)))
                    ;; Write the character into the buffer.
                    (save-excursion
                      (goto-char (+ date-beg typed-len))
                      (delete-char 1)
                      (insert (char-to-string event)))
                    (setq typed-len (1+ typed-len))
-                   ;; Auto-advance past hyphens.
-                   (when (and (< typed-len taskjuggler--cal-date-len)
-                              (or (= typed-len 4) (= typed-len 7)))
-                     (setq typed-len (1+ typed-len)))
                    ;; Parse what's been typed and update.
                    (let ((parsed (taskjuggler--cal-parse-typed-prefix
                                   date-beg typed-len orig-date)))
