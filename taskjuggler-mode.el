@@ -46,6 +46,8 @@
 
 ;;; Code:
 
+(require 'calendar)
+
 (declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
 (declare-function yas--load-snippet-dirs "yasnippet" ())
 
@@ -917,30 +919,12 @@ Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
   (format "%04d-%02d-%02d" year month day))
 
 ;; --- Calendar math ---
-
-(defun taskjuggler--cal-days-in-month (year month)
-  "Return the number of days in MONTH of YEAR."
-  (pcase month
-    ((or 1 3 5 7 8 10 12) 31)
-    ((or 4 6 9 11) 30)
-    (2 (if (taskjuggler--cal-leap-year-p year) 29 28))))
-
-(defun taskjuggler--cal-leap-year-p (year)
-  "Return non-nil if YEAR is a leap year."
-  (or (and (zerop (% year 4))
-           (not (zerop (% year 100))))
-      (zerop (% year 400))))
-
-(defun taskjuggler--cal-day-of-week (year month day)
-  "Return the DAY of week for YEAR-MONTH-DAY (0=Sunday .. 6=Saturday).
-Uses `encode-time' and `decode-time' for correctness.
-Argument YEAR 4-digit year.
-Argument MONTH 2-digit month."
-  (nth 6 (decode-time (encode-time 0 0 12 day month year))))
+;; `calendar-leap-year-p', `calendar-last-day-of-month', and
+;; `calendar-day-of-week' come from the built-in `calendar' library.
 
 (defun taskjuggler--cal-clamp-day (year month day)
   "Clamp DAY to the valid range for MONTH of YEAR."
-  (min day (taskjuggler--cal-days-in-month year month)))
+  (min day (calendar-last-day-of-month month year)))
 
 (defun taskjuggler--cal-adjust-date (year month day delta unit)
   "Adjust YEAR-MONTH-DAY by DELTA units (:day, :week, or :month).
@@ -1020,15 +1004,15 @@ Return a list of propertized strings, one per line."
 SELECTED-DAY is highlighted.  TODAY-YEAR, TODAY-MONTH, TODAY-DAY
 identify today's date for the today face.  Leading and trailing
 cells are filled with days from adjacent months."
-  (let* ((days-in-month (taskjuggler--cal-days-in-month year month))
-         (start-dow (taskjuggler--cal-day-of-week year month 1))
+  (let* ((days-in-month (calendar-last-day-of-month month year))
+         (start-dow (calendar-day-of-week (list month 1 year)))
          (cells '()))
     ;; Leading cells from the previous month.
     (when (> start-dow 0)
       (let* ((prev (taskjuggler--cal-adjust-date year month 1 -1 :month))
              (prev-year (nth 0 prev))
              (prev-month (nth 1 prev))
-             (prev-dim (taskjuggler--cal-days-in-month prev-year prev-month))
+             (prev-dim (calendar-last-day-of-month prev-month prev-year))
              (first-prev (1+ (- prev-dim start-dow))))
         (dotimes (i start-dow)
           (push (taskjuggler--cal-make-cell
@@ -1295,7 +1279,7 @@ typed.  TYPED-LEN is how many characters have been typed so far."
     (when (>= typed-len 10)
       (let ((d (string-to-number (substring typed 8 10))))
         (when (>= d 1)
-          (setq day (min d (taskjuggler--cal-days-in-month year month))))))
+          (setq day (min d (calendar-last-day-of-month month year))))))
     (list year month (taskjuggler--cal-clamp-day year month day))))
 
 ;; --- Minor mode for calendar editing ---
