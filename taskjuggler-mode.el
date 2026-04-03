@@ -1194,29 +1194,27 @@ Advances point past the collected lines.  Returns a list of strings."
 (defun taskjuggler--cal-apply-faces (date-beg typed-len)
   "Apply typing and pending face overlays to the date string at DATE-BEG.
 Characters 0..TYPED-LEN-1 get the typing face; the rest get pending.
-Overlays are used so font-lock cannot override them."
+Overlays are used so font-lock cannot override them.  Existing overlays
+are deleted and recreated on each call to avoid stale positions caused
+by intervening buffer modifications."
   (let ((typed-end (+ date-beg typed-len))
         (date-end (+ date-beg taskjuggler--cal-date-len)))
-    (if (> typed-len 0)
-        (if taskjuggler--cal-typing-ov
-            (move-overlay taskjuggler--cal-typing-ov date-beg typed-end)
-          (let ((ov (make-overlay date-beg typed-end nil t nil)))
-            (overlay-put ov 'face 'taskjuggler-cal-typing-face)
-            (overlay-put ov 'priority 110)
-            (setq taskjuggler--cal-typing-ov ov)))
-      (when taskjuggler--cal-typing-ov
-        (delete-overlay taskjuggler--cal-typing-ov)
-        (setq taskjuggler--cal-typing-ov nil)))
-    (if (< typed-len taskjuggler--cal-date-len)
-        (if taskjuggler--cal-pending-ov
-            (move-overlay taskjuggler--cal-pending-ov typed-end date-end)
-          (let ((ov (make-overlay typed-end date-end nil t nil)))
-            (overlay-put ov 'face 'taskjuggler-cal-pending-face)
-            (overlay-put ov 'priority 110)
-            (setq taskjuggler--cal-pending-ov ov)))
-      (when taskjuggler--cal-pending-ov
-        (delete-overlay taskjuggler--cal-pending-ov)
-        (setq taskjuggler--cal-pending-ov nil)))))
+    (when taskjuggler--cal-typing-ov
+      (delete-overlay taskjuggler--cal-typing-ov)
+      (setq taskjuggler--cal-typing-ov nil))
+    (when taskjuggler--cal-pending-ov
+      (delete-overlay taskjuggler--cal-pending-ov)
+      (setq taskjuggler--cal-pending-ov nil))
+    (when (> typed-len 0)
+      (let ((ov (make-overlay date-beg typed-end)))
+        (overlay-put ov 'face 'taskjuggler-cal-typing-face)
+        (overlay-put ov 'priority 110)
+        (setq taskjuggler--cal-typing-ov ov)))
+    (when (< typed-len taskjuggler--cal-date-len)
+      (let ((ov (make-overlay typed-end date-end)))
+        (overlay-put ov 'face 'taskjuggler-cal-pending-face)
+        (overlay-put ov 'priority 110)
+        (setq taskjuggler--cal-pending-ov ov)))))
 
 (defun taskjuggler--cal-remove-faces (_date-beg)
   "Remove the typing/pending face overlays."
@@ -1280,8 +1278,9 @@ symbol (S-right etc.), `digit', or nil for unrecognised events."
    ((or (equal event ?\C-g) (eq event 'escape)
         (equal event ?\e))
     'cancel)
-   ;; Backspace / DEL.
-   ((and (integerp event) (or (= event ?\C-?) (= event ?\C-h)))
+   ;; Backspace / DEL — symbol in GUI Emacs, integer in terminal.
+   ((or (eq event 'backspace)
+        (and (integerp event) (or (= event ?\C-?) (= event ?\C-h))))
     'backspace)
    ;; Shift-arrows and shift-pgup/pgdn.
    ((memq event '(S-right S-left S-down S-up S-next S-prior))
