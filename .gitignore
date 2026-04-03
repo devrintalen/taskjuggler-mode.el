@@ -19,3 +19,7 @@ dist/
 # Undo-tree save-files
 *.~undo-tree
 /.claude/
+/test/css/
+/test/icons/
+/test/js/
+/test/scripts/
