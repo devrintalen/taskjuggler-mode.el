@@ -1203,7 +1203,7 @@ Advances point past the collected lines.  Returns a list of strings."
   "Length of a YYYY-MM-DD date string.")
 
 (defconst taskjuggler--cal-help-message
-  "S-arrows: day/week  S-PgUp/Dn: month  Type: YYYY-MM-DD  RET: confirm  C-g: cancel"
+  "S-arrows: day/week  S-PgUp/Dn: month  Type: YYYY-MM-DD  RET/TAB: confirm  C-g: cancel"
   "Help text shown in the echo area during calendar editing.")
 
 (defun taskjuggler--cal-valid-char-at-p (ch pos)
