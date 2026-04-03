@@ -1077,6 +1077,12 @@ The row is padded to `taskjuggler--cal-width'."
 (defvar-local taskjuggler--cal-overlay nil
   "Overlay used by the inline calendar picker.")
 
+(defvar-local taskjuggler--cal-typing-ov nil
+  "Overlay for the user-typed portion of the date during calendar editing.")
+
+(defvar-local taskjuggler--cal-pending-ov nil
+  "Overlay for the pre-filled portion of the date during calendar editing.")
+
 (defvar-local taskjuggler--cal-column nil
   "Column at which the calendar was first shown.
 Captured once so the calendar stays anchored when navigating.")
@@ -1186,20 +1192,40 @@ Advances point past the collected lines.  Returns a list of strings."
     (<= ?0 ch ?9)))
 
 (defun taskjuggler--cal-apply-faces (date-beg typed-len)
-  "Apply typing and pending faces to the date string at DATE-BEG.
-Characters 0..TYPED-LEN-1 get the typing face; the rest get pending."
-  (let ((date-end (+ date-beg taskjuggler--cal-date-len)))
-    (when (> typed-len 0)
-      (put-text-property date-beg (+ date-beg typed-len)
-                         'face 'taskjuggler-cal-typing-face))
-    (when (< typed-len taskjuggler--cal-date-len)
-      (put-text-property (+ date-beg typed-len) date-end
-                         'face 'taskjuggler-cal-pending-face))))
+  "Apply typing and pending face overlays to the date string at DATE-BEG.
+Characters 0..TYPED-LEN-1 get the typing face; the rest get pending.
+Overlays are used so font-lock cannot override them."
+  (let ((typed-end (+ date-beg typed-len))
+        (date-end (+ date-beg taskjuggler--cal-date-len)))
+    (if (> typed-len 0)
+        (if taskjuggler--cal-typing-ov
+            (move-overlay taskjuggler--cal-typing-ov date-beg typed-end)
+          (let ((ov (make-overlay date-beg typed-end nil t nil)))
+            (overlay-put ov 'face 'taskjuggler-cal-typing-face)
+            (overlay-put ov 'priority 110)
+            (setq taskjuggler--cal-typing-ov ov)))
+      (when taskjuggler--cal-typing-ov
+        (delete-overlay taskjuggler--cal-typing-ov)
+        (setq taskjuggler--cal-typing-ov nil)))
+    (if (< typed-len taskjuggler--cal-date-len)
+        (if taskjuggler--cal-pending-ov
+            (move-overlay taskjuggler--cal-pending-ov typed-end date-end)
+          (let ((ov (make-overlay typed-end date-end nil t nil)))
+            (overlay-put ov 'face 'taskjuggler-cal-pending-face)
+            (overlay-put ov 'priority 110)
+            (setq taskjuggler--cal-pending-ov ov)))
+      (when taskjuggler--cal-pending-ov
+        (delete-overlay taskjuggler--cal-pending-ov)
+        (setq taskjuggler--cal-pending-ov nil)))))
 
-(defun taskjuggler--cal-remove-faces (date-beg)
-  "Remove the typing/pending faces from the date string at DATE-BEG."
-  (remove-text-properties date-beg (+ date-beg taskjuggler--cal-date-len)
-                          '(face nil)))
+(defun taskjuggler--cal-remove-faces (_date-beg)
+  "Remove the typing/pending face overlays."
+  (when taskjuggler--cal-typing-ov
+    (delete-overlay taskjuggler--cal-typing-ov)
+    (setq taskjuggler--cal-typing-ov nil))
+  (when taskjuggler--cal-pending-ov
+    (delete-overlay taskjuggler--cal-pending-ov)
+    (setq taskjuggler--cal-pending-ov nil)))
 
 (defun taskjuggler--cal-update-prefill (date-beg typed-len year month day)
   "Update the pre-filled suffix of the date at DATE-BEG.
@@ -1363,7 +1389,9 @@ committed, nil if cancelled."
         ;; Cancel: restore original state.
         (if was-inserted
             ;; Date was freshly inserted — delete it.
-            (delete-region date-beg (+ date-beg taskjuggler--cal-date-len))
+            (progn
+              (taskjuggler--cal-remove-faces date-beg)
+              (delete-region date-beg (+ date-beg taskjuggler--cal-date-len)))
           ;; Date existed — restore the original text.
           (save-excursion
             (goto-char date-beg)
