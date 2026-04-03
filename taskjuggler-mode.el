@@ -41,7 +41,7 @@
 ;;   - Flymake integration: on-the-fly error checking via tj3
 ;;   - tj3man integration: C-c C-m looks up keyword docs with completion
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
-;;   - Block editing: C-M-h marks block (incl. comments), C-x n b narrows to
+;;   - Block editing: C-M-h marks block (incl.  comments), C-x n b narrows to
 ;;     block, clone-block duplicates the current block
 
 ;;; Code:
@@ -923,8 +923,10 @@ Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
       (zerop (% year 400))))
 
 (defun taskjuggler--cal-day-of-week (year month day)
-  "Return the day of week for YEAR-MONTH-DAY (0=Sunday .. 6=Saturday).
-Uses `encode-time' and `decode-time' for correctness."
+  "Return the DAY of week for YEAR-MONTH-DAY (0=Sunday .. 6=Saturday).
+Uses `encode-time' and `decode-time' for correctness.
+Argument YEAR 4-digit year.
+Argument MONTH 2-digit month."
   (nth 6 (decode-time (encode-time 0 0 12 day month year))))
 
 (defun taskjuggler--cal-clamp-day (year month day)
@@ -1196,7 +1198,8 @@ Advances point past the collected lines.  Returns a list of strings."
 Characters 0..TYPED-LEN-1 get the typing face; the rest get pending.
 Overlays are used so font-lock cannot override them.  Existing overlays
 are deleted and recreated on each call to avoid stale positions caused
-by intervening buffer modifications."
+by intervening buffer modifications.
+Argument TYPED-LEN Length of user-typed string."
   (let ((typed-end (+ date-beg typed-len))
         (date-end (+ date-beg taskjuggler--cal-date-len)))
     (when taskjuggler--cal-typing-ov
@@ -1228,7 +1231,10 @@ by intervening buffer modifications."
 (defun taskjuggler--cal-update-prefill (date-beg typed-len year month day)
   "Update the pre-filled suffix of the date at DATE-BEG.
 The first TYPED-LEN characters are left untouched.  The rest are
-filled with the formatted YEAR-MONTH-DAY date."
+filled with the formatted YEAR-MONTH-DAY date.
+Argument YEAR 4-digit year.
+Argument MONTH 2-digit month.
+Argument DAY 2-digit day."
   (let* ((full-date (taskjuggler--format-tj-date year month day))
          (suffix (substring full-date typed-len)))
     (save-excursion
@@ -1260,7 +1266,12 @@ typed.  TYPED-LEN is how many characters have been typed so far."
 ;; --- Main event loop ---
 
 (defun taskjuggler--cal-refresh (date-beg typed-len year month day)
-  "Update buffer faces, point, and calendar overlay after a date change."
+  "Update buffer faces, point, and calendar overlay after a date change.
+Argument DATE-BEG Beginning date.
+Argument TYPED-LEN Length of user-typed portion of string.
+Argument YEAR 4-digit year.
+Argument MONTH 2-digit month.
+Argument DAY 2-digit day."
   (taskjuggler--cal-update-prefill date-beg typed-len year month day)
   (taskjuggler--cal-apply-faces date-beg typed-len)
   (goto-char (+ date-beg typed-len))
@@ -1543,7 +1554,7 @@ defaulting to the word at point."
 ;;; Mode definition
 
 (defvar taskjuggler-command-map (make-sparse-keymap)
-  "Keymap for TaskJuggler commands, bound under prefix \\`C-c C-g'.")
+  "Keymap for TaskJuggler commands.")
 (define-prefix-command 'taskjuggler-command-prefix 'taskjuggler-command-map)
 (define-key taskjuggler-command-map (kbd "d") #'taskjuggler-date-dwim)
 (define-key taskjuggler-command-map (kbd "m") #'taskjuggler-man)
