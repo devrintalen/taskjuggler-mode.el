@@ -1089,6 +1089,32 @@ The row is padded to `taskjuggler--cal-width'."
   "Column at which the calendar was first shown.
 Captured once so the calendar stays anchored when navigating.")
 
+;; --- Minor mode state ---
+;;
+;; These variables track the editing session while
+;; `taskjuggler-cal-active-mode' is enabled.
+
+(defvar-local taskjuggler--cal-date-beg nil
+  "Buffer position where the date string starts during editing.")
+
+(defvar-local taskjuggler--cal-was-inserted nil
+  "Non-nil if the date was freshly inserted (should be deleted on cancel).")
+
+(defvar-local taskjuggler--cal-orig-date nil
+  "Original (YEAR MONTH DAY) before editing began.")
+
+(defvar-local taskjuggler--cal-year nil
+  "Current year displayed by the calendar picker.")
+
+(defvar-local taskjuggler--cal-month nil
+  "Current month displayed by the calendar picker.")
+
+(defvar-local taskjuggler--cal-day nil
+  "Current day displayed by the calendar picker.")
+
+(defvar-local taskjuggler--cal-debounce-timer nil
+  "Idle timer used to debounce calendar overlay updates.")
+
 (defun taskjuggler--cal-splice-line (old new col)
   "Splice NEW into OLD at column COL, preserving surrounding text.
 OLD is the original buffer line, NEW is the calendar row to insert.
@@ -1263,47 +1289,19 @@ typed.  TYPED-LEN is how many characters have been typed so far."
           (setq day (min d (taskjuggler--cal-days-in-month year month))))))
     (list year month (taskjuggler--cal-clamp-day year month day))))
 
-;; --- Main event loop ---
+;; --- Minor mode for calendar editing ---
+;;
+;; Instead of a read-event loop, the calendar picker uses a transient
+;; minor mode (like company-mode) with its own keymap for explicit
+;; actions (commit, cancel, navigation) and a `post-command-hook' for
+;; passive monitoring of point and typed text.
 
-(defun taskjuggler--cal-refresh (date-beg typed-len year month day)
-  "Update buffer faces, point, and calendar overlay after a date change.
-Argument DATE-BEG Beginning date.
-Argument TYPED-LEN Length of user-typed portion of string.
-Argument YEAR 4-digit year.
-Argument MONTH 2-digit month.
-Argument DAY 2-digit day."
-  (taskjuggler--cal-update-prefill date-beg typed-len year month day)
-  (taskjuggler--cal-apply-faces date-beg typed-len)
-  (goto-char (+ date-beg typed-len))
-  (taskjuggler--cal-show-overlay year month day))
+(defconst taskjuggler--cal-debounce-delay 0.05
+  "Idle-timer delay (seconds) before refreshing the calendar overlay.")
 
-(defun taskjuggler--cal-classify-event (event)
-  "Classify EVENT into an action keyword for the calendar event loop.
-Returns one of: `confirm', `cancel', `backspace', a shift-arrow
-symbol (S-right etc.), `digit', or nil for unrecognised events."
-  (cond
-   ;; Confirm: RET / C-m / Enter.
-   ((or (eq event 'return) (equal event ?\C-m))
-    'confirm)
-   ;; Cancel: C-g / Escape.
-   ((or (equal event ?\C-g) (eq event 'escape)
-        (equal event ?\e))
-    'cancel)
-   ;; Backspace / DEL — symbol in GUI Emacs, integer in terminal.
-   ((or (eq event 'backspace)
-        (and (integerp event) (or (= event ?\C-?) (= event ?\C-h))))
-    'backspace)
-   ;; Shift-arrows and shift-pgup/pgdn.
-   ((memq event '(S-right S-left S-down S-up S-next S-prior))
-    event)
-   ;; Digit or hyphen for date input.
-   ((and (integerp event) (or (<= ?0 event ?9) (= event ?-)))
-    'digit)
-   (t nil)))
-
-(defun taskjuggler--cal-nav-delta (event)
-  "Return (DELTA . UNIT) for a shift-arrow EVENT."
-  (pcase event
+(defun taskjuggler--cal-nav-delta (key)
+  "Return (DELTA . UNIT) for a shift-arrow KEY."
+  (pcase key
     ('S-right '(1 . :day))
     ('S-left  '(-1 . :day))
     ('S-down  '(1 . :week))
@@ -1311,103 +1309,249 @@ symbol (S-right etc.), `digit', or nil for unrecognised events."
     ('S-next  '(1 . :month))
     ('S-prior '(-1 . :month))))
 
+(defun taskjuggler--cal-cleanup ()
+  "Tear down calendar picker state and minor mode."
+  (when taskjuggler--cal-debounce-timer
+    (cancel-timer taskjuggler--cal-debounce-timer)
+    (setq taskjuggler--cal-debounce-timer nil))
+  (remove-hook 'post-command-hook #'taskjuggler--cal-post-command t)
+  (remove-hook 'kill-buffer-hook #'taskjuggler--cal-cancel t)
+  (taskjuggler--cal-remove-overlay)
+  (taskjuggler--cal-remove-faces taskjuggler--cal-date-beg)
+  (setq taskjuggler--cal-column nil
+        taskjuggler--cal-today nil)
+  (taskjuggler-cal-active-mode -1))
+
+(defun taskjuggler--cal-commit ()
+  "Commit the pending date and close the calendar picker."
+  (interactive)
+  (let ((date-beg taskjuggler--cal-date-beg)
+        (year taskjuggler--cal-year)
+        (month taskjuggler--cal-month)
+        (day taskjuggler--cal-day))
+    (taskjuggler--cal-cleanup)
+    ;; Write the final date and move point past it.
+    (save-excursion
+      (goto-char date-beg)
+      (delete-char taskjuggler--cal-date-len)
+      (insert (taskjuggler--format-tj-date year month day)))
+    (goto-char (+ date-beg taskjuggler--cal-date-len))))
+
+(defun taskjuggler--cal-cancel ()
+  "Cancel the calendar picker and restore the original buffer state."
+  (interactive)
+  (let ((date-beg taskjuggler--cal-date-beg)
+        (was-inserted taskjuggler--cal-was-inserted)
+        (orig-date taskjuggler--cal-orig-date))
+    (taskjuggler--cal-cleanup)
+    (if was-inserted
+        ;; Date was freshly inserted — delete it entirely.
+        (delete-region date-beg (+ date-beg taskjuggler--cal-date-len))
+      ;; Date existed — restore the original text.
+      (save-excursion
+        (goto-char date-beg)
+        (delete-char taskjuggler--cal-date-len)
+        (insert (apply #'taskjuggler--format-tj-date orig-date))))))
+
+(defun taskjuggler--cal-commit-or-cancel ()
+  "Commit if a partial date has been typed, otherwise cancel.
+Bound to SPC in the calendar picker."
+  (interactive)
+  (let* ((date-beg taskjuggler--cal-date-beg)
+         (typed-len (- (point) date-beg)))
+    (if (> typed-len 0)
+        (taskjuggler--cal-commit)
+      (taskjuggler--cal-cancel))))
+
+(defun taskjuggler--cal-navigate (key)
+  "Adjust the selected date by the shift-arrow KEY and refresh."
+  (let* ((delta-unit (taskjuggler--cal-nav-delta key))
+         (adjusted (taskjuggler--cal-adjust-date
+                    taskjuggler--cal-year taskjuggler--cal-month
+                    taskjuggler--cal-day
+                    (car delta-unit) (cdr delta-unit))))
+    (setq taskjuggler--cal-year (nth 0 adjusted)
+          taskjuggler--cal-month (nth 1 adjusted)
+          taskjuggler--cal-day (nth 2 adjusted))
+    ;; Rewrite the full date template and move point back to date-beg.
+    (let ((date-beg taskjuggler--cal-date-beg))
+      (save-excursion
+        (goto-char date-beg)
+        (delete-char taskjuggler--cal-date-len)
+        (insert (taskjuggler--format-tj-date
+                 taskjuggler--cal-year taskjuggler--cal-month
+                 taskjuggler--cal-day)))
+      (goto-char date-beg)
+      (taskjuggler--cal-apply-faces date-beg 0)
+      (taskjuggler--cal-show-overlay
+       taskjuggler--cal-year taskjuggler--cal-month
+       taskjuggler--cal-day))))
+
+(defun taskjuggler--cal-nav-right ()
+  "Navigate calendar one day forward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-right))
+
+(defun taskjuggler--cal-nav-left ()
+  "Navigate calendar one day backward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-left))
+
+(defun taskjuggler--cal-nav-down ()
+  "Navigate calendar one week forward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-down))
+
+(defun taskjuggler--cal-nav-up ()
+  "Navigate calendar one week backward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-up))
+
+(defun taskjuggler--cal-nav-next ()
+  "Navigate calendar one month forward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-next))
+
+(defun taskjuggler--cal-nav-prior ()
+  "Navigate calendar one month backward."
+  (interactive)
+  (taskjuggler--cal-navigate 'S-prior))
+
+(defun taskjuggler--cal-overwrite-char ()
+  "Overwrite the template character at point with the typed character.
+Used for digit and hyphen input during calendar date editing so that
+`self-insert-command' does not grow the fixed-length date template."
+  (interactive)
+  (let* ((date-beg taskjuggler--cal-date-beg)
+         (typed-len (- (point) date-beg))
+         (ch last-command-event))
+    (when (and (< typed-len taskjuggler--cal-date-len)
+               (taskjuggler--cal-valid-char-at-p ch typed-len))
+      (delete-char 1)
+      (insert (char-to-string ch)))))
+
+(defvar taskjuggler-cal-active-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "<return>")  #'taskjuggler--cal-commit)
+    (define-key map (kbd "<tab>")     #'taskjuggler--cal-commit)
+    (define-key map (kbd "SPC")       #'taskjuggler--cal-commit-or-cancel)
+    (define-key map (kbd "C-g")       #'taskjuggler--cal-cancel)
+    (define-key map (kbd "S-<right>") #'taskjuggler--cal-nav-right)
+    (define-key map (kbd "S-<left>")  #'taskjuggler--cal-nav-left)
+    (define-key map (kbd "S-<down>")  #'taskjuggler--cal-nav-down)
+    (define-key map (kbd "S-<up>")    #'taskjuggler--cal-nav-up)
+    (define-key map (kbd "S-<next>")  #'taskjuggler--cal-nav-next)
+    (define-key map (kbd "S-<prior>") #'taskjuggler--cal-nav-prior)
+    ;; Digits and hyphen use overwrite-style insertion to keep the
+    ;; date template at a fixed 10-character length.
+    (dolist (ch (append (number-sequence ?0 ?9) (list ?-)))
+      (define-key map (vector ch) #'taskjuggler--cal-overwrite-char))
+    map)
+  "Keymap active while the inline calendar picker is open.")
+
+;; Register our keymap in `emulation-mode-map-alists' so it takes
+;; priority over evil-mode's keymaps (which also live there).
+;; The variable holds a (CONDITION . MAP) pair; we set CONDITION to t
+;; while the picker is active and nil otherwise.
+(defvar-local taskjuggler--cal-emulation-alist nil
+  "Emulation keymap alist entry for the calendar picker.
+Added to `emulation-mode-map-alists' so the picker keymap beats evil.")
+(add-to-list 'emulation-mode-map-alists 'taskjuggler--cal-emulation-alist)
+
+(define-minor-mode taskjuggler-cal-active-mode
+  "Transient minor mode active while the inline calendar picker is open."
+  :lighter " TJ-Cal"
+  :keymap taskjuggler-cal-active-mode-map
+  (if taskjuggler-cal-active-mode
+      (progn
+        (setq taskjuggler--cal-emulation-alist
+              (list (cons t taskjuggler-cal-active-mode-map)))
+        (message "%s" taskjuggler--cal-help-message))
+    ;; Deactivate the emulation keymap and cancel any pending timer.
+    (setq taskjuggler--cal-emulation-alist nil)
+    (when taskjuggler--cal-debounce-timer
+      (cancel-timer taskjuggler--cal-debounce-timer)
+      (setq taskjuggler--cal-debounce-timer nil))))
+
+;; --- Post-command monitoring ---
+
+(defun taskjuggler--cal-schedule-refresh ()
+  "Schedule a debounced calendar overlay refresh."
+  (when taskjuggler--cal-debounce-timer
+    (cancel-timer taskjuggler--cal-debounce-timer))
+  (setq taskjuggler--cal-debounce-timer
+        (run-with-idle-timer
+         taskjuggler--cal-debounce-delay nil
+         #'taskjuggler--cal-deferred-refresh (current-buffer))))
+
+(defun taskjuggler--cal-deferred-refresh (buf)
+  "Refresh the calendar overlay in BUF after the debounce delay."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (when taskjuggler-cal-active-mode
+        (setq taskjuggler--cal-debounce-timer nil)
+        (taskjuggler--cal-show-overlay
+         taskjuggler--cal-year taskjuggler--cal-month
+         taskjuggler--cal-day)))))
+
+(defun taskjuggler--cal-post-command ()
+  "Monitor point and buffer text after each command.
+Cancels the picker if point moves before `taskjuggler--cal-date-beg'.
+Otherwise parses the typed prefix and updates faces and the overlay."
+  (when taskjuggler-cal-active-mode
+    (let ((date-beg taskjuggler--cal-date-beg)
+          (date-end (+ taskjuggler--cal-date-beg taskjuggler--cal-date-len)))
+      (cond
+       ;; Point moved before the date region — cancel.
+       ((< (point) date-beg)
+        (taskjuggler--cal-cancel))
+       ;; Point moved past the date region — cancel.
+       ((> (point) date-end)
+        (taskjuggler--cal-cancel))
+       ;; Point is within the date region — parse and update.
+       (t
+        (let ((typed-len (- (point) date-beg)))
+          (when (> typed-len 0)
+            ;; Only parse the typed prefix when the user has actually
+            ;; typed something.  When typed-len is 0 (e.g. after a
+            ;; shift-arrow navigation command), the state variables and
+            ;; buffer text are already correct — parsing with typed-len=0
+            ;; would return orig-date and overwrite the navigated date.
+            (let ((parsed (taskjuggler--cal-parse-typed-prefix
+                           date-beg typed-len taskjuggler--cal-orig-date)))
+              (setq taskjuggler--cal-year (nth 0 parsed)
+                    taskjuggler--cal-month (nth 1 parsed)
+                    taskjuggler--cal-day (nth 2 parsed))
+              (taskjuggler--cal-update-prefill
+               date-beg typed-len
+               taskjuggler--cal-year taskjuggler--cal-month taskjuggler--cal-day)))
+          (taskjuggler--cal-apply-faces date-beg typed-len)
+          (taskjuggler--cal-schedule-refresh)))))))
+
+;; --- Calendar edit entry point ---
+
 (defun taskjuggler--cal-edit (date-beg year month day was-inserted)
-  "Run the calendar editing loop with the date at DATE-BEG.
+  "Start the calendar picker for the date at DATE-BEG.
 YEAR, MONTH, DAY are the initial date.  WAS-INSERTED is non-nil if
 the date was freshly inserted (should be deleted on cancel).
-Point is at DATE-BEG on entry.  Returns non-nil if the date was
-committed, nil if cancelled."
-  (let ((typed-len 0)
-        (orig-date (list year month day))
-        (committed nil))
-    ;; Cache today once so every render during this session is free.
-    (let ((now (decode-time)))
-      (setq taskjuggler--cal-today (list (nth 5 now) (nth 4 now) (nth 3 now))))
-    ;; Remove overlay on buffer kill so stale overlays never persist.
-    (add-hook 'kill-buffer-hook #'taskjuggler--cal-remove-overlay nil t)
-    (taskjuggler--cal-apply-faces date-beg typed-len)
-    (taskjuggler--cal-show-overlay year month day)
-    (unwind-protect
-        (catch 'taskjuggler--cal-done
-          (while t
-            (message "%s" taskjuggler--cal-help-message)
-            (let* ((event (read-event))
-                   (action (taskjuggler--cal-classify-event event)))
-              (pcase action
-                ;; --- Confirm ---
-                ('confirm
-                 (setq committed t)
-                 (throw 'taskjuggler--cal-done t))
-                ;; --- Cancel ---
-                ('cancel
-                 (throw 'taskjuggler--cal-done nil))
-                ;; --- Backspace while typing ---
-                ('backspace
-                 (when (> typed-len 0)
-                   (setq typed-len (1- typed-len))
-                   ;; Re-derive date from remaining typed prefix.
-                   (let ((parsed (taskjuggler--cal-parse-typed-prefix
-                                  date-beg typed-len orig-date)))
-                     (setq year (nth 0 parsed)
-                           month (nth 1 parsed)
-                           day (nth 2 parsed)))
-                   (taskjuggler--cal-refresh date-beg typed-len year month day)))
-                ;; --- Navigation: shift-arrows ---
-                ((and (pred symbolp)
-                      (pred (lambda (a) (taskjuggler--cal-nav-delta a))))
-                 (let* ((delta-unit (taskjuggler--cal-nav-delta action))
-                        (adjusted (taskjuggler--cal-adjust-date
-                                   year month day
-                                   (car delta-unit) (cdr delta-unit))))
-                   (setq year (nth 0 adjusted)
-                         month (nth 1 adjusted)
-                         day (nth 2 adjusted))
-                   ;; Reset typing state — arrow nav replaces entire date.
-                   (setq typed-len 0)
-                   (taskjuggler--cal-refresh date-beg typed-len year month day)))
-                ;; --- Digit / hyphen input ---
-                ('digit
-                 (when (and (< typed-len taskjuggler--cal-date-len)
-                            (taskjuggler--cal-valid-char-at-p
-                             event typed-len))
-                   ;; Write the character into the buffer.
-                   (save-excursion
-                     (goto-char (+ date-beg typed-len))
-                     (delete-char 1)
-                     (insert (char-to-string event)))
-                   (setq typed-len (1+ typed-len))
-                   ;; Parse what's been typed and update.
-                   (let ((parsed (taskjuggler--cal-parse-typed-prefix
-                                  date-beg typed-len orig-date)))
-                     (setq year (nth 0 parsed)
-                           month (nth 1 parsed)
-                           day (nth 2 parsed)))
-                   (taskjuggler--cal-refresh date-beg typed-len year month day)))
-                ;; --- Unknown key — ignore ---
-                (_ nil)))))
-      ;; Cleanup.
-      (remove-hook 'kill-buffer-hook #'taskjuggler--cal-remove-overlay t)
-      (taskjuggler--cal-remove-overlay)
-      (setq taskjuggler--cal-column nil
-            taskjuggler--cal-today nil)
-      (if committed
-          ;; Commit: remove editing faces, leave the date text, and
-          ;; move point to just after the date.
-          (progn
-            (taskjuggler--cal-remove-faces date-beg)
-            (goto-char (+ date-beg taskjuggler--cal-date-len)))
-        ;; Cancel: restore original state.
-        (if was-inserted
-            ;; Date was freshly inserted — delete it.
-            (progn
-              (taskjuggler--cal-remove-faces date-beg)
-              (delete-region date-beg (+ date-beg taskjuggler--cal-date-len)))
-          ;; Date existed — restore the original text.
-          (save-excursion
-            (goto-char date-beg)
-            (delete-char taskjuggler--cal-date-len)
-            (insert (apply #'taskjuggler--format-tj-date orig-date)))
-          (taskjuggler--cal-remove-faces date-beg))))))
+Point must be at DATE-BEG on entry."
+  ;; Cache today once so every render during this session is free.
+  (let ((now (decode-time)))
+    (setq taskjuggler--cal-today (list (nth 5 now) (nth 4 now) (nth 3 now))))
+  ;; Store editing state.
+  (setq taskjuggler--cal-date-beg date-beg
+        taskjuggler--cal-was-inserted was-inserted
+        taskjuggler--cal-orig-date (list year month day)
+        taskjuggler--cal-year year
+        taskjuggler--cal-month month
+        taskjuggler--cal-day day)
+  ;; Set up faces and overlay.
+  (taskjuggler--cal-apply-faces date-beg 0)
+  (taskjuggler--cal-show-overlay year month day)
+  ;; Install hooks and activate the minor mode.
+  (add-hook 'kill-buffer-hook #'taskjuggler--cal-cancel nil t)
+  (add-hook 'post-command-hook #'taskjuggler--cal-post-command nil t)
+  (taskjuggler-cal-active-mode 1))
 
 ;; --- Public date commands ---
 

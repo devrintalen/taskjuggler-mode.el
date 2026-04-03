@@ -144,16 +144,16 @@
   (with-temp-buffer
     (insert "2024-03-15")
     (taskjuggler--cal-apply-faces 1 4)
-    ;; First 4 chars should have typing face.
+    ;; First 4 chars should have typing face (applied via overlays).
     (should (eq 'taskjuggler-cal-typing-face
-                (get-text-property 1 'face)))
+                (get-char-property 1 'face)))
     ;; Remaining chars should have pending face.
     (should (eq 'taskjuggler-cal-pending-face
-                (get-text-property 5 'face)))
+                (get-char-property 5 'face)))
     ;; Remove faces.
     (taskjuggler--cal-remove-faces 1)
-    (should-not (get-text-property 1 'face))
-    (should-not (get-text-property 5 'face))))
+    (should-not (get-char-property 1 'face))
+    (should-not (get-char-property 5 'face))))
 
 ;; ---- Calendar rendering ----
 
