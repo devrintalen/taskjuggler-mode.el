@@ -20,6 +20,11 @@ Byte-compile to check for warnings:
 emacs --batch -f batch-byte-compile taskjuggler-mode.el
 ```
 
+Run the ERT test suite:
+```
+emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
+```
+
 Open the test fixture to exercise the mode:
 ```
 emacs test/ee.tjp

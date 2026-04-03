@@ -41,7 +41,7 @@
 ;;   - Flymake integration: on-the-fly error checking via tj3
 ;;   - tj3man integration: C-c C-m looks up keyword docs with completion
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
-;;   - Block editing: C-M-h marks block (incl.  comments), C-x n b narrows to
+;;   - Block editing: C-M-h marks block (incl.  comments), C-c C-t n narrows to
 ;;     block, clone-block duplicates the current block
 
 ;;; Code:
@@ -74,6 +74,13 @@ Use this to supply flags your project requires, such as:
 The arguments are inserted between the `tj3' executable and the file name."
   :type '(repeat string)
   :safe #'listp
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-cursor-idle-delay 0.3
+  "Seconds of Emacs idle time before updating the tj-cursor.json sidecar file.
+Set to nil to disable cursor tracking entirely."
+  :type '(choice (number :tag "Idle delay in seconds")
+                 (const :tag "Disabled" nil))
   :group 'taskjuggler)
 
 ;;; Helpers
@@ -430,21 +437,21 @@ as a continuation and aligned with the first argument on the keyword line."
   "Return position of the block header line at or enclosing point.
 If point is on a moveable keyword line, return that line's position.
 If point is inside a brace block whose opening line is a moveable keyword,
-return that opening line's position.  Return nil otherwise."
+return that opening line's position.  Return nil otherwise.
+
+Uses `syntax-ppss' (which guarantees `syntax-propertize' has run) rather
+than `up-list'/`scan-lists' so that # comment lines containing { are
+never mistaken for block openers in un-propertized buffer regions."
   (save-excursion
     (beginning-of-line)
-    (cond
-     ((looking-at taskjuggler--moveable-block-re)
-      (point))
-     ((> (car (syntax-ppss)) 0)
-      (condition-case nil
-          (progn
-            (up-list -1)           ; jump to the innermost opening {
-            (beginning-of-line)
-            (when (looking-at taskjuggler--moveable-block-re)
-              (point)))
-        (error nil)))
-     (t nil))))
+    (if (looking-at taskjuggler--moveable-block-re)
+        (point)
+      (let ((parent-open (nth 1 (syntax-ppss))))
+        (when parent-open
+          (goto-char parent-open)
+          (beginning-of-line)
+          (when (looking-at taskjuggler--moveable-block-re)
+            (point)))))))
 
 (defun taskjuggler--block-end (header-pos)
   "Return the position of the line start immediately after the block at HEADER-POS.
@@ -773,6 +780,8 @@ Implements `end-of-defun-function' for `taskjuggler-mode'."
               (goto-char (taskjuggler--block-end (point))))))))
      ((< count 0)
       (taskjuggler--beginning-of-defun (- count))))))
+
+;;; Block editing
 
 (defun taskjuggler-clone-block ()
   "Duplicate the current block immediately after itself.
@@ -1695,6 +1704,147 @@ defaulting to the word at point."
       (princ (shell-command-to-string
               (concat tj3man " " (shell-quote-argument keyword)))))))
 
+;;; Cursor tracking (task-at-point → tj-cursor.json)
+
+;; When a TJP buffer is live, an idle timer periodically identifies the
+;; innermost `task' block enclosing point and writes its full dotted ID to
+;; tj-cursor.json in the same directory as the buffer file.  A JavaScript
+;; polling loop in the generated HTML report reads this file and highlights
+;; the matching row in the Gantt chart.
+
+;; TODO: The output directory is assumed to be the same as the TJP file's
+;; directory.  Add a defcustom (or derive from taskreport `outputdir') so
+;; the sidecar file can land next to the generated HTML when they differ.
+
+(defvar-local taskjuggler--cursor-idle-timer nil
+  "Idle timer that updates tj-cursor.js while this buffer is live.")
+
+(defvar-local taskjuggler--cursor-last-id :unset
+  "Last task ID written to tj-cursor.js; :unset before the first write.")
+
+(defvar-local taskjuggler--cursor-file-cache :unset
+  "Cached path to the tj-cursor.js sidecar file, or nil if js/ is absent.
+:unset before the first lookup.")
+
+(defun taskjuggler--block-header-task-id (header-pos)
+  "If the line at HEADER-POS is a `task' declaration, return its ID string.
+Returns nil for any other keyword (resource, project, macro, etc.)."
+  (save-excursion
+    (goto-char header-pos)
+    (when (looking-at "[ \t]*task[ \t]+\\([[:alnum:]_][[:alnum:]_-]*\\)")
+      (match-string-no-properties 1))))
+
+(defun taskjuggler--full-task-id-at-point ()
+  "Return the full dotted TaskJuggler task ID enclosing point, or nil.
+Walks up the brace-nesting hierarchy from the innermost block at point,
+collecting the IDs of every ancestor `task' block, and joins them with `.'.
+Returns nil when point is not inside any `task' block."
+  (save-excursion
+    (when-let ((header (taskjuggler--current-block-header)))
+      (goto-char header)
+      (let (ids parent-open)
+        ;; Prefer (nth 1 (syntax-ppss)) over up-list: scan-lists can land
+        ;; on a sibling's { when scanning backward past balanced pairs.
+        (while (progn
+                 (when-let ((id (taskjuggler--block-header-task-id (point))))
+                   (push id ids))
+                 (setq parent-open (nth 1 (syntax-ppss))))
+          (goto-char parent-open)
+          (beginning-of-line))
+        (when ids
+          (mapconcat #'identity ids "."))))))
+
+(defun taskjuggler--cursor-file ()
+  "Return the absolute path to the tj-cursor.js sidecar file, or nil.
+The file is placed in the js/ subdirectory of the buffer's directory.
+Returns nil when the buffer is not visiting a file or js/ does not exist.
+Result is cached in `taskjuggler--cursor-file-cache'; the not-found
+message is emitted only once per buffer."
+  (if (not (eq taskjuggler--cursor-file-cache :unset))
+      taskjuggler--cursor-file-cache
+    (setq taskjuggler--cursor-file-cache
+          (when-let ((file (buffer-file-name)))
+            (let ((js-dir (expand-file-name "js" (file-name-directory file))))
+              (if (file-directory-p js-dir)
+                  (expand-file-name "tj-cursor.js" js-dir)
+                (message "taskjuggler: js/ not found in %s; cursor tracking disabled"
+                         (file-name-directory file))
+                nil))))))
+
+(defun taskjuggler--write-cursor-json (task-id)
+  "Write TASK-ID (a string or nil) to the tj-cursor.js sidecar file.
+Writes a JS assignment setting window._tjCursorTaskId to the quoted ID
+string or null.  Uses a .js file so the browser can load it via a script
+tag, which works under file:// without CORS restrictions.
+Does nothing when the buffer is not visiting a file."
+  (when-let ((file (taskjuggler--cursor-file)))
+    (write-region
+     (if task-id
+         (concat "window._tjCursorTaskId=\"" task-id "\";\n")
+       "window._tjCursorTaskId=null;\n")
+     nil file nil 'quiet)))
+
+(defun taskjuggler--start-cursor-tracking ()
+  "Start idle-timer-based task-at-point tracking for the current buffer.
+Does nothing when `taskjuggler-cursor-idle-delay' is nil."
+  (when taskjuggler-cursor-idle-delay
+    (let ((buf (current-buffer)))
+      (setq taskjuggler--cursor-idle-timer
+            (run-with-idle-timer
+             taskjuggler-cursor-idle-delay t
+             (lambda ()
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (let ((id (taskjuggler--full-task-id-at-point)))
+                     (unless (equal id taskjuggler--cursor-last-id)
+                       (setq taskjuggler--cursor-last-id id)
+                       (taskjuggler--write-cursor-json id)))))))))))
+
+(defun taskjuggler--stop-cursor-tracking ()
+  "Cancel the cursor-tracking timer and write null to the tj-cursor.js sidecar file."
+  (when (timerp taskjuggler--cursor-idle-timer)
+    (cancel-timer taskjuggler--cursor-idle-timer)
+    (setq taskjuggler--cursor-idle-timer nil))
+  (taskjuggler--write-cursor-json nil))
+
+(defun taskjuggler--reset-cursor-file-cache (&rest _)
+  "Reset the cursor file cache in all live `taskjuggler-mode' buffers.
+Added to `compilation-finish-functions' so the js/ directory is
+re-checked after a compile run that may have created it."
+  (dolist (buf (buffer-list))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (when (derived-mode-p 'taskjuggler-mode)
+          (setq taskjuggler--cursor-file-cache :unset))))))
+
+;;; Evil integration
+
+(declare-function evil-define-key* "evil-core")
+
+;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
+;; gh       — parent block (mirrors C-M-u)
+;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
+;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
+;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
+;; [[ / ]]  — start / end of current block (defun integration)
+;; evil-define-key* (function) is used instead of evil-define-key (macro)
+;; so the call survives byte-compilation without evil present.
+(defun taskjuggler--setup-evil-keys ()
+  "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
+  (when (fboundp 'evil-define-key*)
+    (evil-define-key* 'normal taskjuggler-mode-map
+      (kbd "gj") #'taskjuggler-next-block
+      (kbd "gk") #'taskjuggler-prev-block
+      (kbd "gh") #'taskjuggler-goto-parent
+      (kbd "gl") #'taskjuggler-goto-first-child
+      (kbd "gL") #'taskjuggler-goto-last-child
+      (kbd "]t") #'taskjuggler-forward-block-sexp
+      (kbd "[t") #'taskjuggler-backward-block-sexp
+      (kbd "]B") #'taskjuggler-forward-block
+      (kbd "[B") #'taskjuggler-backward-block
+      (kbd "[[") #'beginning-of-defun
+      (kbd "]]") #'end-of-defun)))
+
 ;;; Mode definition
 
 (defvar taskjuggler-command-map (make-sparse-keymap)
@@ -1702,6 +1852,7 @@ defaulting to the word at point."
 (define-prefix-command 'taskjuggler-command-prefix 'taskjuggler-command-map)
 (define-key taskjuggler-command-map (kbd "d") #'taskjuggler-date-dwim)
 (define-key taskjuggler-command-map (kbd "m") #'taskjuggler-man)
+(define-key taskjuggler-command-map (kbd "n") #'taskjuggler-narrow-to-block)
 
 ;;;###autoload
 (defvar taskjuggler-mode-map
@@ -1713,8 +1864,7 @@ defaulting to the word at point."
     (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
     (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
     (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
-    (define-key map (kbd "C-x n b")  #'taskjuggler-narrow-to-block)
-    (define-key map (kbd "C-c C-g")  'taskjuggler-command-prefix)
+    (define-key map (kbd "C-c C-t")  'taskjuggler-command-prefix)
     map)
   "Keymap for `taskjuggler-mode'.")
 
@@ -1760,6 +1910,10 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
   ;; tj3man: populate keyword cache on first mode activation.
   (taskjuggler--populate-tj3man-keywords)
+  ;; Cursor tracking: write tj-cursor.json while this buffer is live.
+  (taskjuggler--start-cursor-tracking)
+  (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
+  (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded (the top-level
@@ -1771,33 +1925,6 @@ See URL `https://taskjuggler.org' for more information.
 (add-to-list 'auto-mode-alist '("\\.tjp\\'" . taskjuggler-mode))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.tji\\'" . taskjuggler-mode))
-
-(declare-function evil-define-key* "evil-core")
-
-;; Evil-mode navigation bindings (normal state).
-;; gj/gk   — next/previous sibling at the same depth (mirrors C-M-n/C-M-p)
-;; gh       — parent block (mirrors C-M-u)
-;; gl/gL    — first/last direct child block (gl mirrors C-M-d)
-;; ]t / [t  — skip forward/backward over one block as a unit (mirrors C-M-f/b)
-;; ]B / [B  — forward/backward block (linear, crosses depth boundaries)
-;; [[ / ]]  — start / end of current block (defun integration)
-;; evil-define-key* (function) is used instead of evil-define-key (macro)
-;; so the call survives byte-compilation without evil present.
-(defun taskjuggler--setup-evil-keys ()
-  "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
-  (when (fboundp 'evil-define-key*)
-    (evil-define-key* 'normal taskjuggler-mode-map
-      (kbd "gj") #'taskjuggler-next-block
-      (kbd "gk") #'taskjuggler-prev-block
-      (kbd "gh") #'taskjuggler-goto-parent
-      (kbd "gl") #'taskjuggler-goto-first-child
-      (kbd "gL") #'taskjuggler-goto-last-child
-      (kbd "]t") #'taskjuggler-forward-block-sexp
-      (kbd "[t") #'taskjuggler-backward-block-sexp
-      (kbd "]B") #'taskjuggler-forward-block
-      (kbd "[B") #'taskjuggler-backward-block
-      (kbd "[[") #'beginning-of-defun
-      (kbd "]]") #'end-of-defun)))
 
 ;;; Yasnippet
 
