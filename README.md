@@ -11,8 +11,6 @@ good luck. I also offer you this package to help.
 
 ## Features
 
-### Highlights
-
 - Helpful inline calendar picker for date entry
 - Live task highlighting in the browser
 - `tj3man` documentation lookup (with `C-c C-t m`)
@@ -29,10 +27,10 @@ TJ3 dates:
 
 TODO gif animation of the calendar picker
 
-The calendar appears as an overlay below the current line. Navigate the selected
-date with Shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
-week, `S-<prior>`/`S-<next>` by month), or type a date directly in `YYYY-MM-DD`
-format. Press `RET` or `TAB` to confirm, `C-g` to cancel.
+The calendar appears as an overlay below the current line. The calendar updates as 
+you type the YYYY-MM-DD date, or navigate the selected
+date with shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
+week, or `S-<prior>`/`S-<next>` by month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
 ### Live task highlighting
 
@@ -41,19 +39,12 @@ then you can easily see the task you're editing in the browser.
 
 TODO a gif of emacs and browser side by side
 
-While a `.tjp` buffer is open, the mode tracks the innermost `task` block
-enclosing point and writes its full dotted ID (e.g. `project.phase.subtask`) to
-a `js/tj-cursor.js` sidecar file in the same directory as the project file. The
-custom TaskJuggler fork's generated HTML reports load this file and highlight the
-corresponding row in the Gantt chart, keeping the browser view in sync with
-wherever the cursor is in Emacs.
-
 **How it works:**
 
-1. Compile the project with `tj3` as usual — this creates the `js/` output
-   directory alongside the generated HTML.
-2. Open the generated report in a browser.
-3. Edit the `.tjp` file in Emacs. The Gantt chart row for the task at point is
+1. Use the `format htmljs` attribute in the report definiton to get the interactive chart.
+2. Compile the project with `tj3` as usual.
+3. Open the generated report in a browser.
+4. Edit the `.tjp/i` file in Emacs. The chart row for the task at point is
    highlighted automatically as the cursor moves.
 
 The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
