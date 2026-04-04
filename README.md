@@ -27,9 +27,50 @@ good luck. I also offer you this package to help.
 
 TODO
 
+`C-c C-t d` (`taskjuggler-date-dwim`) is a unified entry point for working with
+TJ3 date literals:
+
+- **Point is on a date**: opens an inline calendar overlay pre-filled with the
+  existing date so you can edit it in place.
+- **Point is not on a date**: inserts today's date and opens the calendar.
+
+The calendar appears as an overlay below the current line. Navigate the selected
+date with Shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
+week, `S-<prior>`/`S-<next>` by month), or type a date directly in `YYYY-MM-DD`
+format. Press `RET` or `TAB` to confirm, `C-g` to cancel.
+
 ### Live task highlighting
 
 TODO
+
+> **Note:** This feature requires a [custom fork of TaskJuggler]<!-- TODO: link to fork -->
+> that includes the `tj-cursor.js` polling support. It does not work with
+> upstream TaskJuggler.
+
+While a `.tjp` buffer is open, the mode tracks the innermost `task` block
+enclosing point and writes its full dotted ID (e.g. `project.phase.subtask`) to
+a `js/tj-cursor.js` sidecar file in the same directory as the project file. The
+custom TaskJuggler fork's generated HTML reports load this file and highlight the
+corresponding row in the Gantt chart, keeping the browser view in sync with
+wherever the cursor is in Emacs.
+
+**How it works:**
+
+1. Compile the project with `tj3` as usual — this creates the `js/` output
+   directory alongside the generated HTML.
+2. Open the generated report in a browser.
+3. Edit the `.tjp` file in Emacs. The Gantt chart row for the task at point is
+   highlighted automatically as the cursor moves.
+
+The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
+rather than JSON so the browser can load it via a `<script>` tag, which works
+under `file://` without CORS restrictions.<!-- TODO: describe how the fork loads
+the file (script tag, polling interval, etc.) -->
+
+Tracking starts automatically when a `.tjp` file is opened and stops (writing
+`null`) when the buffer is killed. It is disabled if the `js/` directory does not
+exist, and can be turned off entirely by setting `taskjuggler-cursor-idle-delay`
+to `nil`.
 
 ### Syntax highlighting
 
@@ -155,22 +196,6 @@ Mode-specific commands are grouped under the `C-c C-t` prefix:
 | `C-c C-t m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
 | `C-c C-t n`   | `taskjuggler-narrow-to-block` | Narrow buffer to the current block |
 
-### Date editing
-
-`C-c C-t d` (`taskjuggler-date-dwim`) is a unified entry point for working with
-TJ3 date literals:
-
-- **Point is on a date**: opens an inline calendar overlay pre-filled with the
-  existing date so you can edit it in place.
-- **Point is not on a date**: inserts today's date and opens the calendar.
-
-The calendar appears as an overlay below the current line. Navigate the selected
-date with Shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
-week, `S-<prior>`/`S-<next>` by month), or type a date directly in `YYYY-MM-DD`
-format. Press `RET` or `TAB` to confirm, `C-g` to cancel.
-
-No Org dependency — the calendar is built into the mode.
-
 ### tj3man integration
 
 `C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
@@ -219,36 +244,6 @@ Or with `use-package`:
 Errors in included `.tji` files are reported in those files' own buffers rather
 than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
-### Live task highlighting
-
-> **Note:** This feature requires a [custom fork of TaskJuggler]<!-- TODO: link to fork -->
-> that includes the `tj-cursor.js` polling support. It does not work with
-> upstream TaskJuggler.
-
-While a `.tjp` buffer is open, the mode tracks the innermost `task` block
-enclosing point and writes its full dotted ID (e.g. `project.phase.subtask`) to
-a `js/tj-cursor.js` sidecar file in the same directory as the project file. The
-custom TaskJuggler fork's generated HTML reports load this file and highlight the
-corresponding row in the Gantt chart, keeping the browser view in sync with
-wherever the cursor is in Emacs.
-
-**How it works:**
-
-1. Compile the project with `tj3` as usual — this creates the `js/` output
-   directory alongside the generated HTML.
-2. Open the generated report in a browser.
-3. Edit the `.tjp` file in Emacs. The Gantt chart row for the task at point is
-   highlighted automatically as the cursor moves.
-
-The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
-rather than JSON so the browser can load it via a `<script>` tag, which works
-under `file://` without CORS restrictions.<!-- TODO: describe how the fork loads
-the file (script tag, polling interval, etc.) -->
-
-Tracking starts automatically when a `.tjp` file is opened and stops (writing
-`null`) when the buffer is killed. It is disabled if the `js/` directory does not
-exist, and can be turned off entirely by setting `taskjuggler-cursor-idle-delay`
-to `nil`.
 
 ### yasnippet snippets
 
