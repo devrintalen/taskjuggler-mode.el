@@ -39,7 +39,7 @@ then you can easily see the task you're editing in the browser.
 
 TODO a gif of emacs and browser side by side
 
-**How it works:**
+How it works:
 
 1. Use the `format htmljs` attribute in the report definiton to get the interactive chart.
 2. Compile the project with `tj3` as usual.
