@@ -13,26 +13,21 @@ good luck. I also offer you this package to help.
 
 ### Highlights
 
-- Inline calendar picker for date entry
-- Live task highlighting in TaskJuggler reports
-- `tj3man` integration
+- Helpful inline calendar picker for date entry
+- Live task highlighting in the browser
+- `tj3man` documentation lookup (with `C-c C-t m`)
 - Evil-mode bindings
-- snippets (if `yasnippet` is present)
-- Syntax highlighting
-- Indentation support
+- Snippet templates (if `yasnippet` is present)
+- Syntax highlighting and automatic indentation
 - s-expression movement
 - Compilation and `flymake` support
 
 ### Inline calendar picker
 
-TODO
+`C-c C-t d` (`taskjuggler-date-dwim`) pops ups a calendar under point for working with
+TJ3 dates:
 
-`C-c C-t d` (`taskjuggler-date-dwim`) is a unified entry point for working with
-TJ3 date literals:
-
-- **Point is on a date**: opens an inline calendar overlay pre-filled with the
-  existing date so you can edit it in place.
-- **Point is not on a date**: inserts today's date and opens the calendar.
+TODO gif animation of the calendar picker
 
 The calendar appears as an overlay below the current line. Navigate the selected
 date with Shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
@@ -41,11 +36,10 @@ format. Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
 ### Live task highlighting
 
-TODO
+If you're using my [`jsgantt` branch of TaskJuggler](https://github.com/devrintalen/TaskJuggler/tree/jsgantt), 
+then you can easily see the task you're editing in the browser.
 
-> **Note:** This feature requires a [custom fork of TaskJuggler]<!-- TODO: link to fork -->
-> that includes the `tj-cursor.js` polling support. It does not work with
-> upstream TaskJuggler.
+TODO a gif of emacs and browser side by side
 
 While a `.tjp` buffer is open, the mode tracks the innermost `task` block
 enclosing point and writes its full dotted ID (e.g. `project.phase.subtask`) to
