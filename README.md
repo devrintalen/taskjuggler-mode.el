@@ -13,16 +13,23 @@ good luck. I also offer you this package to help.
 
 ### Highlights
 
+- Inline calendar picker for date entry
+- Live task highlighting in TaskJuggler reports
+- `tj3man` integration
+- Evil-mode bindings
+- snippets (if `yasnippet` is present)
 - Syntax highlighting
 - Indentation support
 - s-expression movement
-- Evil-mode bindings
 - Compilation and `flymake` support
-- `tj3man` keyword documentation (`C-c C-t m`)
-- snippets (if `yasnippet` is present)
-- inline calendar picker for date literals (`C-c C-t d`)
 
-Details on the features follow below.
+### Inline calendar picker
+
+TODO
+
+### Live task highlighting
+
+TODO
 
 ### Syntax highlighting
 
