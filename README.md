@@ -72,36 +72,13 @@ Tracking starts automatically when a `.tjp` file is opened and stops (writing
 exist, and can be turned off entirely by setting `taskjuggler-cursor-idle-delay`
 to `nil`.
 
-### Syntax highlighting
+### Syntax highlighting and indentation
 
-Keywords are divided into four semantic categories, each mapped to a
-distinct face so themes can style them independently:
-
-| Category                | Face                                                              | Examples                                          |
-|-------------------------|-------------------------------------------------------------------|---------------------------------------------------|
-| Structural keywords     | `font-lock-keyword-face`                                          | `project`, `task`, `resource`, `include`, `macro` |
-| Report keywords         | `font-lock-builtin-face`                                          | `taskreport`, `resourcereport`, `textreport`      |
-| Property keywords       | `font-lock-type-face`                                             | `effort`, `depends`, `allocate`, `start`, `end`   |
-| Value/constant keywords | `font-lock-constant-face`                                         | `asap`, `alap`, `yes`, `no`, `done`               |
-| Declaration identifiers | `font-lock-function-name-face`                                    | The `my-task` in `task my-task "…"`               |
-| Date literals           | `taskjuggler-date-face` (inherits `font-lock-string-face`)        | `2024-03-15`, `2024-03-15-09:00`                  |
-| Duration literals       | `taskjuggler-duration-face` (inherits `font-lock-constant-face`)  | `5d`, `2.5h`, `3w`, `30min`                       |
-| Macro/env references    | `taskjuggler-macro-face` (inherits `font-lock-preprocessor-face`) | `${MacroName}`, `$(ENV_VAR)`                      |
-| Strings                 | `font-lock-string-face`                                           | `"Project Name"`                                  |
-| Comments                | `font-lock-comment-face`                                          | `// …`, `/* … */`, `# …`                          |
-
-All three TJ3 comment syntaxes are recognized for navigation and toggling:
-
-- `//` — line comment
-- `/* … */` — block comment
-- `#` — line comment (handled via `syntax-propertize-rules` to avoid conflicting
-  with `$` in macro references)
+Highlighting for keywords, IDs, strings, etc., just like you would expect.
 
 `M-;` (`comment-dwim`) and `comment-region` default to `#` style. All three
 styles are recognized by `forward-comment`, `comment-search-forward`, and
 similar navigation commands.
-
-### Indentation
 
 Indentation is brace/bracket depth–based, computed with `syntax-ppss` so it is
 aware of strings and comments:
