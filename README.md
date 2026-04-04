@@ -18,9 +18,9 @@ good luck. I also offer you this package to help.
 - s-expression movement
 - Evil-mode bindings
 - Compilation and `flymake` support
-- `tj3man` keyword documentation (`C-c C-m`)
+- `tj3man` keyword documentation (`C-c C-t m`)
 - snippets (if `yasnippet` is present)
-- `org`-inspired date editing (if `org-mode` is present)
+- inline calendar picker for date literals (`C-c C-t d`)
 
 Details on the features follow below.
 
@@ -138,37 +138,39 @@ When `evil-mode` is active, additional normal-state bindings are registered:
 These bindings are registered with `with-eval-after-load 'evil` so the mode
 loads cleanly without evil present.
 
-### Command prefix (`C-c C-g`)
+### Command prefix (`C-c C-t`)
 
-Mode-specific commands are grouped under the `C-c C-g` prefix:
+Mode-specific commands are grouped under the `C-c C-t` prefix:
 
 | Key           | Command                    | Description                        |
 |---------------|----------------------------|------------------------------------|
-| `C-c C-g d`   | `taskjuggler-date-dwim`    | Insert or edit a date at point     |
-| `C-c C-g m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
+| `C-c C-t d`   | `taskjuggler-date-dwim`    | Insert or edit a date at point     |
+| `C-c C-t m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
+| `C-c C-t n`   | `taskjuggler-narrow-to-block` | Narrow buffer to the current block |
 
 ### Date editing
 
-`C-c C-g d` (`taskjuggler-date-dwim`) is a unified entry point for working with
+`C-c C-t d` (`taskjuggler-date-dwim`) is a unified entry point for working with
 TJ3 date literals:
 
-- **Point is on a date**: opens the Org calendar with the existing date
-  pre-selected so you can change it in place.
-- **Point is not on a date**: inserts a new date literal at point.
+- **Point is on a date**: opens an inline calendar overlay pre-filled with the
+  existing date so you can edit it in place.
+- **Point is not on a date**: inserts today's date and opens the calendar.
 
-Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
-`C-u`, the Org time picker is also shown and the result is
-`YYYY-MM-DD-HH:MM`.
+The calendar appears as an overlay below the current line. Navigate the selected
+date with Shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
+week, `S-<prior>`/`S-<next>` by month), or type a date directly in `YYYY-MM-DD`
+format. Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
-`org` ships with Emacs and is loaded on demand when `C-c C-g d` is invoked.
+No Org dependency — the calendar is built into the mode.
 
 ### tj3man integration
 
-`C-c C-g m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
+`C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
 
 - Prompts with completion over all known TJ3 keywords.
 - Defaults to the word at point, so placing the cursor on a keyword and
-  pressing `C-c C-g m RET` shows its documentation immediately.
+  pressing `C-c C-t m RET` shows its documentation immediately.
 - Output is shown in a `*tj3man*` help window (press `q` to dismiss).
 
 `tj3man` is resolved via `taskjuggler-tj3-bin-dir` just like `tj3`.
@@ -231,23 +233,62 @@ If yasnippet is present, the following snippet templates are loaded.
 
 ## Installation
 
-### `straight.el` with `use-package`
+### `use-package` with `:vc` (Emacs 30+)
 
-This probably the easiest way, if you already use `straight.el`.
+Built-in, no extra package manager needed.
 
 ```emacs-lisp
-
 (use-package taskjuggler-mode
-  :straight (taskjuggler-mode :type git
-							  :host github
-							  :repo "devrintalen/taskjuggler-mode.el"
-							  :files ("*.el" "snippets"))
+  :vc (:url "https://github.com/devrintalen/taskjuggler-mode.el"
+       :rev :newest)
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
   :custom
   (taskjuggler-tj3-bin-dir "~/bin"))
+```
 
-(add-hook 'taskjuggler-mode-hook #'flymake-mode) ;; Optional, for flymake integration
+### `straight.el` with `use-package`
 
+```emacs-lisp
+(use-package taskjuggler-mode
+  :straight (taskjuggler-mode :type git
+                              :host github
+                              :repo "devrintalen/taskjuggler-mode.el"
+                              :files ("*.el" "snippets"))
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
+
+### `package-vc-install` (Emacs 29+)
+
+One-time interactive install from a `*scratch*` buffer or `M-:`:
+
+```emacs-lisp
+(package-vc-install
+ '(taskjuggler-mode :url "https://github.com/devrintalen/taskjuggler-mode.el"))
+```
+
+Then configure with `use-package` (no `:vc` needed after install):
+
+```emacs-lisp
+(use-package taskjuggler-mode
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
+
+### Manual
+
+```sh
+git clone https://github.com/devrintalen/taskjuggler-mode.el ~/.emacs.d/taskjuggler-mode.el
+```
+
+```emacs-lisp
+(add-to-list 'load-path "~/.emacs.d/taskjuggler-mode.el")
+(require 'taskjuggler-mode)
 ```
 
 ## Configuration
@@ -255,11 +296,12 @@ This probably the easiest way, if you already use `straight.el`.
 All options belong to the `taskjuggler` customization group (`M-x customize-group
 RET taskjuggler RET`). The table below lists every option with its default value.
 
-| Option                       | Default | Description                                               |
-|------------------------------|---------|-----------------------------------------------------------|
-| `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
-| `taskjuggler-tj3-bin-dir`    | `nil`   | Directory containing `tj3` and `tj3man`, or nil for PATH  |
-| `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
+| Option                            | Default | Description                                               |
+|-----------------------------------|---------|-----------------------------------------------------------|
+| `taskjuggler-indent-level`        | `2`     | Spaces per indentation level                              |
+| `taskjuggler-tj3-bin-dir`         | `nil`   | Directory containing `tj3` and `tj3man`, or nil for PATH  |
+| `taskjuggler-tj3-extra-args`      | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
+| `taskjuggler-cursor-idle-delay`   | `0.3`   | Idle seconds before updating the `tj-cursor.js` sidecar; set to `nil` to disable |
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
 per-project with a `.dir-locals.el`:
@@ -292,7 +334,7 @@ Here is what this mode supports:
   including continuation-line alignment for comma-terminated argument lists
 - First-class Flymake integration running `tj3` on-the-fly
 - `compilation-mode` error navigation pre-wired for TJ3's error format
-- `tj3man` keyword documentation lookup (`C-c C-m`) with completion
+- `tj3man` keyword documentation lookup (`C-c C-t m`) with completion
 - yasnippet snippet collection for common constructs
 - Block movement (`M-<up>` / `M-<down>`) swaps sibling blocks while
   keeping their preceding comments attached
@@ -301,13 +343,13 @@ Here is what this mode supports:
 - `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e`)
 - Block editing: mark block with comments (`C-M-h`), narrow to block (`C-x n b`),
   clone block
-- Date editing with the Org calendar picker (`C-c C-d`) — inserts a new
-  date or edits the date under point
+- Inline calendar picker for date literals (`C-c C-t d`) — inserts a new
+  date or edits the date under point; no Org dependency
 - Evil-mode bindings for all block navigation commands
 
 ## Requirements
 
 - Emacs 27.1 or later
 - [TaskJuggler](https://taskjuggler.org/) `tj3` binary (for compilation and flymake features)
-- `org` (ships with Emacs; loaded on demand for date editing via `C-c C-d`)
+- `calendar` (built-in; used for the inline date picker)
 - [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)
