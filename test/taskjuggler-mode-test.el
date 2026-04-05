@@ -1004,6 +1004,189 @@ prev-block leaves point on the same block header."
       (goto-char (nth 1 bounds))
       (should (looking-at "[ \t]*task b")))))
 
+;;; Tests: scissors strings (syntax-propertize)
+
+(defun test-tj--in-string-p (pos)
+  "Return non-nil if buffer position POS is inside a string."
+  (nth 3 (syntax-ppss pos)))
+
+(ert-deftest taskjuggler-scissors--content-is-string ()
+  "Text between -8<- and ->8- is treated as a string by syntax-ppss."
+  (with-temp-buffer
+    (insert "note -8<-\nhello world\n->8-\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "hello")
+    (should (test-tj--in-string-p (point)))))
+
+(ert-deftest taskjuggler-scissors--outside-is-not-string ()
+  "Text before -8<- is not inside a string."
+  (with-temp-buffer
+    (insert "note -8<-\nhello\n->8-\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (should (not (test-tj--in-string-p (point))))))
+
+(ert-deftest taskjuggler-scissors--after-close-is-not-string ()
+  "Text after ->8- is no longer inside the string."
+  (with-temp-buffer
+    (insert "note -8<-\nhello\n->8-\nafter\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "after")
+    (should (not (test-tj--in-string-p (point))))))
+
+(ert-deftest taskjuggler-scissors--brace-inside-is-ignored ()
+  "A `{' inside a scissors string does not affect brace depth."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n  note -8<-\n  { not a brace }\n  ->8-\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "effort")
+    ;; depth inside the task body (after scissors string) should be 1, not more
+    (should (= 1 (car (syntax-ppss))))))
+
+;;; Tests: `/* */` comments in block-with-comments-start
+
+(ert-deftest taskjuggler-block-with-comments-start--block-comment ()
+  "A `/* */` block comment immediately before the header is included."
+  (with-temp-buffer
+    (insert "/* block comment */\ntask foo \"Foo\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (forward-line 1)  ; header on line 2
+    (let ((header (point)))
+      (should (= (point-min)
+                 (taskjuggler--block-with-comments-start header))))))
+
+(ert-deftest taskjuggler-block-with-comments-start--multiline-block-comment ()
+  "A multi-line `/* */` comment immediately before the header is included."
+  (with-temp-buffer
+    (insert "/* multi\n   line\n   comment */\ntask foo \"Foo\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    ;; header is on line 4
+    (goto-char (point-min))
+    (forward-line 3)
+    (let ((header (point)))
+      (should (= (point-min)
+                 (taskjuggler--block-with-comments-start header))))))
+
+;;; Tests: `[` / `]` bracket indentation
+
+(ert-deftest taskjuggler-indent--inside-brackets ()
+  "A line inside `[` brackets indents to `taskjuggler-indent-level'."
+  (with-indent-buffer "macro mymacro [\n  content\n]\n"
+    (should (= taskjuggler-indent-level (indent-at-line 2)))))
+
+(ert-deftest taskjuggler-indent--closing-bracket-dedented ()
+  "A closing `]' is de-indented one level relative to its contents."
+  (with-indent-buffer "macro mymacro [\n  content\n]\n"
+    (should (= 0 (indent-at-line 3)))))
+
+;;; Tests: taskjuggler--tj3-executable
+
+(ert-deftest taskjuggler-tj3-executable--nil-bin-dir ()
+  "Returns the name as-is when `taskjuggler-tj3-bin-dir' is nil."
+  (let ((taskjuggler-tj3-bin-dir nil))
+    (should (equal "tj3" (taskjuggler--tj3-executable "tj3")))
+    (should (equal "tj3man" (taskjuggler--tj3-executable "tj3man")))))
+
+(ert-deftest taskjuggler-tj3-executable--with-bin-dir ()
+  "Resolves name relative to `taskjuggler-tj3-bin-dir' when set."
+  (let ((taskjuggler-tj3-bin-dir "/opt/tj3/bin"))
+    (should (equal "/opt/tj3/bin/tj3"
+                   (taskjuggler--tj3-executable "tj3")))
+    (should (equal "/opt/tj3/bin/tj3man"
+                   (taskjuggler--tj3-executable "tj3man")))))
+
+;;; Tests: font-lock face assignment
+
+(defun test-tj--face-at-string (search-string)
+  "Return the font-lock face on the first char of SEARCH-STRING in current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (re-search-forward (regexp-quote search-string))
+    (goto-char (match-beginning 0))
+    (or (get-text-property (point) 'face)
+        (get-text-property (point) 'font-lock-face))))
+
+(defmacro with-fontified-buffer (content &rest body)
+  "Run BODY in a fontified taskjuggler-mode buffer containing CONTENT."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert ,content)
+     (taskjuggler-mode)
+     (font-lock-ensure)
+     ,@body))
+
+(ert-deftest taskjuggler-font-lock--keyword-face ()
+  "Top-level keywords receive `font-lock-keyword-face'."
+  (with-fontified-buffer "task foo \"Foo\" {\n}\n"
+    (should (eq 'font-lock-keyword-face (test-tj--face-at-string "task")))))
+
+(ert-deftest taskjuggler-font-lock--declaration-id-face ()
+  "The identifier after a declaration keyword receives `font-lock-variable-name-face'."
+  (with-fontified-buffer "task my-task \"My Task\" {\n}\n"
+    (should (eq 'font-lock-variable-name-face
+                (test-tj--face-at-string "my-task")))))
+
+(ert-deftest taskjuggler-font-lock--date-face ()
+  "Date literals receive `taskjuggler-date-face'."
+  (with-fontified-buffer "start 2024-03-15\n"
+    (should (eq 'taskjuggler-date-face (test-tj--face-at-string "2024-03-15")))))
+
+(ert-deftest taskjuggler-font-lock--duration-face ()
+  "Duration literals receive `taskjuggler-duration-face'."
+  (with-fontified-buffer "effort 5d\n"
+    (should (eq 'taskjuggler-duration-face (test-tj--face-at-string "5d")))))
+
+(ert-deftest taskjuggler-font-lock--macro-ref-face ()
+  "Macro references receive `taskjuggler-macro-face'."
+  (with-fontified-buffer "note ${MyMacro}\n"
+    (should (eq 'taskjuggler-macro-face (test-tj--face-at-string "${MyMacro}")))))
+
+(ert-deftest taskjuggler-font-lock--property-keyword-face ()
+  "Property keywords receive `font-lock-function-name-face'."
+  (with-fontified-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (should (eq 'font-lock-function-name-face
+                (test-tj--face-at-string "effort")))))
+
+;;; Tests: move-block at nested depth
+
+(ert-deftest taskjuggler-move-block-up--nested-siblings ()
+  "move-block-up swaps two nested sibling tasks."
+  (with-nav-buffer "task p \"P\" {\n  task a \"A\" {\n  }\n  task b \"B\" {\n  }\n}\n"
+    (re-search-forward "task b")
+    (beginning-of-line)
+    (taskjuggler-move-block-up)
+    ;; task b should now precede task a inside the parent.
+    (goto-char (point-min))
+    (re-search-forward "task p")
+    (should (re-search-forward "task b" nil t))
+    (let ((b-pos (match-beginning 0)))
+      (should (re-search-forward "task a" nil t))
+      (should (> (match-beginning 0) b-pos)))))
+
+(ert-deftest taskjuggler-move-block-down--nested-siblings ()
+  "move-block-down swaps two nested sibling tasks."
+  (with-nav-buffer "task p \"P\" {\n  task a \"A\" {\n  }\n  task b \"B\" {\n  }\n}\n"
+    (re-search-forward "task a")
+    (beginning-of-line)
+    (taskjuggler-move-block-down)
+    ;; task b should now precede task a.
+    (goto-char (point-min))
+    (re-search-forward "task p")
+    (should (re-search-forward "task b" nil t))
+    (let ((b-pos (match-beginning 0)))
+      (should (re-search-forward "task a" nil t))
+      (should (> (match-beginning 0) b-pos)))))
+
 ;;; Runner
 
 (when noninteractive
