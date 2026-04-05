@@ -22,22 +22,23 @@ good luck. I also offer you this package to help.
 
 ### Inline calendar picker
 
-`C-c C-t d` (`taskjuggler-date-dwim`) pops ups a calendar under point for working with
-TJ3 dates:
+`C-c C-t d` (`taskjuggler-date-dwim`) pops ups a calendar under point
+for working with TJ3 dates:
 
-TODO gif animation of the calendar picker
+![Screencast of calendar popup showing and adjusting the date](screenshots/calendarpicker.gif)
 
-The calendar appears as an overlay below the current line. The calendar updates as 
-you type the YYYY-MM-DD date, or navigate the selected
-date with shift-arrows (`S-<right>`/`S-<left>` by day, `S-<up>`/`S-<down>` by
-week, or `S-<prior>`/`S-<next>` by month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
+The calendar appears as an overlay below the current line. The
+calendar updates as you type the YYYY-MM-DD date, or navigate the
+selected date with shift-arrows (`S-<right>`/`S-<left>` by day,
+`S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
+month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
 ### Live task highlighting
 
 If you're using my [`jsgantt` branch of TaskJuggler](https://github.com/devrintalen/TaskJuggler/tree/jsgantt), 
 then you can easily see the task you're editing in the browser.
 
-TODO a gif of emacs and browser side by side
+![Screencast of active task highlighting with Emacs and browser side by side](screenshots/tasksync.gif)
 
 How it works:
 
@@ -47,15 +48,14 @@ How it works:
 4. Edit the `.tjp/i` file in Emacs. The chart row for the task at point is
    highlighted automatically as the cursor moves.
 
-The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
-rather than JSON so the browser can load it via a `<script>` tag, which works
-under `file://` without CORS restrictions.<!-- TODO: describe how the fork loads
-the file (script tag, polling interval, etc.) -->
-
 Tracking starts automatically when a `.tjp` file is opened and stops (writing
 `null`) when the buffer is killed. It is disabled if the `js/` directory does not
 exist, and can be turned off entirely by setting `taskjuggler-cursor-idle-delay`
 to `nil`.
+
+The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
+rather than JSON so the browser can load it via a `<script>` tag, which works
+under `file://` without CORS restrictions.
 
 ### Syntax highlighting and indentation
 
