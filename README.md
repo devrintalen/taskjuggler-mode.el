@@ -22,6 +22,8 @@ Evil mode bindings are provided for all of us on the dark side. If you
 use `yasnippet`, several templates are included that will be loaded
 whenever the mode is active.
 
+![Emacs badge](screenshots/antipixel1.png)
+
 ## Requirements
 
 - Emacs 27.1 or later
