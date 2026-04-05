@@ -452,15 +452,11 @@ so that syntax-ppss returns correct depth on every line."
     (taskjuggler-prev-block)
     (should (looking-at "task a"))))
 
-(ert-deftest taskjuggler-prev-block--no-move-at-first-sibling ()
-  "prev-block does not move point when there is no actual previous sibling.
-When the first block in the file has no preceding sibling, calling
-prev-block leaves point on the same block header."
+(ert-deftest taskjuggler-prev-block--errors-at-first-sibling ()
+  "prev-block signals a user-error when there is no previous sibling."
   (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
-    ;; Start on `task a' (no previous sibling).
-    (let ((pos (point)))
-      (taskjuggler-prev-block)
-      (should (= pos (point))))))
+    ;; Start on `task a' — first sibling, no previous.
+    (should-error (taskjuggler-prev-block) :type 'user-error)))
 
 (ert-deftest taskjuggler-goto-parent--moves-to-enclosing-header ()
   "goto-parent moves point to the header of the enclosing block."
@@ -1186,6 +1182,260 @@ prev-block leaves point on the same block header."
     (let ((b-pos (match-beginning 0)))
       (should (re-search-forward "task a" nil t))
       (should (> (match-beginning 0) b-pos)))))
+
+;;; Corner cases: next-block / prev-block from inside a body
+
+(ert-deftest taskjuggler-next-block--from-inside-body ()
+  "next-block from inside a block body jumps to the next sibling of that block."
+  ;; When point is inside `task a', its enclosing header IS `task a'.
+  ;; next-block should jump to `task b' (the sibling of `task a').
+  (with-nav-buffer "task a \"A\" {\n  effort 1d\n}\n\ntask b \"B\" {\n}\n"
+    (re-search-forward "effort")
+    (taskjuggler-next-block)
+    (should (looking-at "task b"))))
+
+(ert-deftest taskjuggler-prev-block--from-inside-body ()
+  "prev-block from inside a block body jumps to the previous sibling of that block."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n  effort 1d\n}\n"
+    (re-search-forward "effort")
+    (taskjuggler-prev-block)
+    (should (looking-at "task a"))))
+
+;;; Corner cases: move-block error paths
+
+(ert-deftest taskjuggler-move-block-up--errors-at-first-sibling ()
+  "move-block-up signals an error when there is no previous sibling."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
+    ;; Point on `task a' — first sibling, no previous.
+    (should-error (taskjuggler-move-block-up) :type 'user-error)))
+
+(ert-deftest taskjuggler-move-block-down--errors-at-last-sibling ()
+  "move-block-down signals an error when there is no next sibling."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
+    (re-search-forward "task b")
+    (beginning-of-line)
+    (should-error (taskjuggler-move-block-down) :type 'user-error)))
+
+(ert-deftest taskjuggler-move-block-up--errors-when-not-on-block ()
+  "move-block-up signals an error when point is not on a moveable block."
+  (with-nav-buffer "\ntask a \"A\" {\n}\n"
+    ;; Point starts on the blank line — not inside any block.
+    (should-error (taskjuggler-move-block-up) :type 'user-error)))
+
+;;; Corner cases: scissors strings
+
+(ert-deftest taskjuggler-scissors--hash-inside-is-not-comment ()
+  "A `#' inside a scissors string is not treated as a comment start."
+  (with-temp-buffer
+    (insert "note -8<-\n# not a comment\n->8-\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "# not a comment")
+    (goto-char (match-beginning 0))
+    ;; Inside a scissors string: the `#' starts a comment only outside strings.
+    ;; syntax-ppss should show we are inside a string (string fence), not a comment.
+    (let ((ppss (syntax-ppss)))
+      (should (nth 3 ppss))       ; inside a string
+      (should (not (nth 4 ppss)))))) ; NOT inside a comment
+
+(ert-deftest taskjuggler-scissors--unclosed-makes-rest-string ()
+  "Without a closing ->8-, everything after -8<- is treated as a string."
+  (with-temp-buffer
+    (insert "note -8<-\norphaned content\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "orphaned")
+    (should (test-tj--in-string-p (point)))))
+
+;;; Corner cases: full-task-id on the closing `}' line
+
+(ert-deftest taskjuggler-full-task-id--on-closing-brace-line ()
+  "Returns the task id when point is on the closing `}' of the block.
+The `}' is syntactically still inside the block (depth 1), so the
+enclosing header is still the task header."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "^}$")
+    (beginning-of-line)
+    (should (equal "foo" (taskjuggler--full-task-id-at-point)))))
+
+;;; Corner cases: continuation indent with no argument on anchor line
+
+(ert-deftest taskjuggler-indent--continuation-anchor-is-first-comma-line ()
+  "The continuation anchor is the first comma-terminated line, not the line above.
+When a keyword-only line (`columns') precedes the comma chain, the anchor
+for alignment is the first comma-terminated line (`name,'), not `columns'."
+  ;; Anchor line is `  name,' (first comma-terminated line).
+  ;; `name' starts at col 2, ends at col 6.  The comma follows immediately,
+  ;; so continuation-indent returns col 6 (position right after `name').
+  (with-indent-buffer "taskreport r \"\" {\n  columns\n  name,\n  id\n}\n"
+    (should (= 6 (indent-at-line 4)))))
+
+;;; Corner cases: multiple consecutive comment lines
+
+(ert-deftest taskjuggler-block-with-comments-start--multiple-comments ()
+  "All consecutive comment lines before the header are included."
+  (with-temp-buffer
+    (insert "# first\n# second\n# third\ntask foo \"Foo\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (forward-line 3)  ; header on line 4
+    (let ((header (point)))
+      (should (= (point-min)
+                 (taskjuggler--block-with-comments-start header))))))
+
+(ert-deftest taskjuggler-block-with-comments-start--mixed-comment-types ()
+  "A mix of `#' and `//' comment lines before the header are all included."
+  (with-temp-buffer
+    (insert "// slash comment\n# hash comment\ntask foo \"Foo\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (forward-line 2)  ; header on line 3
+    (let ((header (point)))
+      (should (= (point-min)
+                 (taskjuggler--block-with-comments-start header))))))
+
+;;; Corner cases: block-end with `{' in comment on header line
+
+(ert-deftest taskjuggler-block-end--brace-in-hash-comment-on-header ()
+  "block-end ignores a `{' inside a `#' comment on the header line."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" { # { this brace is in a comment\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (let ((end (taskjuggler--block-end (point-min))))
+      (should (= (point-max) end)))))
+
+(ert-deftest taskjuggler-block-end--brace-in-slash-comment-on-header ()
+  "block-end ignores a `{' inside a `// ' comment on the header line."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" { // another { brace\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (let ((end (taskjuggler--block-end (point-min))))
+      (should (= (point-max) end)))))
+
+;;; Corner cases: goto-parent two levels up
+
+(ert-deftest taskjuggler-goto-parent--two-levels-up ()
+  "Two consecutive goto-parent calls reach the outermost block header."
+  (with-nav-buffer "task outer \"O\" {\n  task inner \"I\" {\n    effort 1d\n  }\n}\n"
+    (re-search-forward "effort")
+    (taskjuggler-goto-parent)
+    (should (looking-at "[ \t]*task inner"))
+    (taskjuggler-goto-parent)
+    (should (looking-at "task outer"))))
+
+;;; Corner cases: date-bounds with two dates on same line
+
+(ert-deftest taskjuggler-date-bounds-at-point--second-date-on-line ()
+  "Returns bounds for the second date when point is on it."
+  (with-temp-buffer
+    (insert "period 2024-01-01 2024-12-31\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2024-12")
+    (let ((bounds (taskjuggler--date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2024-12-31"
+                     (buffer-substring (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-date-bounds-at-point--first-of-two-dates ()
+  "Returns bounds for the first date when point is on it."
+  (with-temp-buffer
+    (insert "period 2024-01-01 2024-12-31\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2024-01")
+    (let ((bounds (taskjuggler--date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2024-01-01"
+                     (buffer-substring (car bounds) (cdr bounds)))))))
+
+;;; Corner cases: font-lock comment and string faces
+
+(ert-deftest taskjuggler-font-lock--slash-comment-face ()
+  "Text inside a `// ' comment receives a comment face."
+  (with-fontified-buffer "// this is a comment\ntask foo \"Foo\" {\n}\n"
+    (goto-char (point-min))
+    (re-search-forward "this is")
+    (let ((face (get-text-property (match-beginning 0) 'face)))
+      (should (or (eq face 'font-lock-comment-face)
+                  (and (listp face) (memq 'font-lock-comment-face face)))))))
+
+(ert-deftest taskjuggler-font-lock--hash-comment-face ()
+  "Text inside a `#' comment receives a comment face."
+  (with-fontified-buffer "# hash comment\ntask foo \"Foo\" {\n}\n"
+    (goto-char (point-min))
+    (re-search-forward "hash comment")
+    (let ((face (get-text-property (match-beginning 0) 'face)))
+      (should (or (eq face 'font-lock-comment-face)
+                  (and (listp face) (memq 'font-lock-comment-face face)))))))
+
+(ert-deftest taskjuggler-font-lock--string-face ()
+  "Double-quoted strings receive a string face."
+  (with-fontified-buffer "task foo \"My Task\" {\n}\n"
+    (goto-char (point-min))
+    (re-search-forward "My Task")
+    (let ((face (get-text-property (match-beginning 0) 'face)))
+      (should (or (eq face 'font-lock-string-face)
+                  (and (listp face) (memq 'font-lock-string-face face)))))))
+
+(ert-deftest taskjuggler-font-lock--value-keyword-face ()
+  "Value keywords like `asap' receive `font-lock-variable-name-face'."
+  (with-fontified-buffer "scheduling asap\n"
+    (should (eq 'font-lock-variable-name-face
+                (test-tj--face-at-string "asap")))))
+
+(ert-deftest taskjuggler-font-lock--report-keyword-face ()
+  "Report type keywords receive `font-lock-function-name-face'."
+  (with-fontified-buffer "taskreport r \"\" {\n}\n"
+    (should (eq 'font-lock-function-name-face
+                (test-tj--face-at-string "taskreport")))))
+
+;;; Corner cases: calendar math
+
+(ert-deftest taskjuggler-cal-adjust-date--week-backward ()
+  "Adjusting by -1 :week retreats exactly 7 days."
+  (should (equal '(2024 3 8) (taskjuggler--cal-adjust-date 2024 3 15 -1 :week))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-crosses-year ()
+  "Adjusting by +1 :day from Dec 31 rolls into the next year."
+  (should (equal '(2025 1 1) (taskjuggler--cal-adjust-date 2024 12 31 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-forward-13 ()
+  "Adjusting by +13 :months advances more than one year."
+  (should (equal '(2026 4 15) (taskjuggler--cal-adjust-date 2025 3 15 13 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-backward-13 ()
+  "Adjusting by -13 :months retreats more than one year."
+  (should (equal '(2024 2 15) (taskjuggler--cal-adjust-date 2025 3 15 -13 :month))))
+
+;;; Corner cases: block-header-task-id non-task declaration keywords
+
+(ert-deftest taskjuggler-block-header-task-id--macro-keyword ()
+  "Returns nil for a `macro' header line — only `task' lines yield an id."
+  (with-temp-buffer
+    (insert "macro mymacro [\n]\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (should (null (taskjuggler--block-header-task-id (point))))))
+
+(ert-deftest taskjuggler-block-header-task-id--supplement-keyword ()
+  "Returns nil for a `supplement task' header line."
+  (with-temp-buffer
+    (insert "supplement task foo {\n}\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    ;; `supplement' is the leading keyword; this line does not start with `task'.
+    (should (null (taskjuggler--block-header-task-id (point))))))
 
 ;;; Runner
 

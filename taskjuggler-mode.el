@@ -546,6 +546,10 @@ if there is no previous sibling."
                      (error nil))))
                 (t nil))))
           (when (and prev-header
+                     ;; Guard: don't return the current block as its own sibling.
+                     ;; This happens when our-start is at bob and the while loop
+                     ;; never moves backward, leaving us on header-pos itself.
+                     (/= prev-header header-pos)
                      (= (car (syntax-ppss prev-header)) depth))
             (list (taskjuggler--block-with-comments-start prev-header)
                   prev-header
