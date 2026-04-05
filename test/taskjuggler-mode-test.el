@@ -1717,6 +1717,98 @@ Feb 2015 (28 days, Sunday start): 28 cells / 7 = 4 rows, remainder 0."
     (beginning-of-line)
     (should (null (taskjuggler--full-task-id-at-point)))))
 
+;;; Round 7: calendar navigation — leap year coverage and nav-delta
+
+;; --- taskjuggler--cal-nav-delta ---
+;; Maps the six shift-arrow keys to (delta . unit) cons cells.
+;; All six pcase arms are untested.
+
+(ert-deftest taskjuggler-cal-nav-delta--all-keys ()
+  "Each shift-arrow key maps to the correct (delta . unit) pair."
+  (should (equal '(1  . :day)   (taskjuggler--cal-nav-delta 'S-right)))
+  (should (equal '(-1 . :day)   (taskjuggler--cal-nav-delta 'S-left)))
+  (should (equal '(1  . :week)  (taskjuggler--cal-nav-delta 'S-down)))
+  (should (equal '(-1 . :week)  (taskjuggler--cal-nav-delta 'S-up)))
+  (should (equal '(1  . :month) (taskjuggler--cal-nav-delta 'S-next)))
+  (should (equal '(-1 . :month) (taskjuggler--cal-nav-delta 'S-prior))))
+
+;; --- :day movement across the February boundary ---
+
+(ert-deftest taskjuggler-cal-adjust-date--day-feb28-to-feb29-leap ()
+  "+1 day from Feb 28 in a leap year lands on Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 2 28 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-feb29-to-mar1-leap ()
+  "+1 day from Feb 29 in a leap year crosses into March."
+  (should (equal '(2024 3 1) (taskjuggler--cal-adjust-date 2024 2 29 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-feb28-to-mar1-non-leap ()
+  "+1 day from Feb 28 in a non-leap year jumps directly to March 1."
+  (should (equal '(2023 3 1) (taskjuggler--cal-adjust-date 2023 2 28 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-backward-mar1-to-feb29-leap ()
+  "-1 day from Mar 1 in a leap year lands on Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 3 1 -1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-backward-mar1-to-feb28-non-leap ()
+  "-1 day from Mar 1 in a non-leap year lands on Feb 28."
+  (should (equal '(2023 2 28) (taskjuggler--cal-adjust-date 2023 3 1 -1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-backward-feb29-to-feb28-leap ()
+  "-1 day from Feb 29 lands on Feb 28 in the same leap year."
+  (should (equal '(2024 2 28) (taskjuggler--cal-adjust-date 2024 2 29 -1 :day))))
+
+;; --- :week movement across the February boundary ---
+
+(ert-deftest taskjuggler-cal-adjust-date--week-lands-on-feb29 ()
+  "+1 week from Feb 22 in a leap year lands on Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 2 22 1 :week))))
+
+(ert-deftest taskjuggler-cal-adjust-date--week-crosses-feb29-leap ()
+  "+1 week from Feb 25 in a leap year crosses Feb 29 and lands in March."
+  (should (equal '(2024 3 3) (taskjuggler--cal-adjust-date 2024 2 25 1 :week))))
+
+(ert-deftest taskjuggler-cal-adjust-date--week-crosses-feb28-non-leap ()
+  "+1 week from Feb 22 in a non-leap year crosses Feb 28 and lands in March."
+  (should (equal '(2023 3 1) (taskjuggler--cal-adjust-date 2023 2 22 1 :week))))
+
+(ert-deftest taskjuggler-cal-adjust-date--week-backward-crosses-feb29 ()
+  "-1 week from Mar 7 in a leap year crosses Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 3 7 -1 :week))))
+
+;; --- :month movement clamping into February ---
+
+(ert-deftest taskjuggler-cal-adjust-date--month-jan31-to-feb28-non-leap ()
+  "Jan 31 + 1 month in a non-leap year clamps to Feb 28."
+  (should (equal '(2023 2 28) (taskjuggler--cal-adjust-date 2023 1 31 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-jan31-to-feb29-leap ()
+  "Jan 31 + 1 month in a leap year clamps to Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 1 31 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-backward-mar31-to-feb28-non-leap ()
+  "Mar 31 - 1 month in a non-leap year clamps to Feb 28."
+  (should (equal '(2023 2 28) (taskjuggler--cal-adjust-date 2023 3 31 -1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-backward-mar31-to-feb29-leap ()
+  "Mar 31 - 1 month in a leap year clamps to Feb 29."
+  (should (equal '(2024 2 29) (taskjuggler--cal-adjust-date 2024 3 31 -1 :month))))
+
+;; --- :month movement starting from Feb 29 (the leap day itself) ---
+
+(ert-deftest taskjuggler-cal-adjust-date--month-from-feb29-forward ()
+  "Feb 29 + 1 month advances to Mar 29 without clamping."
+  (should (equal '(2024 3 29) (taskjuggler--cal-adjust-date 2024 2 29 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-from-feb29-backward ()
+  "Feb 29 - 1 month retreats to Jan 29 without clamping."
+  (should (equal '(2024 1 29) (taskjuggler--cal-adjust-date 2024 2 29 -1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-from-feb29-to-feb-non-leap ()
+  "Feb 29 + 12 months lands in the next year's February, clamping to Feb 28."
+  ;; 2024-02-29 + 12 months = 2025-02-28 (2025 is not a leap year).
+  (should (equal '(2025 2 28) (taskjuggler--cal-adjust-date 2024 2 29 12 :month))))
+
 ;;; Runner
 
 (when noninteractive
