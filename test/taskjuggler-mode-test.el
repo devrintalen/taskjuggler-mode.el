@@ -486,6 +486,219 @@ prev-block leaves point on the same block header."
   (with-nav-buffer "task leaf \"Leaf\" {\n  effort 1d\n}\n"
     (should-error (taskjuggler-goto-first-child) :type 'user-error)))
 
+;;; Tests: taskjuggler--current-block-header
+
+(ert-deftest taskjuggler-current-block-header--on-keyword-line ()
+  "Returns the line position when point is on a moveable keyword line."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (should (= (point-min) (taskjuggler--current-block-header)))))
+
+(ert-deftest taskjuggler-current-block-header--inside-body ()
+  "Returns the enclosing header position when point is inside the body."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (re-search-forward "effort")
+    (let ((header (taskjuggler--current-block-header)))
+      (should header)
+      (goto-char header)
+      (should (looking-at "task foo")))))
+
+(ert-deftest taskjuggler-current-block-header--top-level-returns-nil ()
+  "Returns nil when point is at the top level outside any block."
+  (with-nav-buffer "\ntask foo \"Foo\" {\n}\n"
+    ;; Point starts at the blank line before the task — top level, no block.
+    (should (null (taskjuggler--current-block-header)))))
+
+(ert-deftest taskjuggler-current-block-header--non-task-block-returns-nil ()
+  "Returns nil inside a resource block (not a moveable-block-re match for its header)."
+  ;; `resource' IS in taskjuggler--moveable-block-re, so from inside its body
+  ;; we should get its header back.  Verify that a non-moveable wrapper does
+  ;; NOT manufacture a header from thin air.
+  (with-nav-buffer "resource dev \"Dev\" {\n  # IN-RES\n}\n"
+    (re-search-forward "# IN-RES")
+    (let ((header (taskjuggler--current-block-header)))
+      (should header)
+      (goto-char header)
+      (should (looking-at "resource dev")))))
+
+;;; Tests: taskjuggler--child-block-headers
+
+(ert-deftest taskjuggler-child-block-headers--returns-all-children ()
+  "Returns positions of all direct child block headers."
+  (with-nav-buffer "task p \"P\" {\n  task a \"A\" {\n  }\n  task b \"B\" {\n  }\n  task c \"C\" {\n  }\n}\n"
+    (syntax-propertize (point-max))
+    (let ((children (taskjuggler--child-block-headers (point-min))))
+      (should (= 3 (length children)))
+      (goto-char (nth 0 children)) (should (looking-at "[ \t]*task a"))
+      (goto-char (nth 1 children)) (should (looking-at "[ \t]*task b"))
+      (goto-char (nth 2 children)) (should (looking-at "[ \t]*task c")))))
+
+(ert-deftest taskjuggler-child-block-headers--no-children ()
+  "Returns nil for a block with no child blocks."
+  (with-nav-buffer "task leaf \"Leaf\" {\n  effort 1d\n}\n"
+    (should (null (taskjuggler--child-block-headers (point-min))))))
+
+(ert-deftest taskjuggler-child-block-headers--only-direct-children ()
+  "Does not include grandchildren — only direct children at depth+1."
+  (with-nav-buffer "task p \"P\" {\n  task child \"C\" {\n    task grandchild \"G\" {\n    }\n  }\n}\n"
+    (syntax-propertize (point-max))
+    (let ((children (taskjuggler--child-block-headers (point-min))))
+      (should (= 1 (length children)))
+      (goto-char (car children))
+      (should (looking-at "[ \t]*task child")))))
+
+;;; Tests: taskjuggler-goto-last-child
+
+(ert-deftest taskjuggler-goto-last-child--moves-to-last-child ()
+  "goto-last-child lands on the last direct child block."
+  (with-nav-buffer "task p \"P\" {\n  task a \"A\" {\n  }\n  task b \"B\" {\n  }\n}\n"
+    (taskjuggler-goto-last-child)
+    (should (looking-at "[ \t]*task b"))))
+
+(ert-deftest taskjuggler-goto-last-child--single-child ()
+  "goto-last-child and goto-first-child agree when there is one child."
+  (with-nav-buffer "task p \"P\" {\n  task only \"Only\" {\n  }\n}\n"
+    (let (first last)
+      (taskjuggler-goto-first-child)
+      (setq first (point))
+      (goto-char (point-min))
+      (taskjuggler-goto-last-child)
+      (setq last (point))
+      (should (= first last)))))
+
+;;; Tests: block movement
+
+(ert-deftest taskjuggler-move-block-up--swaps-with-prev-sibling ()
+  "move-block-up swaps the current block with the previous sibling."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
+    (re-search-forward "task b")
+    (beginning-of-line)
+    (taskjuggler-move-block-up)
+    ;; After moving up, `task b' should precede `task a'.
+    (goto-char (point-min))
+    (should (looking-at "task b"))))
+
+(ert-deftest taskjuggler-move-block-up--preserves-blank-separator ()
+  "move-block-up keeps the blank line between the two blocks."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
+    (re-search-forward "task b")
+    (beginning-of-line)
+    (taskjuggler-move-block-up)
+    ;; Buffer should still contain a blank line between the two blocks.
+    (goto-char (point-min))
+    (should (re-search-forward "^$" nil t))))
+
+(ert-deftest taskjuggler-move-block-down--swaps-with-next-sibling ()
+  "move-block-down swaps the current block with the next sibling."
+  (with-nav-buffer "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"
+    ;; Point starts on `task a'.
+    (taskjuggler-move-block-down)
+    (goto-char (point-min))
+    (should (looking-at "task b"))))
+
+(ert-deftest taskjuggler-move-block-up-down--round-trip ()
+  "Moving a block down then up restores the original buffer content."
+  (let ((original "task a \"A\" {\n}\n\ntask b \"B\" {\n}\n"))
+    (with-nav-buffer original
+      (taskjuggler-move-block-down)
+      (goto-char (point-min))
+      (re-search-forward "task a")
+      (beginning-of-line)
+      (taskjuggler-move-block-up)
+      (should (equal original (buffer-string))))))
+
+(ert-deftest taskjuggler-move-block-up--comment-travels-with-block ()
+  "A comment immediately before the block travels with it when moved."
+  (with-nav-buffer "task a \"A\" {\n}\n\n# comment for b\ntask b \"B\" {\n}\n"
+    (re-search-forward "task b")
+    (beginning-of-line)
+    (taskjuggler-move-block-up)
+    ;; The comment and task b should now be at the top of the file.
+    (goto-char (point-min))
+    (should (looking-at "# comment for b"))))
+
+;;; Tests: block editing
+
+(ert-deftest taskjuggler-clone-block--produces-duplicate ()
+  "clone-block inserts a copy of the block immediately after the original."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (taskjuggler-clone-block)
+    ;; The buffer should now contain two `task foo' blocks.
+    (goto-char (point-min))
+    (re-search-forward "task foo")
+    (should (re-search-forward "task foo" nil t))))
+
+(ert-deftest taskjuggler-clone-block--blank-line-separator ()
+  "clone-block separates the original and clone with a blank line."
+  (with-nav-buffer "task foo \"Foo\" {\n}\n"
+    (taskjuggler-clone-block)
+    (goto-char (point-min))
+    (re-search-forward "^}$")
+    (forward-line 1)
+    (should (looking-at "^$"))))
+
+(ert-deftest taskjuggler-clone-block--point-on-clone-header ()
+  "clone-block leaves point on the clone's header line."
+  (with-nav-buffer "task foo \"Foo\" {\n}\n"
+    (taskjuggler-clone-block)
+    (should (looking-at "task foo"))))
+
+(ert-deftest taskjuggler-narrow-to-block--narrows-correctly ()
+  "narrow-to-block restricts the buffer to header through closing `}'."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (re-search-forward "effort")
+    (taskjuggler-narrow-to-block)
+    (unwind-protect
+        (progn
+          (should (string-match "task foo" (buffer-string)))
+          (should (string-match "effort" (buffer-string)))
+          ;; Nothing outside the block should be visible.
+          (goto-char (point-min))
+          (should (looking-at "task foo")))
+      (widen))))
+
+(ert-deftest taskjuggler-mark-block--sets-region-over-block ()
+  "mark-block places point at block start and mark at block end."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (re-search-forward "effort")
+    (taskjuggler-mark-block)
+    (let ((region (buffer-substring (region-beginning) (region-end))))
+      (should (string-match "task foo" region))
+      (should (string-match "effort" region)))))
+
+;;; Tests: sexp movement
+
+(ert-deftest taskjuggler-forward-sexp--skips-whole-block ()
+  "forward-sexp from a block header jumps past the entire block."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\ntask bar \"Bar\" {\n}\n"
+    ;; Point is on `task foo' header.
+    (taskjuggler--forward-sexp 1)
+    ;; Should now be at `task bar'.
+    (should (looking-at "task bar"))))
+
+(ert-deftest taskjuggler-forward-sexp--inside-line-falls-back ()
+  "forward-sexp from mid-line falls back to default sexp movement."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (re-search-forward "effort ")
+    ;; Point is now after `effort ', just before `5d'.  Default sexp would
+    ;; move past `5d' as a token.
+    (let ((start (point)))
+      (taskjuggler--forward-sexp 1)
+      (should (> (point) start)))))
+
+(ert-deftest taskjuggler-backward-sexp--skips-whole-block ()
+  "backward-sexp from after a block's `}' jumps to the block header."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\ntask bar \"Bar\" {\n}\n"
+    ;; Move to just after the closing `}' of `task bar'.
+    (goto-char (point-max))
+    (taskjuggler--forward-sexp -1)
+    (should (looking-at "task bar"))))
+
+(ert-deftest taskjuggler-forward-sexp--arg-2-skips-two-blocks ()
+  "forward-sexp with arg 2 skips two consecutive blocks."
+  (with-nav-buffer "task a \"A\" {\n}\ntask b \"B\" {\n}\ntask c \"C\" {\n}\n"
+    (taskjuggler--forward-sexp 2)
+    (should (looking-at "task c"))))
+
 ;;; Runner
 
 (when noninteractive

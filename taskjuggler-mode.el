@@ -861,9 +861,10 @@ reentrancy through `forward-sexp-function'."
     (save-excursion
       (skip-chars-backward " \t\n")
       (when (eq (char-before) ?})
-        (backward-char)
         (condition-case nil
             (progn
+              ;; Point is just after `}'; (forward-sexp -1) sees `}' as
+              ;; char-before and jumps to the matching `{'.
               (let ((forward-sexp-function nil)) (forward-sexp -1)) ; `}' -> matching `{'
               (beginning-of-line)
               (when (looking-at taskjuggler--moveable-block-re)
