@@ -1437,6 +1437,286 @@ for alignment is the first comma-terminated line (`name,'), not `columns'."
     ;; `supplement' is the leading keyword; this line does not start with `task'.
     (should (null (taskjuggler--block-header-task-id (point))))))
 
+;;; Round 6: uncovered logic paths
+
+;; --- taskjuggler--prev-sibling-bounds: (t nil) cond arm ---
+;; When the line before the first child is plain content (not a brace block
+;; and not a moveable keyword), the cond falls through to (t nil) and
+;; prev-sibling-bounds returns nil.
+
+(ert-deftest taskjuggler-prev-sibling-bounds--nil-when-prev-is-plain-content ()
+  "Returns nil when the predecessor line is plain content, not a sibling block.
+The `(t nil)' arm of the internal cond is taken when the candidate
+predecessor is neither a `}'-terminated block nor a moveable keyword line."
+  (with-nav-buffer "task p \"P\" {\n  effort 5d\n  task child \"C\" {\n  }\n}\n"
+    (syntax-propertize (point-max))
+    (re-search-forward "task child")
+    (beginning-of-line)
+    (should (null (taskjuggler--prev-sibling-bounds (point))))))
+
+;; --- taskjuggler--next-sibling-bounds: /* */ comment skip branch ---
+;; Lines 572-574 of the source: when a `/*' line is encountered while
+;; scanning forward, re-search-forward is used to skip the entire comment
+;; block rather than forward-line 1.
+
+(ert-deftest taskjuggler-next-sibling-bounds--skips-block-comment ()
+  "next-sibling-bounds correctly skips a `/* */' comment between siblings."
+  (with-nav-buffer "task a \"A\" {\n}\n\n/* inter-block comment */\n\ntask b \"B\" {\n}\n"
+    (let ((bounds (taskjuggler--next-sibling-bounds (point-min))))
+      (should bounds)
+      (goto-char (nth 1 bounds))
+      (should (looking-at "task b")))))
+
+(ert-deftest taskjuggler-next-block--skips-block-comment-between-siblings ()
+  "next-block finds the next sibling even with a `/* */' comment between them."
+  (with-nav-buffer "task a \"A\" {\n}\n\n/* inter-block comment */\n\ntask b \"B\" {\n}\n"
+    (taskjuggler-next-block)
+    (should (looking-at "task b"))))
+
+;; --- taskjuggler-indent-line: point-restoration branch ---
+;; Lines 413-414: when point was inside line content before the call,
+;; (- (point-max) pos) > new indented point, so we restore point to the
+;; equivalent content position after re-indentation.
+
+(ert-deftest taskjuggler-indent-line--restores-point-inside-content ()
+  "indent-line restores point to its content position when past indentation.
+When called with point inside the line (not at bol), the `when' guard on
+line 413 fires and moves point back to the same logical character."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n        effort 5d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    ;; Position point after "effort " — inside content, past the indentation.
+    (goto-char (point-min))
+    (re-search-forward "effort ")
+    ;; Capture the distance from point to point-max before re-indenting.
+    (let ((dist-from-end (- (point-max) (point))))
+      (taskjuggler-indent-line)
+      ;; Point should be at the same logical position relative to point-max.
+      (should (= (point) (- (point-max) dist-from-end))))))
+
+;; --- taskjuggler-indent-region: blank-line skip ---
+;; Line 424: `(unless (looking-at "[ \t]*$") ...)' skips blank lines.
+;; No previous test contained a blank line inside the indented region.
+
+(ert-deftest taskjuggler-indent-region--skips-blank-lines ()
+  "indent-region leaves blank lines untouched."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n\n  effort 5d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (taskjuggler-indent-region (point-min) (point-max))
+    ;; Line 2 is blank; it must remain blank (no spaces inserted).
+    (goto-char (point-min))
+    (forward-line 1)
+    (should (looking-at "^$"))))
+
+;; --- taskjuggler--backward-sexp-1: non-`}' fallback ---
+;; Line 880: when char-before (after skipping whitespace) is not `}',
+;; the block-detection save-excursion sets block-start to nil and we
+;; fall back to the default (forward-sexp -1).
+
+(ert-deftest taskjuggler-backward-sexp--fallback-for-non-brace-token ()
+  "backward-sexp from after a plain token falls back to default sexp movement.
+When the character before point is not `}', the block-detection is skipped
+and `forward-sexp -1' moves back over the token normally."
+  (with-nav-buffer "task foo \"Foo\" {\n  effort 5d\n}\n"
+    (re-search-forward "5d")
+    ;; Point is just after "5d"; char-before = 'd', not `}'.
+    (let ((pos-before (point)))
+      (taskjuggler--forward-sexp -1)
+      (should (< (point) pos-before))
+      (should (looking-at "5d")))))
+
+;; --- taskjuggler--cal-valid-char-at-p ---
+;; Two branches: positions 4 and 7 require a hyphen; all others require a digit.
+
+(ert-deftest taskjuggler-cal-valid-char-at-p--hyphen-at-sep-positions ()
+  "A hyphen is valid at separator positions 4 and 7."
+  (should (taskjuggler--cal-valid-char-at-p ?- 4))
+  (should (taskjuggler--cal-valid-char-at-p ?- 7)))
+
+(ert-deftest taskjuggler-cal-valid-char-at-p--digit-invalid-at-sep-positions ()
+  "A digit is invalid at separator positions 4 and 7."
+  (should (not (taskjuggler--cal-valid-char-at-p ?0 4)))
+  (should (not (taskjuggler--cal-valid-char-at-p ?9 7))))
+
+(ert-deftest taskjuggler-cal-valid-char-at-p--digit-valid-at-digit-positions ()
+  "A digit is valid at non-separator positions."
+  (should (taskjuggler--cal-valid-char-at-p ?2 0))
+  (should (taskjuggler--cal-valid-char-at-p ?0 5))
+  (should (taskjuggler--cal-valid-char-at-p ?1 8)))
+
+(ert-deftest taskjuggler-cal-valid-char-at-p--hyphen-invalid-at-digit-positions ()
+  "A hyphen is invalid at non-separator positions."
+  (should (not (taskjuggler--cal-valid-char-at-p ?- 0)))
+  (should (not (taskjuggler--cal-valid-char-at-p ?- 5)))
+  (should (not (taskjuggler--cal-valid-char-at-p ?- 9))))
+
+;; --- taskjuggler--cal-parse-typed-prefix ---
+;; Guards: (>= typed-len 4/7/10), (> y 0), (<= 1 m 12), (>= d 1).
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--zero-typed-returns-default ()
+  "With typed-len=0, no parsing occurs and the default date is returned."
+  (with-temp-buffer
+    (insert "2024-03-15")
+    (should (equal '(2026 1 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 0 '(2026 1 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--four-chars-sets-year ()
+  "With typed-len=4, the year is parsed from the buffer prefix."
+  (with-temp-buffer
+    (insert "2024-03-15")
+    (should (equal '(2024 1 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 4 '(2026 1 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--seven-chars-sets-year-and-month ()
+  "With typed-len=7, year and month are parsed."
+  (with-temp-buffer
+    (insert "2024-06-15")
+    (should (equal '(2024 6 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 7 '(2026 1 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--ten-chars-sets-all ()
+  "With typed-len=10, year, month, and day are all parsed."
+  (with-temp-buffer
+    (insert "2024-06-15")
+    (should (equal '(2024 6 15)
+                   (taskjuggler--cal-parse-typed-prefix 1 10 '(2026 1 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--year-zero-rejected ()
+  "A parsed year of 0 is rejected; the default year is kept."
+  (with-temp-buffer
+    (insert "0000-06-15")
+    ;; y=0, `(> y 0)' is false → keep default year 2026.
+    (should (equal '(2026 1 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 4 '(2026 1 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--invalid-month-rejected ()
+  "A month value outside 1-12 is rejected; the default month is kept."
+  (with-temp-buffer
+    (insert "2024-13-15")
+    ;; m=13, `(<= 1 13 12)' is false → keep default month 5.
+    (should (equal '(2024 5 1)
+                   (taskjuggler--cal-parse-typed-prefix 1 7 '(2026 5 1))))))
+
+(ert-deftest taskjuggler-cal-parse-typed-prefix--day-clamped-to-month ()
+  "Day 31 is clamped to the last valid day of the parsed month."
+  (with-temp-buffer
+    (insert "2024-02-31")
+    ;; Feb 2024 is a leap year; max day = 29.
+    (should (equal '(2024 2 29)
+                   (taskjuggler--cal-parse-typed-prefix 1 10 '(2026 1 1))))))
+
+;; --- taskjuggler--cal-splice-line ---
+;; Branch 1: col <= old-len → take substring for left side.
+;; Branch 2: col > old-len  → pad with spaces.
+;; Branch 3: right-start < old-len  → right side has content.
+;; Branch 4: right-start >= old-len → right side is "".
+
+(ert-deftest taskjuggler-cal-splice-line--normal-insertion ()
+  "Splices new text into old at col, preserving text on both sides."
+  ;; "leftXXXright" with "CAL" at col 4 → "leftCALright"
+  (should (equal "leftCALright"
+                 (taskjuggler--cal-splice-line "leftXXXright" "CAL" 4))))
+
+(ert-deftest taskjuggler-cal-splice-line--col-beyond-line-pads-with-spaces ()
+  "When col > old-len, spaces are inserted to reach col before new text."
+  ;; "ab" (len=2) with "CAL" at col 4: needs 2 padding spaces.
+  (should (equal "ab  CAL"
+                 (taskjuggler--cal-splice-line "ab" "CAL" 4))))
+
+(ert-deftest taskjuggler-cal-splice-line--no-right-remainder ()
+  "When right-start >= old-len, the right portion is empty."
+  ;; "leftXX" (len=6) with "CAL" at col 4: right-start=7 >= 6 → right="".
+  (should (equal "leftCAL"
+                 (taskjuggler--cal-splice-line "leftXX" "CAL" 4))))
+
+;; --- taskjuggler--cal-pad-line: overflow ---
+
+(ert-deftest taskjuggler-cal-pad-line--text-longer-than-width ()
+  "When text exceeds cal-width, no padding is added (max 0 guard)."
+  (let* ((long-text (make-string (+ taskjuggler--cal-width 5) ?x))
+         (result (taskjuggler--cal-pad-line long-text)))
+    (should (equal long-text result))))
+
+;; --- taskjuggler--cal-build-display: exhausted old-lines ---
+;; Line 1141: `(or (pop old-lines) "")' supplies an empty string when
+;; old-lines runs out before cal-lines does.
+
+(ert-deftest taskjuggler-cal-build-display--empty-old-lines ()
+  "When old-lines is empty, calendar rows splice into empty strings."
+  (let* ((result (taskjuggler--cal-build-display '("ROW1" "ROW2") nil 0)))
+    (should (string-match-p "ROW1" result))
+    (should (string-match-p "ROW2" result))))
+
+;; --- taskjuggler--cal-week-lines: Sunday start (no leading cells) ---
+;; `(when (> start-dow 0))' on line 1018: skipped when a month starts on Sunday.
+;; Feb 2015 has 28 days and starts on Sunday → 0 leading cells, 0 trailing
+;; cells (28 / 7 = 4 exactly) → exactly 4 week rows.
+
+(ert-deftest taskjuggler-cal-week-lines--sunday-start-no-leading-cells ()
+  "A month starting on Sunday produces no leading cells and the minimum row count.
+Feb 2015 starts on Sunday (start-dow=0) and has 28 days: 4 rows exactly."
+  (let ((weeks (taskjuggler--cal-week-lines 2015 2 15 2015 2 15)))
+    (should (= 4 (length weeks)))))
+
+;; --- taskjuggler--cal-week-lines: no trailing fill ---
+;; `(when (> trailing 0))' on line 1041: skipped when cells divide evenly by 7.
+
+(ert-deftest taskjuggler-cal-week-lines--no-trailing-fill-needed ()
+  "A month whose cell count is a multiple of 7 needs no trailing fill.
+Feb 2015 (28 days, Sunday start): 28 cells / 7 = 4 rows, remainder 0."
+  ;; Contrast with a month that DOES have trailing fill.
+  ;; January 2024 starts on Monday (start-dow=1): 1+31=32 cells, 32%7=4,
+  ;; trailing=3 → 35 cells → 5 rows.
+  (let ((weeks-jan (taskjuggler--cal-week-lines 2024 1 15 2024 1 15))
+        (weeks-feb (taskjuggler--cal-week-lines 2015 2 15 2015 2 15)))
+    (should (= 5 (length weeks-jan)))
+    (should (= 4 (length weeks-feb)))))
+
+;; --- narrow-to-block / mark-block: not-on-block error ---
+
+(ert-deftest taskjuggler-narrow-to-block--errors-when-not-on-block ()
+  "narrow-to-block signals a user-error when point is not inside any block."
+  (with-nav-buffer "\ntask foo \"Foo\" {\n}\n"
+    ;; Point is on the blank line before the task — not inside any block.
+    (should-error (taskjuggler-narrow-to-block) :type 'user-error)))
+
+(ert-deftest taskjuggler-mark-block--errors-when-not-on-block ()
+  "mark-block signals a user-error when point is not inside any block."
+  (with-nav-buffer "\ntask foo \"Foo\" {\n}\n"
+    (should-error (taskjuggler-mark-block) :type 'user-error)))
+
+;; --- goto-first-child / goto-last-child: not-on-block error ---
+
+(ert-deftest taskjuggler-goto-first-child--errors-when-not-on-block ()
+  "goto-first-child signals a user-error when point is not on any block."
+  (with-nav-buffer "\ntask foo \"Foo\" {\n  task child \"C\" {\n  }\n}\n"
+    ;; Point is on the initial blank line — not inside any block.
+    (should-error (taskjuggler-goto-first-child) :type 'user-error)))
+
+(ert-deftest taskjuggler-goto-last-child--errors-when-not-on-block ()
+  "goto-last-child signals a user-error when point is not on any block."
+  (with-nav-buffer "\ntask foo \"Foo\" {\n  task child \"C\" {\n  }\n}\n"
+    (should-error (taskjuggler-goto-last-child) :type 'user-error)))
+
+;; --- taskjuggler--full-task-id-at-point: `}' line of a non-task block ---
+;; The closing `}' of a `resource' block is syntactically inside that block
+;; (depth 1), so current-block-header returns the resource header.
+;; block-header-task-id returns nil for `resource', so ids stays nil → nil.
+
+(ert-deftest taskjuggler-full-task-id--nil-on-closing-brace-of-resource ()
+  "Returns nil when point is on the closing `}' of a non-task block."
+  (with-temp-buffer
+    (insert "resource dev \"Dev\" {\n  vacation 2024-01-01\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "^}$")
+    (beginning-of-line)
+    (should (null (taskjuggler--full-task-id-at-point)))))
+
 ;;; Runner
 
 (when noninteractive
