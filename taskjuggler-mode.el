@@ -546,6 +546,10 @@ if there is no previous sibling."
                      (error nil))))
                 (t nil))))
           (when (and prev-header
+                     ;; Guard: don't return the current block as its own sibling.
+                     ;; This happens when our-start is at bob and the while loop
+                     ;; never moves backward, leaving us on header-pos itself.
+                     (/= prev-header header-pos)
                      (= (car (syntax-ppss prev-header)) depth))
             (list (taskjuggler--block-with-comments-start prev-header)
                   prev-header
@@ -861,9 +865,10 @@ reentrancy through `forward-sexp-function'."
     (save-excursion
       (skip-chars-backward " \t\n")
       (when (eq (char-before) ?})
-        (backward-char)
         (condition-case nil
             (progn
+              ;; Point is just after `}'; (forward-sexp -1) sees `}' as
+              ;; char-before and jumps to the matching `{'.
               (let ((forward-sexp-function nil)) (forward-sexp -1)) ; `}' -> matching `{'
               (beginning-of-line)
               (when (looking-at taskjuggler--moveable-block-re)
