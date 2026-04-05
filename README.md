@@ -64,6 +64,8 @@ under `file://` without CORS restrictions.
 
 `C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
 
+![Screenshot of tjp and *tj3man* buffers side-by-side](screenshots/tj3man.png)
+
 - Prompts with completion over all known TJ3 keywords.
 - Defaults to the word at point, so placing the cursor on a keyword and
   pressing `C-c C-t m RET` shows its documentation immediately.
