@@ -1809,6 +1809,145 @@ Feb 2015 (28 days, Sunday start): 28 cells / 7 = 4 rows, remainder 0."
   ;; 2024-02-29 + 12 months = 2025-02-28 (2025 is not a leap year).
   (should (equal '(2025 2 28) (taskjuggler--cal-adjust-date 2024 2 29 12 :month))))
 
+;;; Round 8: calendar popup layout properties
+
+;; Week rows are built as:
+;;   " " cell0 " " cell1 " " cell2 " " cell3 " " cell4 " " cell5 " " cell6 " "
+;; Each cell is a 2-char propertized string; cell i starts at position 1 + 3*i.
+
+(defun test-tj--cell-face (weeks row-idx cell-idx)
+  "Return the face of the cell at ROW-IDX, CELL-IDX (0-based) in WEEKS."
+  (get-text-property (+ 1 (* 3 cell-idx)) 'face (nth row-idx weeks)))
+
+(defun test-tj--cell-day (weeks row-idx cell-idx)
+  "Return the integer day shown at ROW-IDX, CELL-IDX in WEEKS."
+  (let* ((row (nth row-idx weeks))
+         (pos (+ 1 (* 3 cell-idx))))
+    (string-to-number (substring-no-properties row pos (+ pos 2)))))
+
+;; --- Row-count tests ---
+
+(ert-deftest taskjuggler-cal-week-lines--five-week-month ()
+  "A month that spans 5 calendar rows returns 5 week rows.
+January 2024 starts on Monday (start-dow=1): 1 leading + 31 + 3 trailing = 35 = 5 rows."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 1 15 2024 1 15)))
+    (should (= 5 (length weeks)))))
+
+(ert-deftest taskjuggler-cal-week-lines--six-week-month ()
+  "A month that spans 6 calendar rows returns 6 week rows.
+December 2018 starts on Saturday (start-dow=6): 6 + 31 + 5 trailing = 42 = 6 rows."
+  (let ((weeks (taskjuggler--cal-week-lines 2018 12 15 2018 12 15)))
+    (should (= 6 (length weeks)))))
+
+;; --- Leading-cell tests ---
+;; Feb 2024 starts on Thursday (start-dow=4).
+;; Previous month is January (31 days): first-prev = 1+(31-4) = 28.
+;; Leading cells occupy row 0, positions 0-3 (Jan 28-31).
+
+(ert-deftest taskjuggler-cal-week-lines--leading-cells-have-inactive-face ()
+  "Every leading cell from the previous month carries the inactive face."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 0 0)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 0 1)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 0 2)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 0 3)))))
+
+(ert-deftest taskjuggler-cal-week-lines--leading-cells-start-at-correct-day ()
+  "Leading cells show the correct end-of-previous-month day numbers."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    (should (= 28 (test-tj--cell-day weeks 0 0)))
+    (should (= 29 (test-tj--cell-day weeks 0 1)))
+    (should (= 30 (test-tj--cell-day weeks 0 2)))
+    (should (= 31 (test-tj--cell-day weeks 0 3)))))
+
+(ert-deftest taskjuggler-cal-week-lines--no-leading-first-cell-is-day-1 ()
+  "When start-dow=0 (Sunday), no leading cells — first cell of row 0 is day 1.
+February 2015 starts on Sunday."
+  (let ((weeks (taskjuggler--cal-week-lines 2015 2 15 2026 1 1)))
+    (should (= 1 (test-tj--cell-day weeks 0 0)))))
+
+(ert-deftest taskjuggler-cal-week-lines--six-week-leading-cells ()
+  "A month with start-dow=6 has 6 leading cells starting at the right day.
+December 2018 starts on Saturday; November has 30 days: first-prev = 1+(30-6) = 25."
+  (let ((weeks (taskjuggler--cal-week-lines 2018 12 15 2026 1 1)))
+    (should (= 25 (test-tj--cell-day weeks 0 0)))
+    (should (= 30 (test-tj--cell-day weeks 0 5)))
+    ;; Cell 6 of row 0 is Dec 1 — first day of the actual month.
+    (should (= 1 (test-tj--cell-day weeks 0 6)))))
+
+;; --- Trailing-cell tests ---
+;; Feb 2024: 4 leading + 29 = 33 cells; trailing = 7-(33%7) = 2 (Mar 1-2).
+;; They appear at row 4, cells 5-6.
+
+(ert-deftest taskjuggler-cal-week-lines--trailing-cells-have-inactive-face ()
+  "Trailing cells from the next month carry the inactive face."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 4 5)))
+    (should (eq 'taskjuggler-cal-inactive-face (test-tj--cell-face weeks 4 6)))))
+
+(ert-deftest taskjuggler-cal-week-lines--trailing-cells-start-at-day-1 ()
+  "Trailing cells always count up from day 1 of the following month."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    (should (= 1 (test-tj--cell-day weeks 4 5)))
+    (should (= 2 (test-tj--cell-day weeks 4 6)))))
+
+;; --- Face tests ---
+;; All use Feb 2024, selected=15, today either far away or on a specific day.
+;; Feb 15 offset: 4 leading + 15 - 1 = 18 = row 2 cell 4.
+;; Feb 10 offset: 4 + 10 - 1 = 13 = row 1 cell 6.
+;; Feb  1 offset: 4 +  1 - 1 =  4 = row 0 cell 4.
+
+(ert-deftest taskjuggler-cal-week-lines--selected-day-face ()
+  "The selected day carries `taskjuggler-cal-selected-face'."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    (should (eq 'taskjuggler-cal-selected-face (test-tj--cell-face weeks 2 4)))))
+
+(ert-deftest taskjuggler-cal-week-lines--today-face ()
+  "Today's date (when not the selected day) carries `taskjuggler-cal-today-face'."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2024 2 10)))
+    (should (eq 'taskjuggler-cal-today-face (test-tj--cell-face weeks 1 6)))))
+
+(ert-deftest taskjuggler-cal-week-lines--regular-day-face ()
+  "A day that is neither selected nor today carries `taskjuggler-cal-face'."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+    ;; Feb 1 is row 0 cell 4 — neither selected (15) nor today.
+    (should (eq 'taskjuggler-cal-face (test-tj--cell-face weeks 0 4)))))
+
+(ert-deftest taskjuggler-cal-week-lines--selected-overrides-today ()
+  "When selected and today are the same day, selected face takes priority.
+The cond checks `= d selected-day' before `= d today-day'."
+  (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2024 2 15)))
+    (should (eq 'taskjuggler-cal-selected-face (test-tj--cell-face weeks 2 4)))))
+
+;; --- taskjuggler--cal-title-line ---
+
+(ert-deftest taskjuggler-cal-title-line--format ()
+  "Returns `Month YEAR' for any month/year combination."
+  (should (equal "February 2024" (taskjuggler--cal-title-line 2024 2)))
+  (should (equal "January 2025"  (taskjuggler--cal-title-line 2025 1)))
+  (should (equal "December 1999" (taskjuggler--cal-title-line 1999 12))))
+
+;; --- taskjuggler--cal-render ---
+
+(ert-deftest taskjuggler-cal-render--line-count ()
+  "cal-render returns 2 header lines plus one line per week row.
+February 2024 has 5 week rows, so 7 lines total."
+  (let ((lines (taskjuggler--cal-render 2024 2 15)))
+    (should (= 7 (length lines)))))
+
+(ert-deftest taskjuggler-cal-render--title-in-first-line ()
+  "The first line contains the month name and year."
+  (let ((lines (taskjuggler--cal-render 2024 2 15)))
+    (should (string-match-p "February" (substring-no-properties (nth 0 lines))))
+    (should (string-match-p "2024"     (substring-no-properties (nth 0 lines))))))
+
+(ert-deftest taskjuggler-cal-render--all-lines-have-cal-width ()
+  "Every line from cal-render is exactly `taskjuggler--cal-width' characters wide."
+  (let ((lines (taskjuggler--cal-render 2024 2 15)))
+    (dolist (line lines)
+      (should (= taskjuggler--cal-width
+                 (length (substring-no-properties line)))))))
+
 ;;; Runner
 
 (when noninteractive
