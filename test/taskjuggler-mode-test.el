@@ -699,6 +699,311 @@ prev-block leaves point on the same block header."
     (taskjuggler--forward-sexp 2)
     (should (looking-at "task c"))))
 
+;;; Tests: taskjuggler--beginning-of-defun
+
+;; Shared buffer content for defun tests.
+(defconst test-defun-content
+  "task alpha \"Alpha\" {\n  effort 1d\n}\n\ntask beta \"Beta\" {\n  task child \"Child\" {\n    effort 2d\n  }\n}\n\ntask gamma \"Gamma\" {\n}\n")
+
+(defmacro with-defun-buffer (&rest body)
+  "Run BODY in a taskjuggler-mode buffer containing `test-defun-content'."
+  (declare (indent 0))
+  `(with-temp-buffer
+     (insert test-defun-content)
+     (taskjuggler-mode)
+     (syntax-propertize (point-max))
+     (goto-char (point-min))
+     ,@body))
+
+(ert-deftest taskjuggler-beginning-of-defun--from-inside-body ()
+  "From inside a block body, jumps to that block's header."
+  (with-defun-buffer
+    (re-search-forward "effort 1d")
+    (taskjuggler--beginning-of-defun)
+    (should (looking-at "task alpha"))))
+
+(ert-deftest taskjuggler-beginning-of-defun--from-header-goes-to-prev ()
+  "From a block header, searches backward to the preceding block."
+  (with-defun-buffer
+    (re-search-forward "task beta")
+    (beginning-of-line)
+    (taskjuggler--beginning-of-defun)
+    (should (looking-at "task alpha"))))
+
+(ert-deftest taskjuggler-beginning-of-defun--arg-2-from-body ()
+  "With arg 2 from inside a block body, jumps to header then one more back."
+  (with-defun-buffer
+    ;; Point inside beta's body (on `task child' header, one level down).
+    (re-search-forward "effort 2d")
+    ;; arg=1 would land on `task child'; arg=2 goes one step further back.
+    (taskjuggler--beginning-of-defun 2)
+    (should (looking-at "[ \t]*task child\\|task beta"))))
+
+(ert-deftest taskjuggler-beginning-of-defun--arg-2-from-header ()
+  "With arg 2 from a block header, steps backward twice."
+  (with-defun-buffer
+    (re-search-forward "task gamma")
+    (beginning-of-line)
+    (taskjuggler--beginning-of-defun 2)
+    (should (looking-at "task alpha\\|[ \t]*task child\\|task beta"))))
+
+(ert-deftest taskjuggler-beginning-of-defun--at-bob-stops ()
+  "At the first block (bob), does not move past the start of the buffer."
+  (with-defun-buffer
+    ;; Already on `task alpha'.
+    (taskjuggler--beginning-of-defun)
+    ;; No previous block; point should stay at or before task alpha.
+    (should (<= (point) (progn (goto-char (point-min))
+                               (re-search-forward "task alpha")
+                               (line-beginning-position))))))
+
+(ert-deftest taskjuggler-beginning-of-defun--negative-arg-delegates ()
+  "A negative arg delegates to end-of-defun."
+  (with-defun-buffer
+    ;; Point on task alpha header.
+    (taskjuggler--beginning-of-defun -1)
+    ;; Should have moved forward past task alpha's closing `}'.
+    (should (> (point) (progn (goto-char (point-min))
+                              (re-search-forward "task alpha")
+                              (point))))))
+
+;;; Tests: taskjuggler--end-of-defun
+
+(ert-deftest taskjuggler-end-of-defun--from-header ()
+  "From a block header, jumps past the block's closing `}'."
+  (with-defun-buffer
+    ;; Point on `task alpha'.
+    (taskjuggler--end-of-defun)
+    ;; Should now be past `task alpha's `}' and on or before `task beta'.
+    (let ((beta-pos (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward "^task beta")
+                      (line-beginning-position))))
+      (should (<= (point) beta-pos)))))
+
+(ert-deftest taskjuggler-end-of-defun--from-inside-body ()
+  "From inside a block body, jumps past the block's closing `}'."
+  (with-defun-buffer
+    (re-search-forward "effort 1d")
+    (taskjuggler--end-of-defun)
+    (let ((beta-pos (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward "^task beta")
+                      (line-beginning-position))))
+      (should (<= (point) beta-pos)))))
+
+(ert-deftest taskjuggler-end-of-defun--arg-2 ()
+  "With arg 2, skips past two consecutive blocks."
+  (with-defun-buffer
+    ;; Point at start.
+    (taskjuggler--end-of-defun 2)
+    ;; Should be past beta (and possibly at or before gamma).
+    (let ((gamma-pos (save-excursion
+                       (goto-char (point-min))
+                       (re-search-forward "^task gamma")
+                       (line-beginning-position))))
+      (should (<= (point) gamma-pos)))))
+
+(ert-deftest taskjuggler-end-of-defun--negative-arg-delegates ()
+  "A negative arg delegates to beginning-of-defun."
+  (with-defun-buffer
+    (re-search-forward "task beta")
+    (beginning-of-line)
+    (taskjuggler--end-of-defun -1)
+    (should (looking-at "task alpha"))))
+
+;;; Tests: taskjuggler-forward-block / taskjuggler-backward-block (linear scan)
+
+(defconst test-linear-content
+  "task outer \"Outer\" {\n  task inner-a \"A\" {\n  }\n  task inner-b \"B\" {\n  }\n}\ntask sibling \"Sibling\" {\n}\n")
+
+(defmacro with-linear-buffer (&rest body)
+  "Run BODY in a taskjuggler-mode buffer with nested and sibling blocks."
+  (declare (indent 0))
+  `(with-temp-buffer
+     (insert test-linear-content)
+     (taskjuggler-mode)
+     (syntax-propertize (point-max))
+     (goto-char (point-min))
+     ,@body))
+
+(ert-deftest taskjuggler-forward-block--crosses-nesting ()
+  "forward-block moves into nested blocks, unlike next-block."
+  (with-linear-buffer
+    ;; Start on `task outer'.
+    (taskjuggler-forward-block)
+    (should (looking-at "[ \t]*task inner-a"))))
+
+(ert-deftest taskjuggler-forward-block--arg-2 ()
+  "forward-block with arg 2 moves to the second next block header."
+  (with-linear-buffer
+    (taskjuggler-forward-block 2)
+    (should (looking-at "[ \t]*task inner-b"))))
+
+(ert-deftest taskjuggler-forward-block--crosses-out-of-nesting ()
+  "forward-block can move from a nested block to a top-level sibling."
+  (with-linear-buffer
+    (taskjuggler-forward-block 3)
+    (should (looking-at "task sibling"))))
+
+(ert-deftest taskjuggler-forward-block--errors-at-last-block ()
+  "forward-block signals an error when there is no next block."
+  (with-linear-buffer
+    ;; Jump to the last block header.
+    (re-search-forward "task sibling")
+    (beginning-of-line)
+    (should-error (taskjuggler-forward-block) :type 'user-error)))
+
+(ert-deftest taskjuggler-backward-block--moves-to-prev-header ()
+  "backward-block moves to the immediately preceding block header."
+  (with-linear-buffer
+    (re-search-forward "task sibling")
+    (beginning-of-line)
+    (taskjuggler-backward-block)
+    (should (looking-at "[ \t]*task inner-b"))))
+
+(ert-deftest taskjuggler-backward-block--arg-2 ()
+  "backward-block with arg 2 moves two headers backward."
+  (with-linear-buffer
+    (re-search-forward "task sibling")
+    (beginning-of-line)
+    (taskjuggler-backward-block 2)
+    (should (looking-at "[ \t]*task inner-a"))))
+
+(ert-deftest taskjuggler-backward-block--errors-at-first-block ()
+  "backward-block signals an error when there is no previous block."
+  (with-linear-buffer
+    (should-error (taskjuggler-backward-block) :type 'user-error)))
+
+;;; Tests: calendar math
+
+(ert-deftest taskjuggler-cal-clamp-day--within-range ()
+  "Returns the day unchanged when it is valid for that month."
+  (should (= 15 (taskjuggler--cal-clamp-day 2024 3 15))))
+
+(ert-deftest taskjuggler-cal-clamp-day--clamps-to-month-end ()
+  "Clamps day 31 to 30 for a 30-day month."
+  (should (= 30 (taskjuggler--cal-clamp-day 2024 4 31))))
+
+(ert-deftest taskjuggler-cal-clamp-day--february-leap-year ()
+  "February in a leap year allows day 29."
+  (should (= 29 (taskjuggler--cal-clamp-day 2024 2 29))))
+
+(ert-deftest taskjuggler-cal-clamp-day--february-non-leap-year ()
+  "Clamps day 29 to 28 in a non-leap-year February."
+  (should (= 28 (taskjuggler--cal-clamp-day 2023 2 29))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-forward ()
+  "Adjusting by +1 :day advances one day."
+  (should (equal '(2024 3 16) (taskjuggler--cal-adjust-date 2024 3 15 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-backward ()
+  "Adjusting by -1 :day retreats one day."
+  (should (equal '(2024 3 14) (taskjuggler--cal-adjust-date 2024 3 15 -1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--day-crosses-month ()
+  "Adjusting by day correctly crosses a month boundary."
+  (should (equal '(2024 4 1) (taskjuggler--cal-adjust-date 2024 3 31 1 :day))))
+
+(ert-deftest taskjuggler-cal-adjust-date--week ()
+  "Adjusting by 1 :week advances exactly 7 days."
+  (should (equal '(2024 3 22) (taskjuggler--cal-adjust-date 2024 3 15 1 :week))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-forward ()
+  "Adjusting by +1 :month advances one month."
+  (should (equal '(2024 4 15) (taskjuggler--cal-adjust-date 2024 3 15 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-year-rollover ()
+  "Adjusting month forward past December rolls over to next year."
+  (should (equal '(2025 1 15) (taskjuggler--cal-adjust-date 2024 12 15 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-clamps-day ()
+  "Month adjustment clamps the day when the target month is shorter."
+  ;; March 31 + 1 month = April 30 (April has only 30 days).
+  (should (equal '(2024 4 30) (taskjuggler--cal-adjust-date 2024 3 31 1 :month))))
+
+(ert-deftest taskjuggler-cal-adjust-date--month-backward-year-rollover ()
+  "Adjusting month backward past January rolls over to previous year."
+  (should (equal '(2023 12 15) (taskjuggler--cal-adjust-date 2024 1 15 -1 :month))))
+
+;;; Tests: taskjuggler-indent-line and taskjuggler-indent-region
+
+(ert-deftest taskjuggler-indent-line--corrects-over-indent ()
+  "indent-line fixes an over-indented line to the correct column."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n        effort 5d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (forward-line 1)
+    (taskjuggler-indent-line)
+    (should (= taskjuggler-indent-level (current-indentation)))))
+
+(ert-deftest taskjuggler-indent-line--corrects-under-indent ()
+  "indent-line fixes an under-indented line to the correct column."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\neffort 5d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (forward-line 1)
+    (taskjuggler-indent-line)
+    (should (= taskjuggler-indent-level (current-indentation)))))
+
+(ert-deftest taskjuggler-indent-region--indents-all-lines ()
+  "indent-region correctly indents every line in the selected region."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n        effort 5d\ntask inner \"I\" {\neffort 1d\n}\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (taskjuggler-indent-region (point-min) (point-max))
+    (goto-char (point-min))
+    ;; Line 1: top-level header → col 0.
+    (should (= 0 (current-indentation)))
+    (forward-line 1)
+    ;; Line 2: inside one brace → indent-level.
+    (should (= taskjuggler-indent-level (current-indentation)))
+    (forward-line 1)
+    ;; Line 3: nested task header → indent-level.
+    (should (= taskjuggler-indent-level (current-indentation)))
+    (forward-line 1)
+    ;; Line 4: inside two braces → 2 × indent-level.
+    (should (= (* 2 taskjuggler-indent-level) (current-indentation)))))
+
+;;; Tests: edge cases
+
+(ert-deftest taskjuggler-block-end--brace-in-string-on-header ()
+  "block-end ignores a `{' inside a quoted string on the header line."
+  ;; The `{' inside `\"name {with brace}\"' must not be mistaken for the
+  ;; block opener; the real `{' is the last one on the line.
+  (with-temp-buffer
+    (insert "task foo \"name {with brace}\" {\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (let ((end (taskjuggler--block-end (point-min))))
+      (should (= (point-max) end)))))
+
+(ert-deftest taskjuggler-clone-block--includes-preceding-comment ()
+  "clone-block copies the preceding comment together with the block."
+  (with-nav-buffer "# header comment\ntask foo \"Foo\" {\n}\n"
+    (re-search-forward "task foo")
+    (beginning-of-line)
+    (taskjuggler-clone-block)
+    ;; Buffer should now contain two copies of the comment.
+    (goto-char (point-min))
+    (re-search-forward "# header comment")
+    (should (re-search-forward "# header comment" nil t))))
+
+(ert-deftest taskjuggler-sibling-bounds--nested-siblings ()
+  "next-sibling-bounds finds siblings at a nested depth, not top-level."
+  (with-nav-buffer "task p \"P\" {\n  task a \"A\" {\n  }\n  task b \"B\" {\n  }\n}\n"
+    (re-search-forward "task a")
+    (beginning-of-line)
+    (let ((bounds (taskjuggler--next-sibling-bounds (point))))
+      (should bounds)
+      (goto-char (nth 1 bounds))
+      (should (looking-at "[ \t]*task b")))))
+
 ;;; Runner
 
 (when noninteractive
