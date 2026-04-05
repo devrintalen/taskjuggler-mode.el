@@ -9,64 +9,92 @@ good luck. I also offer you this package to help.
 
 ![A screenshot of a sample TaskJuggler project file, showing taskjuggler-mode.el syntax highlighting](screenshots/gnomes.png)
 
+Here's what this mode provides, out of the box, with no dependencies:
+
+- Syntax highlighting and automatic indentation
+- Helpful inline calendar picker for date entry
+- Live task highlighting in the browser
+- `tj3man` documentation lookup
+- Compilation and `flymake` support
+- s-expression movement
+
+Evil mode bindings are provided for all of us on the dark side. If you
+use `yasnippet`, several templates are included that will be loaded
+whenever the mode is active.
+
+## Requirements
+
+- Emacs 27.1 or later
+- [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
+
+Optional:
+- [yasnippet](https://github.com/joaotavora/yasnippet) (snippets are registered automatically if yasnippet is present)
+
 ## Features
 
-### Highlights
+### Inline calendar picker
 
-- Syntax highlighting
-- Indentation support
-- s-expression movement
-- Evil-mode bindings
-- Compilation and `flymake` support
-- `tj3man` keyword documentation (`C-c C-m`)
-- snippets (if `yasnippet` is present)
-- `org`-inspired date editing (if `org-mode` is present)
+`C-c C-t d` (`taskjuggler-date-dwim`) pops ups a calendar under point
+for working with TJ3 dates:
 
-Details on the features follow below.
+![Screencast of calendar popup showing and adjusting the date](screenshots/calendarpicker.gif)
 
-### Syntax highlighting
+The calendar appears as an overlay below the current line. The
+calendar updates as you type the YYYY-MM-DD date, or navigate the
+selected date with shift-arrows (`S-<right>`/`S-<left>` by day,
+`S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
+month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
-Keywords are divided into four semantic categories, each mapped to a
-distinct face so themes can style them independently:
+### Live task highlighting
 
-| Category                | Face                                                              | Examples                                          |
-|-------------------------|-------------------------------------------------------------------|---------------------------------------------------|
-| Structural keywords     | `font-lock-keyword-face`                                          | `project`, `task`, `resource`, `include`, `macro` |
-| Report keywords         | `font-lock-builtin-face`                                          | `taskreport`, `resourcereport`, `textreport`      |
-| Property keywords       | `font-lock-type-face`                                             | `effort`, `depends`, `allocate`, `start`, `end`   |
-| Value/constant keywords | `font-lock-constant-face`                                         | `asap`, `alap`, `yes`, `no`, `done`               |
-| Declaration identifiers | `font-lock-function-name-face`                                    | The `my-task` in `task my-task "…"`               |
-| Date literals           | `taskjuggler-date-face` (inherits `font-lock-string-face`)        | `2024-03-15`, `2024-03-15-09:00`                  |
-| Duration literals       | `taskjuggler-duration-face` (inherits `font-lock-constant-face`)  | `5d`, `2.5h`, `3w`, `30min`                       |
-| Macro/env references    | `taskjuggler-macro-face` (inherits `font-lock-preprocessor-face`) | `${MacroName}`, `$(ENV_VAR)`                      |
-| Strings                 | `font-lock-string-face`                                           | `"Project Name"`                                  |
-| Comments                | `font-lock-comment-face`                                          | `// …`, `/* … */`, `# …`                          |
+If you're using my [`jsgantt` branch of TaskJuggler](https://github.com/devrintalen/TaskJuggler/tree/jsgantt), 
+then you can easily see the task you're editing in the browser.
 
-All three TJ3 comment syntaxes are recognized for navigation and toggling:
+![Screencast of active task highlighting with Emacs and browser side by side](screenshots/tasksync.gif)
 
-- `//` — line comment
-- `/* … */` — block comment
-- `#` — line comment (handled via `syntax-propertize-rules` to avoid conflicting
-  with `$` in macro references)
+How it works:
+
+1. Use the `format htmljs` attribute in the report definiton to get the interactive chart.
+2. Compile the project with `tj3` as usual.
+3. Open the generated report in a browser.
+4. Edit the `.tjp/i` file in Emacs. The chart row for the task at point is
+   highlighted automatically as the cursor moves.
+
+Tracking starts automatically when a `.tjp` file is opened and stops (writing
+`null`) when the buffer is killed. It is disabled if the `js/` directory does not
+exist, and can be turned off entirely by setting `taskjuggler-cursor-idle-delay`
+to `nil`.
+
+The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
+rather than JSON so the browser can load it via a `<script>` tag, which works
+under `file://` without CORS restrictions.
+
+### tj3man integration
+
+`C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
+
+![Screenshot of tjp and *tj3man* buffers side-by-side](screenshots/tj3man.png)
+
+- Prompts with completion over all known TJ3 keywords.
+- Defaults to the word at point, so placing the cursor on a keyword and
+  pressing `C-c C-t m RET` shows its documentation immediately.
+- Output is shown in a `*tj3man*` help window (press `q` to dismiss).
+
+`tj3man` is resolved via `taskjuggler-tj3-bin-dir`.
+
+### Syntax highlighting and indentation
+
+Highlighting for keywords, IDs, strings, etc., just like you would
+expect. Even TaskJuggler's unique scissor strings `"-8<-...->8-"` are
+parsed correctly as multi-line strings.
 
 `M-;` (`comment-dwim`) and `comment-region` default to `#` style. All three
 styles are recognized by `forward-comment`, `comment-search-forward`, and
 similar navigation commands.
 
-### Indentation
-
-Indentation is brace/bracket depth–based, computed with `syntax-ppss` so it is
-aware of strings and comments:
-
-- Each `{` or `[` increases the indent by `taskjuggler-indent-level` spaces.
-- A line that starts with `}` or `]` is de-indented one level relative to the
-  surrounding block.
 - `TAB` indents the current line (`taskjuggler-indent-line`).
 - `C-M-\` indents the active region (`taskjuggler-indent-region`).
 - Tabs are never inserted; `indent-tabs-mode` is `nil`.
-- Continuation lines (when the previous non-blank line ends with a comma) are
-  aligned with the first argument on the keyword line rather than indented by
-  one level.
 
 ### Block movement
 
@@ -138,40 +166,15 @@ When `evil-mode` is active, additional normal-state bindings are registered:
 These bindings are registered with `with-eval-after-load 'evil` so the mode
 loads cleanly without evil present.
 
-### Command prefix (`C-c C-g`)
+### Command prefix (`C-c C-t`)
 
-Mode-specific commands are grouped under the `C-c C-g` prefix:
+Mode-specific commands are grouped under the `C-c C-t` prefix:
 
-| Key           | Command                    | Description                        |
-|---------------|----------------------------|------------------------------------|
-| `C-c C-g d`   | `taskjuggler-date-dwim`    | Insert or edit a date at point     |
-| `C-c C-g m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
-
-### Date editing
-
-`C-c C-g d` (`taskjuggler-date-dwim`) is a unified entry point for working with
-TJ3 date literals:
-
-- **Point is on a date**: opens the Org calendar with the existing date
-  pre-selected so you can change it in place.
-- **Point is not on a date**: inserts a new date literal at point.
-
-Without a prefix argument both commands produce a bare `YYYY-MM-DD`. With
-`C-u`, the Org time picker is also shown and the result is
-`YYYY-MM-DD-HH:MM`.
-
-`org` ships with Emacs and is loaded on demand when `C-c C-g d` is invoked.
-
-### tj3man integration
-
-`C-c C-g m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
-
-- Prompts with completion over all known TJ3 keywords.
-- Defaults to the word at point, so placing the cursor on a keyword and
-  pressing `C-c C-g m RET` shows its documentation immediately.
-- Output is shown in a `*tj3man*` help window (press `q` to dismiss).
-
-`tj3man` is resolved via `taskjuggler-tj3-bin-dir` just like `tj3`.
+| Key         | Command                       | Description                        |
+|-------------|-------------------------------|------------------------------------|
+| `C-c C-t d` | `taskjuggler-date-dwim`       | Insert or edit a date at point     |
+| `C-c C-t m` | `taskjuggler-man`             | Look up a TJ3 keyword in tj3man    |
+| `C-c C-t n` | `taskjuggler-narrow-to-block` | Narrow buffer to the current block |
 
 ### Compilation support
 
@@ -192,22 +195,9 @@ ANSI color codes so errors are found whether or not
 
 ### Flymake integration
 
-The Flymake backend runs `tj3` on the **saved file** whenever Flymake checks the
-buffer and reports errors as inline diagnostics. Enable it the standard way:
-
-```emacs-lisp
-(add-hook 'taskjuggler-mode-hook #'flymake-mode)
-```
-
-Or with `use-package`:
-
-```emacs-lisp
-(use-package taskjuggler-mode
-  :ensure t
-  :hook (taskjuggler-mode . flymake-mode))
-```
-
-Errors in included `.tji` files are reported in those files' own buffers rather
+The Flymake backend runs `tj3` on the **saved file** whenever Flymake
+checks the buffer and reports errors as inline diagnostics. Errors in
+included `.tji` files are reported in those files' own buffers rather
 than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
 ### yasnippet snippets
@@ -231,23 +221,67 @@ If yasnippet is present, the following snippet templates are loaded.
 
 ## Installation
 
+Not on MELPA (yet). In the meantime, here are options.
+
+Note that all of these assume your `tj3` and `tj3man` programs are
+located at `~/bin`, adjust this path to where they are on your system.
+
 ### `straight.el` with `use-package`
 
-This probably the easiest way, if you already use `straight.el`.
-
 ```emacs-lisp
-
 (use-package taskjuggler-mode
   :straight (taskjuggler-mode :type git
-							  :host github
-							  :repo "devrintalen/taskjuggler-mode.el"
-							  :files ("*.el" "snippets"))
+                              :host github
+                              :repo "devrintalen/taskjuggler-mode.el"
+                              :files ("*.el" "snippets"))
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
   :custom
   (taskjuggler-tj3-bin-dir "~/bin"))
+```
 
-(add-hook 'taskjuggler-mode-hook #'flymake-mode) ;; Optional, for flymake integration
+### `use-package` with `:vc` (Emacs 30+)
 
+Built-in, no extra package manager needed.
+
+```emacs-lisp
+(use-package taskjuggler-mode
+  :vc (:url "https://github.com/devrintalen/taskjuggler-mode.el"
+       :rev :newest)
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
+
+### `package-vc-install` (Emacs 29+)
+
+One-time interactive install from a `*scratch*` buffer or `M-:`:
+
+```emacs-lisp
+(package-vc-install
+ '(taskjuggler-mode :url "https://github.com/devrintalen/taskjuggler-mode.el"))
+```
+
+Then configure with `use-package` (no `:vc` needed after install):
+
+```emacs-lisp
+(use-package taskjuggler-mode
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
+
+### Manual
+
+```sh
+git clone https://github.com/devrintalen/taskjuggler-mode.el ~/.emacs.d/taskjuggler-mode.el
+```
+
+```emacs-lisp
+(add-to-list 'load-path "~/.emacs.d/taskjuggler-mode.el")
+(require 'taskjuggler-mode)
 ```
 
 ## Configuration
@@ -255,11 +289,12 @@ This probably the easiest way, if you already use `straight.el`.
 All options belong to the `taskjuggler` customization group (`M-x customize-group
 RET taskjuggler RET`). The table below lists every option with its default value.
 
-| Option                       | Default | Description                                               |
-|------------------------------|---------|-----------------------------------------------------------|
-| `taskjuggler-indent-level`   | `2`     | Spaces per indentation level                              |
-| `taskjuggler-tj3-bin-dir`    | `nil`   | Directory containing `tj3` and `tj3man`, or nil for PATH  |
-| `taskjuggler-tj3-extra-args` | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
+| Option                            | Default | Description                                               |
+|-----------------------------------|---------|-----------------------------------------------------------|
+| `taskjuggler-indent-level`        | `2`     | Spaces per indentation level                              |
+| `taskjuggler-tj3-bin-dir`         | `nil`   | Directory containing `tj3` and `tj3man`, or nil for PATH  |
+| `taskjuggler-tj3-extra-args`      | `nil`   | Extra CLI flags forwarded to `tj3` by the Flymake backend |
+| `taskjuggler-cursor-idle-delay`   | `0.3`   | Idle seconds before updating the `tj-cursor.js` sidecar; set to `nil` to disable |
 
 `taskjuggler-tj3-extra-args` is buffer-local safe (`listp`), so you can set it
 per-project with a `.dir-locals.el`:
@@ -271,7 +306,7 @@ per-project with a `.dir-locals.el`:
      (taskjuggler-tj3-extra-args . ("--prefix" "/opt/myproject/tj3")))))
 ```
 
-## Credits
+## Other Options
 
 This is not the first Emacs mode written to support TaskJuggler. As
 far as I know, these are the projects already out there:
@@ -283,16 +318,18 @@ far as I know, these are the projects already out there:
 | ox-taskjuggler              | org export backend, turns org-mode documents into TaskJuggler files.                                    |
 | ndwarshuis/org-tj           | Library funtions for org-mode and TaskJuggler integration                                               |
 
-Here is what this mode supports:
+Here's how this one differs:
 
 - Full TJ3 keyword coverage across four semantic categories (structural,
   report, property, value)
 - All three TJ3 comment styles (`//`, `/* */`, `#`) handled correctly
 - `syntax-ppss`-based indentation that understands `{}` and `[]` nesting,
   including continuation-line alignment for comma-terminated argument lists
+- Inline calendar picker for date literals (`C-c C-t d`) — inserts a new
+  date or edits the date under point
+- `tj3man` keyword documentation lookup (`C-c C-t m`) with completion
 - First-class Flymake integration running `tj3` on-the-fly
 - `compilation-mode` error navigation pre-wired for TJ3's error format
-- `tj3man` keyword documentation lookup (`C-c C-m`) with completion
 - yasnippet snippet collection for common constructs
 - Block movement (`M-<up>` / `M-<down>`) swaps sibling blocks while
   keeping their preceding comments attached
@@ -301,13 +338,5 @@ Here is what this mode supports:
 - `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e`)
 - Block editing: mark block with comments (`C-M-h`), narrow to block (`C-x n b`),
   clone block
-- Date editing with the Org calendar picker (`C-c C-d`) — inserts a new
-  date or edits the date under point
 - Evil-mode bindings for all block navigation commands
 
-## Requirements
-
-- Emacs 27.1 or later
-- [TaskJuggler](https://taskjuggler.org/) `tj3` binary (for compilation and flymake features)
-- `org` (ships with Emacs; loaded on demand for date editing via `C-c C-d`)
-- [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)

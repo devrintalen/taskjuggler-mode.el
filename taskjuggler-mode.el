@@ -39,10 +39,18 @@
 ;;   - Indentation based on { } and [ ] block nesting depth (line and region)
 ;;   - Compilation support: compile-command pre-filled with tj3, navigable errors
 ;;   - Flymake integration: on-the-fly error checking via tj3
-;;   - tj3man integration: C-c C-m looks up keyword docs with completion
+;;   - tj3man integration: C-c C-t m looks up keyword docs with completion
 ;;   - Defun navigation: C-M-a/C-M-e jump to block start/end
 ;;   - Block editing: C-M-h marks block (incl.  comments), C-c C-t n narrows to
 ;;     block, clone-block duplicates the current block
+;;   - Block navigation: C-M-n/C-M-p move to next/prev sibling, C-M-u goes to
+;;     parent block, C-M-d goes to first child
+;;   - Block movement: M-<up>/M-<down> moves the current block up or down
+;;   - Sexp movement: C-M-f/C-M-b treats a keyword block as a single sexp
+;;   - Inline calendar picker: C-c C-t d opens an overlay calendar for editing
+;;     date literals at point
+;;   - Yasnippet integration: snippets from the bundled snippets/ directory
+;;   - Evil mode integration: [[ and ]] bound to beginning/end-of-defun
 
 ;;; Code:
 
@@ -706,8 +714,7 @@ block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
 (defun taskjuggler-forward-block (&optional arg)
   "Move point to the next moveable block header at any nesting depth.
 Unlike `taskjuggler-next-block', this is a linear file scan that crosses
-nesting boundaries.  With numeric ARG, repeat that many times.
-Bound to \\[taskjuggler-forward-block]."
+nesting boundaries.  With numeric ARG, repeat that many times."
   (interactive "p")
   (dotimes (_ (or arg 1))
     (end-of-line)
@@ -718,8 +725,7 @@ Bound to \\[taskjuggler-forward-block]."
 (defun taskjuggler-backward-block (&optional arg)
   "Move point to the previous moveable block header at any nesting depth.
 Unlike `taskjuggler-prev-block', this is a linear file scan that crosses
-nesting boundaries.  With numeric ARG, repeat that many times.
-Bound to \\[taskjuggler-backward-block]."
+nesting boundaries.  With numeric ARG, repeat that many times."
   (interactive "p")
   (dotimes (_ (or arg 1))
     (beginning-of-line)
@@ -877,16 +883,12 @@ Installed as `forward-sexp-function' in `taskjuggler-mode'."
      ((< count 0) (dotimes (_ (- count)) (taskjuggler--backward-sexp-1))))))
 
 (defun taskjuggler-forward-block-sexp (&optional arg)
-  "Move forward by ARG blocks as sexps.
-Interactive wrapper around `taskjuggler--forward-sexp' for key binding.
-Bound to \\[taskjuggler-forward-block-sexp]."
+  "Move forward by ARG blocks, treating each TJ3 block as a single sexp."
   (interactive "p")
   (taskjuggler--forward-sexp (or arg 1)))
 
 (defun taskjuggler-backward-block-sexp (&optional arg)
-  "Move backward by ARG blocks as sexps.
-Interactive wrapper around `taskjuggler--forward-sexp' for key binding.
-Bound to \\[taskjuggler-backward-block-sexp]."
+  "Move backward by ARG blocks, treating each TJ3 block as a single sexp."
   (interactive "p")
   (taskjuggler--forward-sexp (- (or arg 1))))
 
@@ -1217,8 +1219,7 @@ Advances point past the collected lines.  Returns a list of strings."
 Characters 0..TYPED-LEN-1 get the typing face; the rest get pending.
 Overlays are used so font-lock cannot override them.  Existing overlays
 are deleted and recreated on each call to avoid stale positions caused
-by intervening buffer modifications.
-Argument TYPED-LEN Length of user-typed string."
+by intervening buffer modifications."
   (let ((typed-end (+ date-beg typed-len))
         (date-end (+ date-beg taskjuggler--cal-date-len)))
     (when taskjuggler--cal-typing-ov
@@ -1250,10 +1251,7 @@ Argument TYPED-LEN Length of user-typed string."
 (defun taskjuggler--cal-update-prefill (date-beg typed-len year month day)
   "Update the pre-filled suffix of the date at DATE-BEG.
 The first TYPED-LEN characters are left untouched.  The rest are
-filled with the formatted YEAR-MONTH-DAY date.
-Argument YEAR 4-digit year.
-Argument MONTH 2-digit month.
-Argument DAY 2-digit day."
+filled with the date formatted from YEAR, MONTH, and DAY."
   (let* ((full-date (taskjuggler--format-tj-date year month day))
          (suffix (substring full-date typed-len)))
     (save-excursion
@@ -1785,7 +1783,7 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
                        (taskjuggler--write-cursor-json id)))))))))))
 
 (defun taskjuggler--stop-cursor-tracking ()
-  "Cancel the cursor-tracking timer and write null to the tj-cursor.js sidecar file."
+  "Cancel the cursor-tracking timer and write null to the tj-cursor.js file."
   (when (timerp taskjuggler--cursor-idle-timer)
     (cancel-timer taskjuggler--cursor-idle-timer)
     (setq taskjuggler--cursor-idle-timer nil))
