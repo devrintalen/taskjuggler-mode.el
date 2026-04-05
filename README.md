@@ -11,13 +11,13 @@ good luck. I also offer you this package to help.
 
 Here's what this mode provides:
 
+- Syntax highlighting and automatic indentation
 - Helpful inline calendar picker for date entry
 - Live task highlighting in the browser
 - `tj3man` documentation lookup
 - Snippet templates (if `yasnippet` is present)
-- Syntax highlighting and automatic indentation
-- s-expression movement
 - Compilation and `flymake` support
+- s-expression movement
 
 Evil mode bindings are provided for all of us on the dark side.
 
