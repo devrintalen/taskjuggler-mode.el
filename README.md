@@ -9,16 +9,19 @@ good luck. I also offer you this package to help.
 
 ![A screenshot of a sample TaskJuggler project file, showing taskjuggler-mode.el syntax highlighting](screenshots/gnomes.png)
 
-## Features
+Here's what this mode provides:
 
 - Helpful inline calendar picker for date entry
 - Live task highlighting in the browser
-- `tj3man` documentation lookup (with `C-c C-t m`)
-- Evil-mode bindings
+- `tj3man` documentation lookup
 - Snippet templates (if `yasnippet` is present)
 - Syntax highlighting and automatic indentation
 - s-expression movement
 - Compilation and `flymake` support
+
+Evil mode bindings are provided for all of us on the dark side.
+
+## Features
 
 ### Inline calendar picker
 
@@ -57,26 +60,30 @@ The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`
 rather than JSON so the browser can load it via a `<script>` tag, which works
 under `file://` without CORS restrictions.
 
+### tj3man integration
+
+`C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
+
+- Prompts with completion over all known TJ3 keywords.
+- Defaults to the word at point, so placing the cursor on a keyword and
+  pressing `C-c C-t m RET` shows its documentation immediately.
+- Output is shown in a `*tj3man*` help window (press `q` to dismiss).
+
+`tj3man` is resolved via `taskjuggler-tj3-bin-dir`.
+
 ### Syntax highlighting and indentation
 
-Highlighting for keywords, IDs, strings, etc., just like you would expect.
+Highlighting for keywords, IDs, strings, etc., just like you would
+expect. Even TaskJuggler's unique scissor strings `"-8<-...->8-"` are
+parsed correctly as multi-line strings.
 
 `M-;` (`comment-dwim`) and `comment-region` default to `#` style. All three
 styles are recognized by `forward-comment`, `comment-search-forward`, and
 similar navigation commands.
 
-Indentation is brace/bracket depth–based, computed with `syntax-ppss` so it is
-aware of strings and comments:
-
-- Each `{` or `[` increases the indent by `taskjuggler-indent-level` spaces.
-- A line that starts with `}` or `]` is de-indented one level relative to the
-  surrounding block.
 - `TAB` indents the current line (`taskjuggler-indent-line`).
 - `C-M-\` indents the active region (`taskjuggler-indent-region`).
 - Tabs are never inserted; `indent-tabs-mode` is `nil`.
-- Continuation lines (when the previous non-blank line ends with a comma) are
-  aligned with the first argument on the keyword line rather than indented by
-  one level.
 
 ### Block movement
 
@@ -152,22 +159,11 @@ loads cleanly without evil present.
 
 Mode-specific commands are grouped under the `C-c C-t` prefix:
 
-| Key           | Command                    | Description                        |
-|---------------|----------------------------|------------------------------------|
-| `C-c C-t d`   | `taskjuggler-date-dwim`    | Insert or edit a date at point     |
-| `C-c C-t m`   | `taskjuggler-man`          | Look up a TJ3 keyword in tj3man    |
-| `C-c C-t n`   | `taskjuggler-narrow-to-block` | Narrow buffer to the current block |
-
-### tj3man integration
-
-`C-c C-t m` (`taskjuggler-man`) shows the TJ3 manual entry for a keyword:
-
-- Prompts with completion over all known TJ3 keywords.
-- Defaults to the word at point, so placing the cursor on a keyword and
-  pressing `C-c C-t m RET` shows its documentation immediately.
-- Output is shown in a `*tj3man*` help window (press `q` to dismiss).
-
-`tj3man` is resolved via `taskjuggler-tj3-bin-dir` just like `tj3`.
+| Key         | Command                       | Description                        |
+|-------------|-------------------------------|------------------------------------|
+| `C-c C-t d` | `taskjuggler-date-dwim`       | Insert or edit a date at point     |
+| `C-c C-t m` | `taskjuggler-man`             | Look up a TJ3 keyword in tj3man    |
+| `C-c C-t n` | `taskjuggler-narrow-to-block` | Narrow buffer to the current block |
 
 ### Compilation support
 
@@ -188,24 +184,10 @@ ANSI color codes so errors are found whether or not
 
 ### Flymake integration
 
-The Flymake backend runs `tj3` on the **saved file** whenever Flymake checks the
-buffer and reports errors as inline diagnostics. Enable it the standard way:
-
-```emacs-lisp
-(add-hook 'taskjuggler-mode-hook #'flymake-mode)
-```
-
-Or with `use-package`:
-
-```emacs-lisp
-(use-package taskjuggler-mode
-  :ensure t
-  :hook (taskjuggler-mode . flymake-mode))
-```
-
-Errors in included `.tji` files are reported in those files' own buffers rather
+The Flymake backend runs `tj3` on the **saved file** whenever Flymake
+checks the buffer and reports errors as inline diagnostics. Errors in
+included `.tji` files are reported in those files' own buffers rather
 than in the parent `.tjp` buffer, matching TJ3's output behavior.
-
 
 ### yasnippet snippets
 
