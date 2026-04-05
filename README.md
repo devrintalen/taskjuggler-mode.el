@@ -9,17 +9,26 @@ good luck. I also offer you this package to help.
 
 ![A screenshot of a sample TaskJuggler project file, showing taskjuggler-mode.el syntax highlighting](screenshots/gnomes.png)
 
-Here's what this mode provides:
+Here's what this mode provides, out of the box, with no dependencies:
 
 - Syntax highlighting and automatic indentation
 - Helpful inline calendar picker for date entry
 - Live task highlighting in the browser
 - `tj3man` documentation lookup
-- Snippet templates (if `yasnippet` is present)
 - Compilation and `flymake` support
 - s-expression movement
 
-Evil mode bindings are provided for all of us on the dark side.
+Evil mode bindings are provided for all of us on the dark side. If you
+use `yasnippet`, several templates are included that will be loaded
+whenever the mode is active.
+
+## Requirements
+
+- Emacs 27.1 or later
+- [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
+
+Optional:
+- [yasnippet](https://github.com/joaotavora/yasnippet) (snippets are registered automatically if yasnippet is present)
 
 ## Features
 
@@ -212,19 +221,10 @@ If yasnippet is present, the following snippet templates are loaded.
 
 ## Installation
 
-### `use-package` with `:vc` (Emacs 30+)
+Not on MELPA (yet). In the meantime, here are options.
 
-Built-in, no extra package manager needed.
-
-```emacs-lisp
-(use-package taskjuggler-mode
-  :vc (:url "https://github.com/devrintalen/taskjuggler-mode.el"
-       :rev :newest)
-  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
-  :hook (taskjuggler-mode . flymake-mode)
-  :custom
-  (taskjuggler-tj3-bin-dir "~/bin"))
-```
+Note that all of these assume your `tj3` and `tj3man` programs are
+located at `~/bin`, adjust this path to where they are on your system.
 
 ### `straight.el` with `use-package`
 
@@ -234,6 +234,20 @@ Built-in, no extra package manager needed.
                               :host github
                               :repo "devrintalen/taskjuggler-mode.el"
                               :files ("*.el" "snippets"))
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
+
+### `use-package` with `:vc` (Emacs 30+)
+
+Built-in, no extra package manager needed.
+
+```emacs-lisp
+(use-package taskjuggler-mode
+  :vc (:url "https://github.com/devrintalen/taskjuggler-mode.el"
+       :rev :newest)
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
   :hook (taskjuggler-mode . flymake-mode)
   :custom
@@ -292,7 +306,7 @@ per-project with a `.dir-locals.el`:
      (taskjuggler-tj3-extra-args . ("--prefix" "/opt/myproject/tj3")))))
 ```
 
-## Credits
+## Other Options
 
 This is not the first Emacs mode written to support TaskJuggler. As
 far as I know, these are the projects already out there:
@@ -304,16 +318,18 @@ far as I know, these are the projects already out there:
 | ox-taskjuggler              | org export backend, turns org-mode documents into TaskJuggler files.                                    |
 | ndwarshuis/org-tj           | Library funtions for org-mode and TaskJuggler integration                                               |
 
-Here is what this mode supports:
+Here's how this one differs:
 
 - Full TJ3 keyword coverage across four semantic categories (structural,
   report, property, value)
 - All three TJ3 comment styles (`//`, `/* */`, `#`) handled correctly
 - `syntax-ppss`-based indentation that understands `{}` and `[]` nesting,
   including continuation-line alignment for comma-terminated argument lists
+- Inline calendar picker for date literals (`C-c C-t d`) — inserts a new
+  date or edits the date under point
+- `tj3man` keyword documentation lookup (`C-c C-t m`) with completion
 - First-class Flymake integration running `tj3` on-the-fly
 - `compilation-mode` error navigation pre-wired for TJ3's error format
-- `tj3man` keyword documentation lookup (`C-c C-t m`) with completion
 - yasnippet snippet collection for common constructs
 - Block movement (`M-<up>` / `M-<down>`) swaps sibling blocks while
   keeping their preceding comments attached
@@ -322,13 +338,5 @@ Here is what this mode supports:
 - `beginning-of-defun` / `end-of-defun` integration (`C-M-a` / `C-M-e`)
 - Block editing: mark block with comments (`C-M-h`), narrow to block (`C-x n b`),
   clone block
-- Inline calendar picker for date literals (`C-c C-t d`) — inserts a new
-  date or edits the date under point; no Org dependency
 - Evil-mode bindings for all block navigation commands
 
-## Requirements
-
-- Emacs 27.1 or later
-- [TaskJuggler](https://taskjuggler.org/) `tj3` binary (for compilation and flymake features)
-- `calendar` (built-in; used for the inline date picker)
-- [yasnippet](https://github.com/joaotavora/yasnippet) (optional; snippets are registered automatically if yasnippet is present)
