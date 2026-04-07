@@ -1,6 +1,6 @@
 # name: milestone
 # key: mil
-# license: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 # --
 task ${1:id} "${2:Milestone}" {
   start ${3:!prev.end}

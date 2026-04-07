@@ -1,6 +1,6 @@
 # name: journalentry
 # key: je
-# license: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 # --
 journalentry ${1:`(format-time-string "%Y-%m-%d")`} "${2:Title}" {
   author ${3:id}

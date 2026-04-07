@@ -1,6 +1,6 @@
 # name: include
 # key: inc
-# license: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 # --
 include "${1:file.tji}"
 $0
