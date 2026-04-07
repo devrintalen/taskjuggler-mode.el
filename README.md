@@ -22,8 +22,6 @@ Evil mode bindings are provided for all of us on the dark side. If you
 use `yasnippet`, several templates are included — see the
 [yasnippet snippets](#yasnippet-snippets) section for setup.
 
-![Emacs badge](screenshots/antipixel1.png)
-
 ## Requirements
 
 - Emacs 27.1 or later
@@ -350,3 +348,4 @@ Here's how this one differs:
   clone block
 - Evil-mode bindings for all block navigation commands
 
+![Emacs kitchen sink](screenshots/sink_black.png)
