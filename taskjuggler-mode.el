@@ -93,6 +93,11 @@ Set to nil to disable cursor tracking entirely."
                  (const :tag "Disabled" nil))
   :group 'taskjuggler)
 
+(defcustom taskjuggler-cal-show-week-numbers nil
+  "When non-nil, display ISO week-number labels (e.g. WW15) in the calendar popup."
+  :type 'boolean
+  :group 'taskjuggler)
+
 ;;; Helpers
 
 (defun taskjuggler--tj3-executable (name)
@@ -970,11 +975,13 @@ Return a (YEAR MONTH DAY) list."
    "July" "August" "September" "October" "November" "December"]
   "Month names for the calendar header.")
 
-(defconst taskjuggler--cal-day-header "     Su Mo Tu We Th Fr Sa "
-  "Day-of-week header row for the calendar (padded to full width).")
+(defconst taskjuggler--cal-day-header " Su Mo Tu We Th Fr Sa "
+  "Day-of-week header row for the calendar (22 chars, without week-number prefix).")
 
-(defconst taskjuggler--cal-width 27
-  "Width of the calendar popup in characters.")
+(defconst taskjuggler--cal-width 22
+  "Base width of the calendar popup in characters (without week-number labels).
+When `taskjuggler-cal-show-week-numbers' is non-nil, 5 additional characters
+are prepended for the \"WW15 \" label.")
 
 (defvar-local taskjuggler--cal-today nil
   "Today's date as (YEAR MONTH DAY), cached once per edit session.")
@@ -990,7 +997,9 @@ Return a list of propertized strings, one per line."
          (today-day (nth 2 today))
          (title (taskjuggler--cal-pad-line
                  (taskjuggler--cal-title-line year month)))
-         (day-hdr taskjuggler--cal-day-header)
+         (day-hdr (if taskjuggler-cal-show-week-numbers
+                      (concat "     " taskjuggler--cal-day-header)
+                    taskjuggler--cal-day-header))
          (weeks (taskjuggler--cal-week-lines year month day
                                              today-year today-month today-day))
          (headers (list (propertize title 'face 'taskjuggler-cal-header-face)
@@ -1003,9 +1012,11 @@ Return a list of propertized strings, one per line."
     (format "%s %d" name year)))
 
 (defun taskjuggler--cal-pad-line (text)
-  "Pad or centre TEXT to `taskjuggler--cal-width'."
-  (let* ((len (length text))
-         (pad-total (max 0 (- taskjuggler--cal-width len)))
+  "Pad or centre TEXT to the effective calendar width."
+  (let* ((width (+ taskjuggler--cal-width
+                   (if taskjuggler-cal-show-week-numbers 5 0)))
+         (len (length text))
+         (pad-total (max 0 (- width len)))
          (pad-left (/ pad-total 2))
          (pad-right (- pad-total pad-left)))
     (concat (make-string pad-left ?\s) text (make-string pad-right ?\s))))
@@ -1075,14 +1086,16 @@ cells are filled with days from adjacent months."
 
 (defun taskjuggler--cal-format-week (cells week-num)
   "Join a list of 7 propertized day CELLS into a single week-row string.
-WEEK-NUM is the ISO week number prepended as a \"WW%02d\" label.
-Each cell is separated by a space with the base calendar face.
-The row is padded to `taskjuggler--cal-width'."
+WEEK-NUM is the ISO week number; it is prepended as a \"WW%02d\" label when
+`taskjuggler-cal-show-week-numbers' is non-nil.
+Each cell is separated by a space with the base calendar face."
   (let* ((pad (propertize " " 'face 'taskjuggler-cal-face))
-         (body (mapconcat #'identity cells pad))
-         (label (propertize (format "WW%02d" week-num)
-                            'face 'taskjuggler-cal-week-face)))
-    (concat label pad body pad)))
+         (body (mapconcat #'identity cells pad)))
+    (if taskjuggler-cal-show-week-numbers
+        (let ((label (propertize (format "WW%02d" week-num)
+                                 'face 'taskjuggler-cal-week-face)))
+          (concat label pad body pad))
+      (concat pad body pad))))
 
 ;; --- Overlay management ---
 ;;
