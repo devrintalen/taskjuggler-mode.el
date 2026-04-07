@@ -1867,14 +1867,34 @@ re-checked after a compile run that may have created it."
 
 ;;; Mode definition
 
-;;; TODO figure this out with emacs.org
+(defcustom taskjuggler-keymap-prefix (kbd "C-c C-t")
+  "Prefix key for `taskjuggler-command-map'."
+  :group 'taskjuggler
+  :type 'key-sequence)
+
 (defvar taskjuggler-command-map
   (let ((km (make-sparse-keymap)))
     (define-key km (kbd "d") #'taskjuggler-date-dwim)
     (define-key km (kbd "m") #'taskjuggler-man)
     (define-key km (kbd "n") #'taskjuggler-narrow-to-block)
     km)
-  "Keymap for TaskJuggler commands.")
+  "Keymap for TaskJuggler commands after `taskjuggler-keymap-prefix'.")
+(fset 'taskjuggler-command-map taskjuggler-command-map)
+
+;;;###autoload
+(defvar taskjuggler-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "M-<up>")   #'taskjuggler-move-block-up)
+    (define-key map (kbd "M-<down>") #'taskjuggler-move-block-down)
+    (define-key map (kbd "C-M-n")    #'taskjuggler-next-block)
+    (define-key map (kbd "C-M-p")    #'taskjuggler-prev-block)
+    (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
+    (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
+    (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
+    (when taskjuggler-keymap-prefix
+      (define-key map taskjuggler-keymap-prefix 'taskjuggler-command-map))
+    map)
+  "Keymap for `taskjuggler-mode'.")
 
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
