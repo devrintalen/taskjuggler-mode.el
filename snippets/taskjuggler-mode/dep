@@ -1,4 +1,5 @@
 # name: depends
 # key: dep
+# license: GPL-3.0-or-later
 # --
 depends ${1:!prev}$0

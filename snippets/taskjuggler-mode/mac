@@ -1,5 +1,6 @@
 # name: macro
 # key: mac
+# license: GPL-3.0-or-later
 # --
 macro ${1:name} [
   $0

@@ -1,5 +1,6 @@
 # name: scissors
 # key: sci
+# license: GPL-3.0-or-later
 # --
 -8<-
 ${0:text}

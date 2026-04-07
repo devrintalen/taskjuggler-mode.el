@@ -1,5 +1,6 @@
 # name: task
 # key: task
+# license: GPL-3.0-or-later
 # --
 task ${1:id} "${2:Description}" {
   effort ${3:5d}

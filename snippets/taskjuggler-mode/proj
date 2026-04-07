@@ -1,5 +1,6 @@
 # name: project
 # key: proj
+# license: GPL-3.0-or-later
 # --
 project ${1:id} "${2:Project Name}" ${3:2024-01-01} +${4:6m} {
   timezone "${5:America/New_York}"

@@ -1,5 +1,6 @@
 # name: resource
 # key: res
+# license: GPL-3.0-or-later
 # --
 resource ${1:id} "${2:Full Name}" {
   email "${3:user@example.com}"

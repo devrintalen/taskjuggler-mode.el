@@ -1,5 +1,6 @@
 # name: resourcereport
 # key: rrep
+# license: GPL-3.0-or-later
 # --
 resourcereport ${1:id} "${2:Report Title}" {
   formats ${3:html}

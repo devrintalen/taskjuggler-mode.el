@@ -1,5 +1,6 @@
 # name: resource group
 # key: resgrp
+# license: GPL-3.0-or-later
 # --
 resource ${1:group} "${2:Group Name}" {
   resource ${3:id1} "${4:Member One}" {

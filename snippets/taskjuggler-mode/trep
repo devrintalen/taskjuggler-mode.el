@@ -1,5 +1,6 @@
 # name: taskreport
 # key: trep
+# license: GPL-3.0-or-later
 # --
 taskreport ${1:id} "${2:Report Title}" {
   formats ${3:html}
