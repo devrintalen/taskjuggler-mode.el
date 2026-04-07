@@ -93,6 +93,11 @@ Set to nil to disable cursor tracking entirely."
                  (const :tag "Disabled" nil))
   :group 'taskjuggler)
 
+(defcustom taskjuggler-cal-show-week-numbers nil
+  "When non-nil, display ISO week-number labels (e.g. WW15) in the calendar popup."
+  :type 'boolean
+  :group 'taskjuggler)
+
 ;;; Helpers
 
 (defun taskjuggler--tj3-executable (name)
@@ -192,6 +197,11 @@ This face indicates the date that will be committed on RET."
   '((t :inherit isearch :weight bold))
   "Face for the user-typed portion of the date during calendar editing.
 Distinguishes characters the user has typed from the pre-filled suffix."
+  :group 'taskjuggler)
+
+(defface taskjuggler-cal-week-face
+  '((t :inherit taskjuggler-cal-header-face))
+  "Face for ISO week-number labels (e.g. WW15) in the calendar popup."
   :group 'taskjuggler)
 
 ;;; Keyword lists
@@ -966,10 +976,12 @@ Return a (YEAR MONTH DAY) list."
   "Month names for the calendar header.")
 
 (defconst taskjuggler--cal-day-header " Su Mo Tu We Th Fr Sa "
-  "Day-of-week header row for the calendar (padded to full width).")
+  "Day-of-week header row for the calendar (22 chars, without week-number prefix).")
 
 (defconst taskjuggler--cal-width 22
-  "Width of the calendar popup in characters.")
+  "Base width of the calendar popup in characters (without week-number labels).
+When `taskjuggler-cal-show-week-numbers' is non-nil, 5 additional characters
+are prepended for the \"WW15 \" label.")
 
 (defvar-local taskjuggler--cal-today nil
   "Today's date as (YEAR MONTH DAY), cached once per edit session.")
@@ -985,7 +997,9 @@ Return a list of propertized strings, one per line."
          (today-day (nth 2 today))
          (title (taskjuggler--cal-pad-line
                  (taskjuggler--cal-title-line year month)))
-         (day-hdr taskjuggler--cal-day-header)
+         (day-hdr (if taskjuggler-cal-show-week-numbers
+                      (concat "    " taskjuggler--cal-day-header)
+                    taskjuggler--cal-day-header))
          (weeks (taskjuggler--cal-week-lines year month day
                                              today-year today-month today-day))
          (headers (list (propertize title 'face 'taskjuggler-cal-header-face)
@@ -998,9 +1012,11 @@ Return a list of propertized strings, one per line."
     (format "%s %d" name year)))
 
 (defun taskjuggler--cal-pad-line (text)
-  "Pad or centre TEXT to `taskjuggler--cal-width'."
-  (let* ((len (length text))
-         (pad-total (max 0 (- taskjuggler--cal-width len)))
+  "Pad or centre TEXT to the effective calendar width."
+  (let* ((width (+ taskjuggler--cal-width
+                   (if taskjuggler-cal-show-week-numbers 4 0)))
+         (len (length text))
+         (pad-total (max 0 (- width len)))
          (pad-left (/ pad-total 2))
          (pad-right (- pad-total pad-left)))
     (concat (make-string pad-left ?\s) text (make-string pad-right ?\s))))
@@ -1045,27 +1061,42 @@ cells are filled with days from adjacent months."
                    (1+ i) 'taskjuggler-cal-inactive-face)
                   cells)))))
     ;; Group into weeks of 7 and format.
+    ;; For each row, compute the ISO week number from the Thursday of that row.
+    ;; Row i (0-indexed) starts on the Sunday at day (1 - start-dow + 7*i)
+    ;; relative to the 1st of the month.  Thursday is 4 days later.
     (let ((all-cells (nreverse cells))
           (weeks '())
-          (row '()))
+          (row '())
+          (row-idx 0))
       (dolist (cell all-cells)
         (push cell row)
         (when (= (length row) 7)
-          (push (taskjuggler--cal-format-week (nreverse row)) weeks)
-          (setq row nil)))
+          (let* ((thursday-rel (+ 1 (- start-dow) (* row-idx 7) 4))
+                 (thu (taskjuggler--cal-adjust-date year month 1 (1- thursday-rel) :day))
+                 (week-num (car (calendar-iso-from-absolute
+                                (calendar-absolute-from-gregorian
+                                 (list (nth 1 thu) (nth 2 thu) (nth 0 thu)))))))
+            (push (taskjuggler--cal-format-week (nreverse row) week-num) weeks))
+          (setq row nil)
+          (setq row-idx (1+ row-idx))))
       (nreverse weeks))))
 
 (defun taskjuggler--cal-make-cell (day face)
   "Return a propertized 2-character string for DAY with FACE."
   (propertize (format "%2d" day) 'face face))
 
-(defun taskjuggler--cal-format-week (cells)
+(defun taskjuggler--cal-format-week (cells week-num)
   "Join a list of 7 propertized day CELLS into a single week-row string.
-Each cell is separated by a space with the base calendar face.
-The row is padded to `taskjuggler--cal-width'."
+WEEK-NUM is the ISO week number; it is prepended as a \"WW%02d\" label when
+`taskjuggler-cal-show-week-numbers' is non-nil.
+Each cell is separated by a space with the base calendar face."
   (let* ((pad (propertize " " 'face 'taskjuggler-cal-face))
          (body (mapconcat #'identity cells pad)))
-    (concat pad body pad)))
+    (if taskjuggler-cal-show-week-numbers
+        (let ((label (propertize (format "WW%02d" week-num)
+                                 'face 'taskjuggler-cal-week-face)))
+          (concat label pad body pad))
+      (concat pad body pad))))
 
 ;; --- Overlay management ---
 ;;

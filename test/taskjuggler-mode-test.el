@@ -1948,6 +1948,74 @@ February 2024 has 5 week rows, so 7 lines total."
       (should (= taskjuggler--cal-width
                  (length (substring-no-properties line)))))))
 
+;;; taskjuggler-cal-show-week-numbers
+
+;; All tests in this section bind `taskjuggler-cal-show-week-numbers' explicitly
+;; so they are independent of the user's configuration.
+
+;; --- nil (default) ---
+
+(ert-deftest taskjuggler-cal-week-numbers--nil-render-width ()
+  "With show-week-numbers nil, every rendered line is exactly 22 chars wide."
+  (let ((taskjuggler-cal-show-week-numbers nil))
+    (dolist (line (taskjuggler--cal-render 2024 2 15))
+      (should (= 22 (length (substring-no-properties line)))))))
+
+(ert-deftest taskjuggler-cal-week-numbers--nil-no-ww-prefix ()
+  "With show-week-numbers nil, no week row starts with \"WW\"."
+  (let ((taskjuggler-cal-show-week-numbers nil))
+    (dolist (row (taskjuggler--cal-week-lines 2024 2 15 2026 1 1))
+      (should-not (string-prefix-p "WW" (substring-no-properties row))))))
+
+(ert-deftest taskjuggler-cal-week-numbers--nil-day-header-starts-with-space ()
+  "With show-week-numbers nil, the day-header line (index 1) starts with \" Su\"."
+  (let ((taskjuggler-cal-show-week-numbers nil))
+    (let ((hdr (substring-no-properties (nth 1 (taskjuggler--cal-render 2024 2 15)))))
+      (should (string-prefix-p " Su" hdr)))))
+
+;; --- t ---
+
+(ert-deftest taskjuggler-cal-week-numbers--t-render-width ()
+  "With show-week-numbers t, every rendered line is exactly 26 chars wide.
+The base width is 22; the WW label (\"WW%02d\") adds 4 chars, making 26."
+  (let ((taskjuggler-cal-show-week-numbers t))
+    (dolist (line (taskjuggler--cal-render 2024 2 15))
+      (should (= 26 (length (substring-no-properties line)))))))
+
+(ert-deftest taskjuggler-cal-week-numbers--t-ww-prefix ()
+  "With show-week-numbers t, every week row starts with \"WW\"."
+  (let ((taskjuggler-cal-show-week-numbers t))
+    (dolist (row (taskjuggler--cal-week-lines 2024 2 15 2026 1 1))
+      (should (string-prefix-p "WW" (substring-no-properties row))))))
+
+(ert-deftest taskjuggler-cal-week-numbers--t-ww-face ()
+  "With show-week-numbers t, the \"WW\" label carries `taskjuggler-cal-week-face'."
+  (let ((taskjuggler-cal-show-week-numbers t))
+    (dolist (row (taskjuggler--cal-week-lines 2024 2 15 2026 1 1))
+      (should (eq 'taskjuggler-cal-week-face (get-text-property 0 'face row))))))
+
+(ert-deftest taskjuggler-cal-week-numbers--t-day-header-has-5-space-prefix ()
+  "With show-week-numbers t, the day-header line (index 1) starts with 5 spaces."
+  (let ((taskjuggler-cal-show-week-numbers t))
+    (let ((hdr (substring-no-properties (nth 1 (taskjuggler--cal-render 2024 2 15)))))
+      (should (string-prefix-p "     Su" hdr)))))
+
+(ert-deftest taskjuggler-cal-week-numbers--t-correct-iso-weeks ()
+  "With show-week-numbers t, Feb 2024 rows show the correct ISO week labels.
+Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
+  Row 0: Thu=Feb  1 → WW05
+  Row 1: Thu=Feb  8 → WW06
+  Row 2: Thu=Feb 15 → WW07
+  Row 3: Thu=Feb 22 → WW08
+  Row 4: Thu=Feb 29 → WW09"
+  (let ((taskjuggler-cal-show-week-numbers t))
+    (let ((weeks (taskjuggler--cal-week-lines 2024 2 15 2026 1 1)))
+      (should (string-prefix-p "WW05" (substring-no-properties (nth 0 weeks))))
+      (should (string-prefix-p "WW06" (substring-no-properties (nth 1 weeks))))
+      (should (string-prefix-p "WW07" (substring-no-properties (nth 2 weeks))))
+      (should (string-prefix-p "WW08" (substring-no-properties (nth 3 weeks))))
+      (should (string-prefix-p "WW09" (substring-no-properties (nth 4 weeks)))))))
+
 ;;; Runner
 
 (when noninteractive
