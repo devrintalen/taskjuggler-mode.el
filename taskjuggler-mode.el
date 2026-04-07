@@ -998,7 +998,7 @@ Return a list of propertized strings, one per line."
          (title (taskjuggler--cal-pad-line
                  (taskjuggler--cal-title-line year month)))
          (day-hdr (if taskjuggler-cal-show-week-numbers
-                      (concat "     " taskjuggler--cal-day-header)
+                      (concat "    " taskjuggler--cal-day-header)
                     taskjuggler--cal-day-header))
          (weeks (taskjuggler--cal-week-lines year month day
                                              today-year today-month today-day))
@@ -1014,7 +1014,7 @@ Return a list of propertized strings, one per line."
 (defun taskjuggler--cal-pad-line (text)
   "Pad or centre TEXT to the effective calendar width."
   (let* ((width (+ taskjuggler--cal-width
-                   (if taskjuggler-cal-show-week-numbers 5 0)))
+                   (if taskjuggler-cal-show-week-numbers 4 0)))
          (len (length text))
          (pad-total (max 0 (- width len)))
          (pad-left (/ pad-total 2))
