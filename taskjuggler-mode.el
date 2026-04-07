@@ -1073,8 +1073,9 @@ cells are filled with days from adjacent months."
         (when (= (length row) 7)
           (let* ((thursday-rel (+ 1 (- start-dow) (* row-idx 7) 4))
                  (thu (taskjuggler--cal-adjust-date year month 1 (1- thursday-rel) :day))
-                 (week-num (cadr (calendar-iso-from-gregorian
-                                  (list (nth 1 thu) (nth 2 thu) (nth 0 thu))))))
+                 (week-num (car (calendar-iso-from-absolute
+                                (calendar-absolute-from-gregorian
+                                 (list (nth 1 thu) (nth 2 thu) (nth 0 thu)))))))
             (push (taskjuggler--cal-format-week (nreverse row) week-num) weeks))
           (setq row nil)
           (setq row-idx (1+ row-idx))))
