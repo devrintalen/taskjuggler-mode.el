@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2025 Devrin Talen <devrin@fastmail.com>
 
-;; Author: Devrin Talen
+;; Author: Devrin Talen <devrin@fastmail.com>
 ;; Keywords: languages, project-management
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "27.1"))
@@ -1907,8 +1907,7 @@ See URL `https://taskjuggler.org' for more information.
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
-  ;; Yasnippet: register snippet directory if already loaded (the top-level
-  ;; `yas-minor-mode-hook' handles the case where yasnippet loads later).
+  ;; Yasnippet: register snippet directory if already loaded.
   (when (featurep 'yasnippet)
     (taskjuggler-mode-snippets-initialize)))
 
@@ -1946,9 +1945,6 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'yas-snippet-dirs 'taskjuggler-mode-snippets-dir t)
     (yas--load-snippet-dirs)))
 
-;; Register snippets when yasnippet loads.
-(with-eval-after-load 'yasnippet
-  (taskjuggler-mode-snippets-initialize))
 
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here

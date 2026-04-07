@@ -19,8 +19,8 @@ Here's what this mode provides, out of the box, with no dependencies:
 - s-expression movement
 
 Evil mode bindings are provided for all of us on the dark side. If you
-use `yasnippet`, several templates are included that will be loaded
-whenever the mode is active.
+use `yasnippet`, several templates are included — see the
+[yasnippet snippets](#yasnippet-snippets) section for setup.
 
 ![Emacs badge](screenshots/antipixel1.png)
 
@@ -30,7 +30,7 @@ whenever the mode is active.
 - [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
 
 Optional:
-- [yasnippet](https://github.com/joaotavora/yasnippet) (snippets are registered automatically if yasnippet is present)
+- [yasnippet](https://github.com/joaotavora/yasnippet) (call `taskjuggler-mode-snippets-initialize` after yasnippet loads to register snippets)
 
 ## Features
 
@@ -204,7 +204,15 @@ than in the parent `.tjp` buffer, matching TJ3's output behavior.
 
 ### yasnippet snippets
 
-If yasnippet is present, the following snippet templates are loaded.
+To enable snippets, call `taskjuggler-mode-snippets-initialize` after
+yasnippet loads.  Add this to your config:
+
+```emacs-lisp
+(with-eval-after-load 'yasnippet
+  (taskjuggler-mode-snippets-initialize))
+```
+
+The following snippet templates are available:
 
 | Key      | Expands to                                                                              |
 |----------|-----------------------------------------------------------------------------------------|
