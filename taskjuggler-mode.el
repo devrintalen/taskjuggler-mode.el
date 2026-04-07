@@ -1221,7 +1221,7 @@ Advances point past the collected lines.  Returns a list of strings."
 
 (defun taskjuggler--cal-apply-faces (date-beg typed-len)
   "Apply typing and pending face overlays to the date string at DATE-BEG.
-Characters 0..TYPED-LEN-1 get the typing face; the rest get pending.
+The first TYPED-LEN characters get the typing face; the rest get pending.
 Overlays are used so font-lock cannot override them.  Existing overlays
 are deleted and recreated on each call to avoid stale positions caused
 by intervening buffer modifications."
@@ -1816,6 +1816,8 @@ re-checked after a compile run that may have created it."
 ;; [[ / ]]  — start / end of current block (defun integration)
 ;; evil-define-key* (function) is used instead of evil-define-key (macro)
 ;; so the call survives byte-compilation without evil present.
+(defvar taskjuggler-mode-map)
+
 (defun taskjuggler--setup-evil-keys ()
   "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
   (when (fboundp 'evil-define-key*)
@@ -1834,12 +1836,14 @@ re-checked after a compile run that may have created it."
 
 ;;; Mode definition
 
-(defvar taskjuggler-command-map (make-sparse-keymap)
+(defvar taskjuggler-command-map
+  (let ((km (make-sparse-keymap)))
+    (define-key km (kbd "d") #'taskjuggler-date-dwim)
+    (define-key km (kbd "m") #'taskjuggler-man)
+    (define-key km (kbd "n") #'taskjuggler-narrow-to-block)
+    km)
   "Keymap for TaskJuggler commands.")
 (define-prefix-command 'taskjuggler-command-prefix 'taskjuggler-command-map)
-(define-key taskjuggler-command-map (kbd "d") #'taskjuggler-date-dwim)
-(define-key taskjuggler-command-map (kbd "m") #'taskjuggler-man)
-(define-key taskjuggler-command-map (kbd "n") #'taskjuggler-narrow-to-block)
 
 ;;;###autoload
 (defvar taskjuggler-mode-map
@@ -1942,9 +1946,9 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'yas-snippet-dirs 'taskjuggler-mode-snippets-dir t)
     (yas--load-snippet-dirs)))
 
-;; Register snippets when yas-minor-mode activates (handles lazy yasnippet loading).
-(defvar yas-minor-mode-hook)
-(add-hook 'yas-minor-mode-hook #'taskjuggler-mode-snippets-initialize)
+;; Register snippets when yasnippet loads.
+(with-eval-after-load 'yasnippet
+  (taskjuggler-mode-snippets-initialize))
 
 (provide 'taskjuggler-mode)
 ;;; taskjuggler-mode.el ends here
