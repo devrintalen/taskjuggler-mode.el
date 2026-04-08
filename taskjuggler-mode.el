@@ -1910,8 +1910,9 @@ past the blank line to cover the legend at the end of the buffer."
 
 (defun taskjuggler--fontify-tj3man-links ()
   "Linkify known tj3man keywords throughout the buffer as clickable buttons.
-Skips positions already styled with buttons or Man-overstrike, and skips
-the documented keyword on the Keyword: and Syntax: lines."
+Skips positions already styled with buttons, Man-overstrike, or
+Man-underline, and skips the documented keyword on the Keyword: and
+Syntax: lines."
   (when taskjuggler--tj3man-keywords
     (let ((kw-table (make-hash-table :test 'equal)))
       (dolist (kw taskjuggler--tj3man-keywords)
@@ -1924,7 +1925,8 @@ the documented keyword on the Keyword: and Syntax: lines."
                 (word  (match-string-no-properties 0)))
             (when (and (gethash word kw-table)
                        (not (get-text-property start 'button))
-                       (not (eq (get-text-property start 'face) 'Man-overstrike))
+                       (not (memq (get-text-property start 'face)
+                                  '(Man-overstrike Man-underline)))
                        (not (save-excursion
                               (goto-char start)
                               (beginning-of-line)
