@@ -2176,36 +2176,36 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
   (should (equal '(2025 2 28)
                  (taskjuggler--parse-partial-date "2025-02" '(2026 4 31)))))
 
-;;; taskjuggler--cal-expand-tabs
+;;; taskjuggler--cal-expand-tabs-with-props
 
 (ert-deftest taskjuggler-cal-expand-tabs--no-tabs ()
   "A string without tabs is returned unchanged."
   (let ((tab-width 8))
-    (should (equal "abcdef" (taskjuggler--cal-expand-tabs "abcdef")))))
+    (should (equal "abcdef" (taskjuggler--cal-expand-tabs-with-props "abcdef")))))
 
 (ert-deftest taskjuggler-cal-expand-tabs--tab-at-start ()
   "A leading tab expands to tab-width spaces."
   (let ((tab-width 8))
     (should (equal "        rest"
-                   (taskjuggler--cal-expand-tabs "\trest")))))
+                   (taskjuggler--cal-expand-tabs-with-props "\trest")))))
 
 (ert-deftest taskjuggler-cal-expand-tabs--tab-after-chars ()
   "A tab after N chars expands to (tab-width - N % tab-width) spaces."
   ;; \"abc\" is 3 chars; next tab stop at 8 requires 5 spaces.
   (let ((tab-width 8))
     (should (equal "abc     def"
-                   (taskjuggler--cal-expand-tabs "abc\tdef")))))
+                   (taskjuggler--cal-expand-tabs-with-props "abc\tdef")))))
 
 (ert-deftest taskjuggler-cal-expand-tabs--two-tabs ()
   "Two leading tabs expand to 2*tab-width spaces."
   (let ((tab-width 8))
     (should (equal "                rest"
-                   (taskjuggler--cal-expand-tabs "\t\trest")))))
+                   (taskjuggler--cal-expand-tabs-with-props "\t\trest")))))
 
 (ert-deftest taskjuggler-cal-expand-tabs--tab-width-4 ()
   "Tab expansion respects a tab-width of 4."
   (let ((tab-width 4))
-    (should (equal "    rest" (taskjuggler--cal-expand-tabs "\trest")))))
+    (should (equal "    rest" (taskjuggler--cal-expand-tabs-with-props "\trest")))))
 
 ;;; taskjuggler--cal-splice-line (tab handling)
 

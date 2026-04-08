@@ -1197,26 +1197,10 @@ Captured once so the calendar stays anchored when navigating.")
 (defvar-local taskjuggler--cal-debounce-timer nil
   "Idle timer used to debounce calendar overlay updates.")
 
-(defun taskjuggler--cal-expand-tabs (str)
-  "Expand tab characters in STR to spaces using `tab-width'.
-Returns a plain string without text properties."
-  (let ((result "")
-        (col 0)
-        (tw (if (boundp 'tab-width) tab-width 8)))
-    (dotimes (i (length str))
-      (let ((ch (aref str i)))
-        (if (= ch ?\t)
-            (let ((spaces (- tw (% col tw))))
-              (setq result (concat result (make-string spaces ?\s)))
-              (setq col (+ col spaces)))
-          (setq result (concat result (char-to-string ch)))
-          (setq col (1+ col)))))
-    result))
-
 (defun taskjuggler--cal-expand-tabs-with-props (str)
   "Expand tabs in STR to spaces using `tab-width', preserving text properties.
 Each space replacing a tab inherits the text properties of that tab character."
-  (let ((result "")
+  (let ((parts '())
         (col 0)
         (tw (if (boundp 'tab-width) tab-width 8)))
     (dotimes (i (length str))
@@ -1225,11 +1209,11 @@ Each space replacing a tab inherits the text properties of that tab character."
             (let* ((spaces (- tw (% col tw)))
                    (props (text-properties-at i str))
                    (pad (apply #'propertize (make-string spaces ?\s) props)))
-              (setq result (concat result pad))
+              (push pad parts)
               (setq col (+ col spaces)))
-          (setq result (concat result (substring str i (1+ i))))
+          (push (substring str i (1+ i)) parts)
           (setq col (1+ col)))))
-    result))
+    (apply #'concat (nreverse parts))))
 
 (defun taskjuggler--cal-splice-line (old new col)
   "Splice NEW into OLD at column COL, preserving surrounding text.
