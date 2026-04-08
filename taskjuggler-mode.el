@@ -946,6 +946,10 @@ larger numbers."
                 (mstr (match-string 0)))
             (when (and (<= mbeg pos) (>= mend pos))
               (unless (string-match-p (concat "^" taskjuggler--date-re "$") mstr)
+                ;; The regexp can match bare digits (e.g. the "5" in "5d").
+                ;; The next-char guard below is what excludes those cases:
+                ;; a match immediately followed by a digit, letter, or "."
+                ;; is not a partial date.
                 (let ((next (and (< mend eol) (char-after mend))))
                   (unless (and next (or (<= ?0 next ?9)
                                         (<= ?a next ?z)
@@ -1201,12 +1205,11 @@ Captured once so the calendar stays anchored when navigating.")
   "Expand tabs in STR to spaces using `tab-width', preserving text properties.
 Each space replacing a tab inherits the text properties of that tab character."
   (let ((parts '())
-        (col 0)
-        (tw (if (boundp 'tab-width) tab-width 8)))
+        (col 0))
     (dotimes (i (length str))
       (let ((ch (aref str i)))
         (if (= ch ?\t)
-            (let* ((spaces (- tw (% col tw)))
+            (let* ((spaces (- tab-width (% col tab-width)))
                    (props (text-properties-at i str))
                    (pad (apply #'propertize (make-string spaces ?\s) props)))
               (push pad parts)
@@ -1676,26 +1679,25 @@ Otherwise, signal a user-error."
   (cond
    ((taskjuggler--date-bounds-at-point)
     (taskjuggler-edit-date-at-point))
-   ((taskjuggler--partial-date-bounds-at-point)
-    (let* ((bounds (taskjuggler--partial-date-bounds-at-point))
-           (partial (buffer-substring-no-properties (car bounds) (cdr bounds)))
-           (partial-len (length partial)))
-      (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
-                   (decode-time)))
-        (let* ((default-date (list today-year today-month today-day))
-               (parsed (taskjuggler--parse-partial-date partial default-date))
-               (year (nth 0 parsed))
-               (month (nth 1 parsed))
-               (day (nth 2 parsed)))
-          (delete-region (car bounds) (cdr bounds))
-          (goto-char (car bounds))
-          (let ((date-beg (point)))
-            (insert (taskjuggler--format-tj-date year month day))
-            (goto-char date-beg)
-            (taskjuggler--cal-edit date-beg year month day t)
-            ;; Position point after the typed prefix so post-command-hook
-            ;; picks it up as typed-len = partial-len.
-            (goto-char (+ date-beg partial-len)))))))
+   ((when-let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (let* ((partial (buffer-substring-no-properties (car bounds) (cdr bounds)))
+             (partial-len (length partial)))
+        (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
+                     (decode-time)))
+          (let* ((default-date (list today-year today-month today-day))
+                 (parsed (taskjuggler--parse-partial-date partial default-date))
+                 (year (nth 0 parsed))
+                 (month (nth 1 parsed))
+                 (day (nth 2 parsed)))
+            (delete-region (car bounds) (cdr bounds))
+            (goto-char (car bounds))
+            (let ((date-beg (point)))
+              (insert (taskjuggler--format-tj-date year month day))
+              (goto-char date-beg)
+              (taskjuggler--cal-edit date-beg year month day t)
+              ;; Position point after the typed prefix so post-command-hook
+              ;; picks it up as typed-len = partial-len.
+              (goto-char (+ date-beg partial-len))))))))
    ((or (eolp) (looking-at-p "[ \t]"))
     (taskjuggler-insert-date))
    (t
