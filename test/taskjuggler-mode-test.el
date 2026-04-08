@@ -2016,6 +2016,225 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
       (should (string-prefix-p "WW08" (substring-no-properties (nth 3 weeks))))
       (should (string-prefix-p "WW09" (substring-no-properties (nth 4 weeks)))))))
 
+;;; taskjuggler--partial-date-bounds-at-point
+
+;; A partial date is any prefix of YYYY-MM-DD (1-9 chars) that is not a
+;; complete date and is not followed by a character that makes it a duration
+;; literal (letter) or a larger number (digit) or a float (decimal point).
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--two-digit-year ()
+  "Returns bounds for a 2-digit year prefix at point."
+  (with-temp-buffer
+    (insert "start 20 end\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "20")
+    (backward-char 1)                   ; point on "0"
+    (let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (should bounds)
+      (should (equal "20"
+                     (buffer-substring-no-properties
+                      (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--four-digit-year ()
+  "Returns bounds for a standalone 4-digit year at point."
+  (with-temp-buffer
+    (insert "start 2026 end\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026")
+    (backward-char 1)                   ; point on last "6"
+    (let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2026"
+                     (buffer-substring-no-properties
+                      (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--year-with-dash ()
+  "Returns bounds for YYYY- at point."
+  (with-temp-buffer
+    (insert "start 2026-\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026-")
+    (backward-char 1)                   ; point on "-"
+    (let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2026-"
+                     (buffer-substring-no-properties
+                      (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--year-month ()
+  "Returns bounds for YYYY-MM at point."
+  (with-temp-buffer
+    (insert "start 2026-04\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026-04")
+    (backward-char 1)
+    (let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2026-04"
+                     (buffer-substring-no-properties
+                      (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--year-month-dash ()
+  "Returns bounds for YYYY-MM- at point."
+  (with-temp-buffer
+    (insert "start 2026-04-\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026-04-")
+    (backward-char 1)
+    (let ((bounds (taskjuggler--partial-date-bounds-at-point)))
+      (should bounds)
+      (should (equal "2026-04-"
+                     (buffer-substring-no-properties
+                      (car bounds) (cdr bounds)))))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--complete-date-excluded ()
+  "Returns nil for a complete date (handled by taskjuggler--date-bounds-at-point)."
+  (with-temp-buffer
+    (insert "start 2026-04-07\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026")
+    (should (null (taskjuggler--partial-date-bounds-at-point)))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--duration-excluded ()
+  "Returns nil when the digit sequence is immediately followed by a letter."
+  ;; \"5d\" — the \"5\" is followed by \"d\", so it must not be matched.
+  (with-temp-buffer
+    (insert "length 5d\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "5")
+    (backward-char 1)
+    (should (null (taskjuggler--partial-date-bounds-at-point)))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--float-excluded ()
+  "Returns nil when the digit sequence is followed by a decimal point."
+  ;; \"2.5\" — the \"2\" is followed by \".\", so it must not be matched.
+  (with-temp-buffer
+    (insert "effort 2.5h\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2")
+    (backward-char 1)
+    (should (null (taskjuggler--partial-date-bounds-at-point)))))
+
+(ert-deftest taskjuggler-partial-date-bounds-at-point--non-numeric-text ()
+  "Returns nil when point is on non-numeric text."
+  (with-temp-buffer
+    (insert "task foo\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "foo")
+    (backward-char 1)
+    (should (null (taskjuggler--partial-date-bounds-at-point)))))
+
+;;; taskjuggler--parse-partial-date
+
+(ert-deftest taskjuggler-parse-partial-date--empty-uses-defaults ()
+  "An empty prefix leaves all components at the default values."
+  (should (equal '(2026 4 7)
+                 (taskjuggler--parse-partial-date "" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--two-digit-year-uses-default ()
+  "A 2-digit prefix is too short to parse the year; defaults are used."
+  (should (equal '(2026 4 7)
+                 (taskjuggler--parse-partial-date "20" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--four-digit-year ()
+  "Four typed digits set the year; month and day come from the default."
+  (should (equal '(2025 4 7)
+                 (taskjuggler--parse-partial-date "2025" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--year-with-dash ()
+  "YYYY- (5 chars) sets the year; month and day come from the default."
+  (should (equal '(2025 4 7)
+                 (taskjuggler--parse-partial-date "2025-" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--year-and-month ()
+  "YYYY-MM sets year and month; day comes from the default."
+  (should (equal '(2025 3 7)
+                 (taskjuggler--parse-partial-date "2025-03" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--full-ten-chars ()
+  "All 10 characters set year, month, and day."
+  (should (equal '(2025 3 20)
+                 (taskjuggler--parse-partial-date "2025-03-20" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--invalid-month-ignored ()
+  "An invalid month value (e.g. 13) leaves the month at the default."
+  (should (equal '(2025 4 7)
+                 (taskjuggler--parse-partial-date "2025-13" '(2026 4 7)))))
+
+(ert-deftest taskjuggler-parse-partial-date--day-clamped-to-month ()
+  "When the default day exceeds the days in the parsed month, it is clamped."
+  ;; Default day=31, but February 2025 only has 28 days.
+  (should (equal '(2025 2 28)
+                 (taskjuggler--parse-partial-date "2025-02" '(2026 4 31)))))
+
+;;; taskjuggler--cal-expand-tabs
+
+(ert-deftest taskjuggler-cal-expand-tabs--no-tabs ()
+  "A string without tabs is returned unchanged."
+  (let ((tab-width 8))
+    (should (equal "abcdef" (taskjuggler--cal-expand-tabs "abcdef")))))
+
+(ert-deftest taskjuggler-cal-expand-tabs--tab-at-start ()
+  "A leading tab expands to tab-width spaces."
+  (let ((tab-width 8))
+    (should (equal "        rest"
+                   (taskjuggler--cal-expand-tabs "\trest")))))
+
+(ert-deftest taskjuggler-cal-expand-tabs--tab-after-chars ()
+  "A tab after N chars expands to (tab-width - N % tab-width) spaces."
+  ;; \"abc\" is 3 chars; next tab stop at 8 requires 5 spaces.
+  (let ((tab-width 8))
+    (should (equal "abc     def"
+                   (taskjuggler--cal-expand-tabs "abc\tdef")))))
+
+(ert-deftest taskjuggler-cal-expand-tabs--two-tabs ()
+  "Two leading tabs expand to 2*tab-width spaces."
+  (let ((tab-width 8))
+    (should (equal "                rest"
+                   (taskjuggler--cal-expand-tabs "\t\trest")))))
+
+(ert-deftest taskjuggler-cal-expand-tabs--tab-width-4 ()
+  "Tab expansion respects a tab-width of 4."
+  (let ((tab-width 4))
+    (should (equal "    rest" (taskjuggler--cal-expand-tabs "\trest")))))
+
+;;; taskjuggler--cal-splice-line (tab handling)
+
+(ert-deftest taskjuggler-cal-splice-line--tab-at-start-col-8 ()
+  "A leading tab is expanded before splicing; col=8 places new text correctly."
+  ;; The tab expands to 8 spaces; splicing at col 8 puts new text right after.
+  (let ((tab-width 8))
+    (should (equal (concat (make-string 8 ?\s) "CAL")
+                   (taskjuggler--cal-splice-line "\t" "CAL" 8)))))
+
+(ert-deftest taskjuggler-cal-splice-line--tab-mid-line ()
+  "A tab in the middle of old is expanded before splicing."
+  ;; \"abc\\tdef\" with tab-width=8: \"abc\" (3 chars) + tab expands to 5 spaces
+  ;; (reaching column 8) + \"def\" = \"abc     def\" (11 chars).
+  ;; Splicing \"CAL\" (len=3) at col=4: left=\"abc \" (cols 0-3),
+  ;; right=old-vis[7..]=\" def\" (the trailing space of the tab expansion + \"def\").
+  (let ((tab-width 8))
+    (should (equal "abc CAL def"
+                   (taskjuggler--cal-splice-line "abc\tdef" "CAL" 4)))))
+
+(ert-deftest taskjuggler-cal-splice-line--tab-expanded-consistent-width ()
+  "Lines with tabs produce the same calendar column as equivalent space lines."
+  ;; A line \"\\tX\" with tab-width=8 expands to \"        X\" (9 chars).
+  ;; A line with 8 spaces then X also has 9 chars.  Splicing at col 4
+  ;; should yield identical results for both.
+  (let ((tab-width 8))
+    (should (equal (taskjuggler--cal-splice-line "        X" "CAL" 4)
+                   (taskjuggler--cal-splice-line "\tX" "CAL" 4)))))
+
 ;;; Runner
 
 (when noninteractive

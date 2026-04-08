@@ -922,6 +922,56 @@ Installed as `forward-sexp-function' in `taskjuggler-mode'."
                      (>= (match-end 0) pos))
             (throw 'found (cons (match-beginning 0) (match-end 0)))))))))
 
+(defconst taskjuggler--partial-date-re
+  "[0-9]\\{1,4\\}\\(?:-[0-9]\\{0,2\\}\\(?:-[0-9]\\{0,2\\}\\)?\\)?"
+  "Regexp matching any prefix of YYYY-MM-DD: 1-4 year digits optionally
+followed by a hyphen + 0-2 month digits + an optional hyphen + 0-2 day digits.")
+
+(defun taskjuggler--partial-date-bounds-at-point ()
+  "Return (BEG . END) of a partial date prefix at point, or nil.
+Matches any prefix of YYYY-MM-DD (1-9 characters) that contains point
+and is not a complete date.  Excludes numeric tokens followed by a digit,
+letter, or decimal point to avoid matching durations (e.g. \"5d\") or
+larger numbers."
+  (save-excursion
+    (let ((pos (point))
+          (bol (line-beginning-position))
+          (eol (line-end-position)))
+      (goto-char bol)
+      (catch 'found
+        (while (re-search-forward taskjuggler--partial-date-re eol t)
+          (let ((mbeg (match-beginning 0))
+                (mend (match-end 0))
+                (mstr (match-string 0)))
+            (when (and (<= mbeg pos) (>= mend pos))
+              (unless (string-match-p (concat "^" taskjuggler--date-re "$") mstr)
+                (let ((next (and (< mend eol) (char-after mend))))
+                  (unless (and next (or (<= ?0 next ?9)
+                                        (<= ?a next ?z)
+                                        (<= ?A next ?Z)
+                                        (= next ?.)))
+                    (throw 'found (cons mbeg mend))))))))))))
+
+(defun taskjuggler--parse-partial-date (partial default-date)
+  "Parse PARTIAL date prefix string and return (YEAR MONTH DAY).
+PARTIAL is a prefix of YYYY-MM-DD.  Uses DEFAULT-DATE (a (YEAR MONTH DAY)
+list) for any components not present in PARTIAL."
+  (let* ((year (nth 0 default-date))
+         (month (nth 1 default-date))
+         (day (nth 2 default-date))
+         (len (length partial)))
+    (when (>= len 4)
+      (let ((y (string-to-number (substring partial 0 4))))
+        (when (> y 0) (setq year y))))
+    (when (>= len 7)
+      (let ((m (string-to-number (substring partial 5 7))))
+        (when (<= 1 m 12) (setq month m))))
+    (when (>= len 10)
+      (let ((d (string-to-number (substring partial 8 10))))
+        (when (>= d 1)
+          (setq day (min d (calendar-last-day-of-month month year))))))
+    (list year month (taskjuggler--cal-clamp-day year month day))))
+
 (defun taskjuggler--parse-tj-date (date-string)
   "Parse TJ3 DATE-STRING into a (YEAR MONTH DAY) list.
 Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
@@ -1146,18 +1196,37 @@ Captured once so the calendar stays anchored when navigating.")
 (defvar-local taskjuggler--cal-debounce-timer nil
   "Idle timer used to debounce calendar overlay updates.")
 
+(defun taskjuggler--cal-expand-tabs (str)
+  "Expand tab characters in STR to spaces using `tab-width'.
+Returns a plain string without text properties."
+  (let ((result "")
+        (col 0)
+        (tw (if (boundp 'tab-width) tab-width 8)))
+    (dotimes (i (length str))
+      (let ((ch (aref str i)))
+        (if (= ch ?\t)
+            (let ((spaces (- tw (% col tw))))
+              (setq result (concat result (make-string spaces ?\s)))
+              (setq col (+ col spaces)))
+          (setq result (concat result (char-to-string ch)))
+          (setq col (1+ col)))))
+    result))
+
 (defun taskjuggler--cal-splice-line (old new col)
   "Splice NEW into OLD at column COL, preserving surrounding text.
 OLD is the original buffer line, NEW is the calendar row to insert.
+Tab characters in OLD are expanded to spaces before slicing so that
+COL is a visual column, not a character offset.
 Returns the combined string."
-  (let* ((old-len (length old))
+  (let* ((old-vis (taskjuggler--cal-expand-tabs (substring-no-properties old)))
+         (old-len (length old-vis))
          (new-len (length new))
          (left (if (<= col old-len)
-                   (substring old 0 col)
-                 (concat old (make-string (- col old-len) ?\s))))
+                   (substring old-vis 0 col)
+                 (concat old-vis (make-string (- col old-len) ?\s))))
          (right-start (+ col new-len))
          (right (if (< right-start old-len)
-                    (substring old right-start)
+                    (substring old-vis right-start)
                   "")))
     (concat left new right)))
 
@@ -1594,12 +1663,39 @@ Inserts today's date with a pending face and opens the calendar picker."
 
 (defun taskjuggler-date-dwim ()
   "Insert or edit a TaskJuggler date literal depending on context.
-If point is on a date literal, edit it via `taskjuggler-edit-date-at-point'.
-Otherwise, insert a new date via `taskjuggler-insert-date'."
+If point is on a complete date literal, edit it in place.
+If point is on a partial date prefix (e.g. \"2026-04-\"), delete it and open
+the calendar picker to insert a fresh date.
+If point is on whitespace or at end of line, insert a new date.
+Otherwise, signal a user-error."
   (interactive)
-  (if (taskjuggler--date-bounds-at-point)
-      (taskjuggler-edit-date-at-point)
-    (taskjuggler-insert-date)))
+  (cond
+   ((taskjuggler--date-bounds-at-point)
+    (taskjuggler-edit-date-at-point))
+   ((taskjuggler--partial-date-bounds-at-point)
+    (let* ((bounds (taskjuggler--partial-date-bounds-at-point))
+           (partial (buffer-substring-no-properties (car bounds) (cdr bounds)))
+           (partial-len (length partial)))
+      (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
+                   (decode-time)))
+        (let* ((default-date (list today-year today-month today-day))
+               (parsed (taskjuggler--parse-partial-date partial default-date))
+               (year (nth 0 parsed))
+               (month (nth 1 parsed))
+               (day (nth 2 parsed)))
+          (delete-region (car bounds) (cdr bounds))
+          (goto-char (car bounds))
+          (let ((date-beg (point)))
+            (insert (taskjuggler--format-tj-date year month day))
+            (goto-char date-beg)
+            (taskjuggler--cal-edit date-beg year month day t)
+            ;; Position point after the typed prefix so post-command-hook
+            ;; picks it up as typed-len = partial-len.
+            (goto-char (+ date-beg partial-len)))))))
+   ((or (eolp) (looking-at-p "[ \t]"))
+    (taskjuggler-insert-date))
+   (t
+    (user-error "No date at point"))))
 
 (defun taskjuggler-edit-date-at-point ()
   "Edit the TJ3 date literal at point using an inline calendar.
