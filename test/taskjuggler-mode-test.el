@@ -4,6 +4,7 @@
 ;; Run with: emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
 
 (require 'ert)
+(require 'cl-lib)
 (load (expand-file-name "../taskjuggler-mode.el"
                         (file-name-directory (or load-file-name buffer-file-name))))
 
@@ -2250,6 +2251,102 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
     ;; The right portion starting at col 7 ("right") should also have it.
     (should (equal 'font-lock-keyword-face
                    (get-text-property 7 'face result)))))
+
+;;; taskjuggler-date-dwim
+
+;; Helper macro: stub taskjuggler--cal-edit and optionally decode-time so
+;; tests don't trigger overlays, minor-mode hooks, or depend on today's date.
+(defmacro with-cal-edit-stubbed (decode-time-result &rest body)
+  "Run BODY with `taskjuggler--cal-edit' stubbed to capture its args.
+DECODE-TIME-RESULT is a list used as the return value of `decode-time'.
+The captured argument list is bound to `cal-args' (a list of
+\(date-beg year month day was-inserted)) within BODY."
+  (declare (indent 1))
+  `(let (cal-args)
+     (cl-letf (((symbol-function 'taskjuggler--cal-edit)
+                (lambda (date-beg year month day was-inserted)
+                  (setq cal-args (list date-beg year month day was-inserted))))
+               ((symbol-function 'decode-time)
+                (lambda (&rest _) ,decode-time-result)))
+       ,@body)
+     cal-args))
+
+(ert-deftest taskjuggler-date-dwim--complete-date-edits-in-place ()
+  "On a complete date, opens the calendar for that date with was-inserted=nil."
+  (with-temp-buffer
+    (insert "start 2026-04-07 end\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026")
+    (backward-char 1)                   ; point on "2"
+    (let ((cal-args (with-cal-edit-stubbed '(0 0 0 1 1 2025 1 nil 0)
+                      (taskjuggler-date-dwim))))
+      (should cal-args)
+      (should (equal (list 2026 4 7 nil) (cdr cal-args)))
+      ;; date-beg points at the "2" of "2026-04-07"
+      (should (equal "2026-04-07"
+                     (buffer-substring-no-properties
+                      (car cal-args) (+ (car cal-args) 10)))))))
+
+(ert-deftest taskjuggler-date-dwim--partial-date-seeds-calendar ()
+  "On a partial date, replaces it with a full date and seeds the calendar."
+  ;; Partial \"2026-04-\": year=2026, month=4, day falls back to default (15).
+  (with-temp-buffer
+    (insert "start 2026-04- end\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "2026-04-")
+    (backward-char 1)                   ; point on trailing "-"
+    (let ((cal-args (with-cal-edit-stubbed '(0 0 0 15 6 2025 1 nil 0)
+                      (taskjuggler-date-dwim))))
+      (should cal-args)
+      ;; year and month come from the partial; day from the default.
+      (should (equal (list 2026 4 15 t) (cdr cal-args)))
+      (let ((date-beg (car cal-args)))
+        ;; The partial was replaced with the full date string.
+        (should (equal "2026-04-15"
+                       (buffer-substring-no-properties
+                        date-beg (+ date-beg 10))))
+        ;; Point is after the length of the typed prefix (8 chars: "2026-04-").
+        (should (= (point) (+ date-beg 8)))))))
+
+(ert-deftest taskjuggler-date-dwim--eol-inserts-new-date ()
+  "At end of line, inserts today's date and opens the calendar picker."
+  (with-temp-buffer
+    (insert "start ")
+    (taskjuggler-mode)
+    ;; Point is at end of buffer, which satisfies (eolp).
+    (let ((cal-args (with-cal-edit-stubbed '(0 0 0 15 6 2025 1 nil 0)
+                      (taskjuggler-date-dwim))))
+      (should cal-args)
+      (should (equal (list 2025 6 15 t) (cdr cal-args)))
+      (let ((date-beg (car cal-args)))
+        (should (equal "2025-06-15"
+                       (buffer-substring-no-properties
+                        date-beg (+ date-beg 10))))))))
+
+(ert-deftest taskjuggler-date-dwim--whitespace-inserts-new-date ()
+  "On a whitespace character, inserts today's date and opens the calendar picker."
+  (with-temp-buffer
+    (insert "start  end\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "start ")
+    ;; Point is now on the second space, satisfying (looking-at-p \"[ \\t]\").
+    (let ((cal-args (with-cal-edit-stubbed '(0 0 0 15 6 2025 1 nil 0)
+                      (taskjuggler-date-dwim))))
+      (should cal-args)
+      (should (equal (list 2025 6 15 t) (cdr cal-args))))))
+
+(ert-deftest taskjuggler-date-dwim--non-date-text-signals-error ()
+  "On non-date, non-whitespace text, signals a user-error."
+  (with-temp-buffer
+    (insert "task foo\n")
+    (taskjuggler-mode)
+    (goto-char (point-min))
+    (re-search-forward "foo")
+    (backward-char 1)                   ; point on "f"
+    (should-error (taskjuggler-date-dwim) :type 'user-error)))
 
 ;;; Runner
 
