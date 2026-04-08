@@ -1823,6 +1823,116 @@ dots and hyphens) are kept; the copyright header is discarded."
                     'help-echo (format "tj3man %s" keyword)
                     'face 'button))
 
+(defun taskjuggler--fontify-tj3man-headers ()
+  "Apply Man-overstrike to the six section-header labels in the current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward
+            "^\\(Keyword\\|Purpose\\|Syntax\\|Arguments\\|Context\\|Attributes\\):"
+            nil t)
+      (put-text-property (match-beginning 0) (match-end 0)
+                         'face 'Man-overstrike))))
+
+(defun taskjuggler--fontify-tj3man-syntax ()
+  "Apply Man-underline to <argument> placeholders in the Syntax: section.
+Covers multi-line Syntax blocks up to the first blank line."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^Syntax:" nil t)
+      (let ((section-end (save-excursion
+                           (if (re-search-forward "^$" nil t)
+                               (match-beginning 0)
+                             (point-max)))))
+        (while (re-search-forward "<[^>]+>" section-end t)
+          (put-text-property (match-beginning 0) (match-end 0)
+                             'face 'Man-underline))))))
+
+(defun taskjuggler--fontify-tj3man-arguments (tag-width)
+  "Apply faces to argument entries in the Arguments: section.
+TAG-WIDTH is the column at which argument entries start (matches tagW
+in KeywordDocumentation.rb).  Argument names receive Man-overstrike;
+type specs in [BRACKETS] receive Man-underline.  Continuation lines
+indented by TAG-WIDTH spaces are intentionally skipped."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^Arguments:" nil t)
+      (beginning-of-line)
+      (let ((section-end
+             (save-excursion
+               (if (re-search-forward
+                    "^\\(Keyword\\|Purpose\\|Syntax\\|Context\\|Attributes\\):"
+                    nil t)
+                   (match-beginning 0)
+                 (point-max)))))
+        (while (re-search-forward
+                (concat "^\\(?:Arguments:[ \t]+\\|"
+                        (make-string tag-width ?\s)
+                        "\\)"
+                        "\\([a-zA-Z][a-zA-Z0-9._-]*"
+                        "\\(?:[ \t][a-zA-Z][a-zA-Z0-9._-]*\\)*\\)"
+                        "\\(?:[ \t]+\\[\\([A-Z][A-Z0-9]*\\)\\]\\)?[ \t]*:")
+                section-end t)
+          (put-text-property (match-beginning 1) (match-end 1)
+                             'face 'Man-overstrike)
+          (when (match-beginning 2)
+            (put-text-property (match-beginning 2) (match-end 2)
+                               'face 'Man-underline)))))))
+
+(defun taskjuggler--fontify-tj3man-attributes ()
+  "Linkify attribute names and underline modifier keys in the Attributes: section.
+Each attribute name becomes a button; colon-separated keys inside [...]
+tags (e.g. sc, ip) receive Man-underline.  The modifier-key pass extends
+past the blank line to cover the legend at the end of the buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^Attributes:" nil t)
+      (let ((attrs-end (save-excursion
+                         (if (re-search-forward "^$" nil t)
+                             (match-beginning 0)
+                           (point-max)))))
+        ;; Button on each attribute name only (not the modifier tags).
+        (save-excursion
+          (while (re-search-forward
+                  "\\([a-z][a-z0-9._-]*\\)\\(\\(?:\\[[^]]*\\]\\)*\\)"
+                  attrs-end t)
+            (taskjuggler--make-tj3man-button
+             (match-beginning 1) (match-end 1)
+             (match-string-no-properties 1))))
+        ;; Underline modifier keys to end of buffer (includes legend).
+        (while (re-search-forward "\\[[a-z][a-z0-9:]*\\]" nil t)
+          (let ((b-start (match-beginning 0))
+                (b-end   (match-end 0)))
+            (save-excursion
+              (goto-char (1+ b-start))
+              (while (re-search-forward "[a-z]+" (1- b-end) t)
+                (put-text-property (match-beginning 0) (match-end 0)
+                                   'face 'Man-underline)))))))))
+
+(defun taskjuggler--fontify-tj3man-links ()
+  "Linkify known tj3man keywords throughout the buffer as clickable buttons.
+Skips positions already styled with buttons or Man-overstrike, and skips
+the documented keyword on the Keyword: and Syntax: lines."
+  (when taskjuggler--tj3man-keywords
+    (let ((kw-table (make-hash-table :test 'equal)))
+      (dolist (kw taskjuggler--tj3man-keywords)
+        (puthash kw t kw-table))
+      (save-excursion
+        (goto-char (point-min))
+        (while (re-search-forward "[a-z][a-z0-9._-]*" nil t)
+          (let ((start (match-beginning 0))
+                (end   (match-end 0))
+                (word  (match-string-no-properties 0)))
+            (when (and (gethash word kw-table)
+                       (not (get-text-property start 'button))
+                       (not (eq (get-text-property start 'face) 'Man-overstrike))
+                       (not (save-excursion
+                              (goto-char start)
+                              (beginning-of-line)
+                              (or (looking-at "Keyword:")
+                                  (and (looking-at "Syntax:[ \t]+")
+                                       (= (match-end 0) start))))))
+              (taskjuggler--make-tj3man-button start end word))))))))
+
 (defun taskjuggler--fontify-tj3man ()
   "Apply man-style faces and buttons to the current *tj3man* buffer."
   (let* ((inhibit-read-only t)
@@ -1834,105 +1944,11 @@ dots and hyphens) are kept; the copyright header is discarded."
                       (if (re-search-forward "^Keyword:[ \t]+" nil t)
                           (current-column)
                         13))))
-    ;; Section headers get Man-overstrike face.
-    (save-excursion
-      (goto-char (point-min))
-      (while (re-search-forward
-              "^\\(Keyword\\|Purpose\\|Syntax\\|Arguments\\|Context\\|Attributes\\):"
-              nil t)
-        (put-text-property (match-beginning 0) (match-end 0)
-                           'face 'Man-overstrike)))
-    ;; <argument> placeholders on the Syntax: section get Man-underline face.
-    ;; Searches to the first blank line so multi-line Syntax is fully covered.
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^Syntax:" nil t)
-        (let ((section-end (save-excursion
-                             (if (re-search-forward "^$" nil t)
-                                 (match-beginning 0)
-                               (point-max)))))
-          (while (re-search-forward "<[^>]+>" section-end t)
-            (put-text-property (match-beginning 0) (match-end 0)
-                               'face 'Man-underline)))))
-    ;; Argument names and types in the Arguments: section.
-    ;; Continuation lines are indented by tag-width spaces (matching tagW in
-    ;; KeywordDocumentation.rb) so description wrap lines are not matched.
-    ;; Names may be multi-word (e.g. "color name") or start with uppercase.
-    ;; name -> Man-overstrike, TYPE (without brackets) -> Man-underline.
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^Arguments:" nil t)
-        (beginning-of-line)
-        (let ((section-end
-               (save-excursion
-                 (if (re-search-forward
-                      "^\\(Keyword\\|Purpose\\|Syntax\\|Context\\|Attributes\\):"
-                      nil t)
-                     (match-beginning 0)
-                   (point-max)))))
-          (while (re-search-forward
-                  (concat "^\\(?:Arguments:[ \t]+\\|"
-                          (make-string tag-width ?\s)
-                          "\\)"
-                          "\\([a-zA-Z][a-zA-Z0-9._-]*"
-                          "\\(?:[ \t][a-zA-Z][a-zA-Z0-9._-]*\\)*\\)"
-                          "\\(?:[ \t]+\\[\\([A-Z][A-Z0-9]*\\)\\]\\)?[ \t]*:")
-                  section-end t)
-            (put-text-property (match-beginning 1) (match-end 1)
-                               'face 'Man-overstrike)
-            (when (match-beginning 2)
-              (put-text-property (match-beginning 2) (match-end 2)
-                                 'face 'Man-underline))))))
-    ;; Attributes section: button on each name; underline modifier and legend
-    ;; keys inside [...] (covers both "attr[sc:ip]" and "[sc] : ..." legend).
-    ;; Each colon-separated key gets Man-underline; ":" stays default face.
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^Attributes:" nil t)
-        (let ((attrs-end (save-excursion
-                           (if (re-search-forward "^$" nil t)
-                               (match-beginning 0)
-                             (point-max)))))
-          ;; Button on each attribute name only (not the modifier tags).
-          (save-excursion
-            (while (re-search-forward
-                    "\\([a-z][a-z0-9._-]*\\)\\(\\(?:\\[[^]]*\\]\\)*\\)"
-                    attrs-end t)
-              (taskjuggler--make-tj3man-button
-               (match-beginning 1) (match-end 1)
-               (match-string-no-properties 1))))
-          ;; Underline modifier keys to end of buffer (includes legend).
-          (while (re-search-forward "\\[[a-z][a-z0-9:]*\\]" nil t)
-            (let ((b-start (match-beginning 0))
-                  (b-end   (match-end 0)))
-              (save-excursion
-                (goto-char (1+ b-start))
-                (while (re-search-forward "[a-z]+" (1- b-end) t)
-                  (put-text-property (match-beginning 0) (match-end 0)
-                                     'face 'Man-underline))))))))
-    ;; Linkify known tj3man keywords throughout the text, skipping positions
-    ;; already styled (buttons, Man-overstrike headers/argument names) and the
-    ;; documented keyword itself on the Keyword: and Syntax: lines.
-    (when taskjuggler--tj3man-keywords
-      (let ((kw-table (make-hash-table :test 'equal)))
-        (dolist (kw taskjuggler--tj3man-keywords)
-          (puthash kw t kw-table))
-        (save-excursion
-          (goto-char (point-min))
-          (while (re-search-forward "[a-z][a-z0-9._-]*" nil t)
-            (let ((start (match-beginning 0))
-                  (end   (match-end 0))
-                  (word  (match-string-no-properties 0)))
-              (when (and (gethash word kw-table)
-                         (not (get-text-property start 'button))
-                         (not (eq (get-text-property start 'face) 'Man-overstrike))
-                         (not (save-excursion
-                                (goto-char start)
-                                (beginning-of-line)
-                                (or (looking-at "Keyword:")
-                                    (and (looking-at "Syntax:[ \t]+")
-                                         (= (match-end 0) start))))))
-                (taskjuggler--make-tj3man-button start end word)))))))))
+    (taskjuggler--fontify-tj3man-headers)
+    (taskjuggler--fontify-tj3man-syntax)
+    (taskjuggler--fontify-tj3man-arguments tag-width)
+    (taskjuggler--fontify-tj3man-attributes)
+    (taskjuggler--fontify-tj3man-links)))
 
 (defun taskjuggler-man (keyword)
   "Show tj3man documentation for KEYWORD in a help window.
