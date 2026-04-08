@@ -1814,6 +1814,15 @@ dots and hyphens) are kept; the copyright header is discarded."
                (lambda (s) (string-match-p "\\`[a-z][a-z0-9._-]*\\'" s))
                (split-string (shell-command-to-string tj3man) "\n" t)))))))
 
+(defun taskjuggler--make-tj3man-button (start end keyword)
+  "Make a button from START to END that opens the tj3man page for KEYWORD."
+  (make-text-button start end
+                    'action (let ((kw keyword))
+                              (lambda (_btn) (taskjuggler-man kw)))
+                    'follow-link t
+                    'help-echo (format "tj3man %s" keyword)
+                    'face 'button))
+
 (defun taskjuggler--fontify-tj3man ()
   "Apply man-style faces and buttons to the current *tj3man* buffer."
   (let ((inhibit-read-only t))
@@ -1845,7 +1854,7 @@ dots and hyphens) are kept; the copyright header is discarded."
     (save-excursion
       (goto-char (point-min))
       (when (re-search-forward "^Arguments:" nil t)
-        (beginning-of-line)             ; rewind so ^Arguments: prefix matches
+        (beginning-of-line)
         (let ((section-end
                (save-excursion
                  (if (re-search-forward
@@ -1863,46 +1872,36 @@ dots and hyphens) are kept; the copyright header is discarded."
             (when (match-beginning 2)
               (put-text-property (match-beginning 2) (match-end 2)
                                  'face 'Man-underline))))))
-    ;; Each entry in the Attributes: section becomes a button (name only).
+    ;; Attributes section: button on each name; underline modifier and legend
+    ;; keys inside [...] (covers both "attr[sc:ip]" and "[sc] : ..." legend).
+    ;; Each colon-separated key gets Man-underline; ":" stays default face.
     (save-excursion
       (goto-char (point-min))
       (when (re-search-forward "^Attributes:" nil t)
-        (let* ((attrs-start (point))
-               ;; Region ends at the blank line separating entries from legend.
-               (attrs-end (save-excursion
-                            (if (re-search-forward "^$" nil t)
-                                (match-beginning 0)
-                              (point-max)))))
-          (goto-char attrs-start)
-          ;; Match identifier optionally followed by one or more [modifier] tags.
-          (while (re-search-forward
-                  "\\([a-z][a-z0-9._-]*\\)\\(\\(?:\\[[^]]*\\]\\)*\\)"
-                  attrs-end t)
-            (let ((attr (match-string-no-properties 1)))
-              ;; Button covers only the attribute name, not the modifier tags.
-              (make-text-button (match-beginning 1) (match-end 1)
-                                'action (let ((a attr))
-                                          (lambda (_btn)
-                                            (taskjuggler-man a)))
-                                'follow-link t
-                                'help-echo (format "tj3man %s" attr)
-                                'face 'button))))))
-    ;; Underline modifier/legend keys inside [...] from the Attributes section
-    ;; onward (covers both "attr[sc:ip]" tags and the "[sc] : ..." legend).
-    ;; Each colon-separated key gets Man-underline; the ":" stays default face.
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^Attributes:" nil t)
-        (while (re-search-forward "\\[[a-z][a-z0-9:]*\\]" nil t)
-          (let ((bracket-start (match-beginning 0))
-                (bracket-end   (match-end 0)))
-            (save-excursion
-              (goto-char (1+ bracket-start)) ; skip opening [
-              (while (re-search-forward "[a-z]+" (1- bracket-end) t)
-                (put-text-property (match-beginning 0) (match-end 0)
-                                   'face 'Man-underline)))))))
-    ;; Linkify any occurrence of a known tj3man keyword throughout the text.
-    ;; Skip positions already covered by buttons (e.g., Attributes entries).
+        (let ((attrs-end (save-excursion
+                           (if (re-search-forward "^$" nil t)
+                               (match-beginning 0)
+                             (point-max)))))
+          ;; Button on each attribute name only (not the modifier tags).
+          (save-excursion
+            (while (re-search-forward
+                    "\\([a-z][a-z0-9._-]*\\)\\(\\(?:\\[[^]]*\\]\\)*\\)"
+                    attrs-end t)
+              (taskjuggler--make-tj3man-button
+               (match-beginning 1) (match-end 1)
+               (match-string-no-properties 1))))
+          ;; Underline modifier keys to end of buffer (includes legend).
+          (while (re-search-forward "\\[[a-z][a-z0-9:]*\\]" nil t)
+            (let ((b-start (match-beginning 0))
+                  (b-end   (match-end 0)))
+              (save-excursion
+                (goto-char (1+ b-start))
+                (while (re-search-forward "[a-z]+" (1- b-end) t)
+                  (put-text-property (match-beginning 0) (match-end 0)
+                                     'face 'Man-underline))))))))
+    ;; Linkify known tj3man keywords throughout the text, skipping positions
+    ;; already styled (buttons, Man-overstrike headers/argument names) and the
+    ;; documented keyword itself on the Keyword: and Syntax: lines.
     (when taskjuggler--tj3man-keywords
       (let ((kw-table (make-hash-table :test 'equal)))
         (dolist (kw taskjuggler--tj3man-keywords)
@@ -1919,19 +1918,10 @@ dots and hyphens) are kept; the copyright header is discarded."
                          (not (save-excursion
                                 (goto-char start)
                                 (beginning-of-line)
-                                (looking-at "Keyword:")))
-                         (not (save-excursion
-                                (goto-char start)
-                                (beginning-of-line)
-                                (and (looking-at "Syntax:[ \t]+")
-                                     (= (match-end 0) start)))))
-                (make-text-button start end
-                                  'action (let ((a word))
-                                            (lambda (_btn)
-                                              (taskjuggler-man a)))
-                                  'follow-link t
-                                  'help-echo (format "tj3man %s" word)
-                                  'face 'button)))))))))
+                                (or (looking-at "Keyword:")
+                                    (and (looking-at "Syntax:[ \t]+")
+                                         (= (match-end 0) start))))))
+                (taskjuggler--make-tj3man-button start end word)))))))))
 
 (defun taskjuggler-man (keyword)
   "Show tj3man documentation for KEYWORD in a help window.
