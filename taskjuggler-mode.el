@@ -1213,21 +1213,40 @@ Returns a plain string without text properties."
           (setq col (1+ col)))))
     result))
 
+(defun taskjuggler--cal-expand-tabs-with-props (str)
+  "Expand tabs in STR to spaces using `tab-width', preserving text properties.
+Each space replacing a tab inherits the text properties of that tab character."
+  (let ((result "")
+        (col 0)
+        (tw (if (boundp 'tab-width) tab-width 8)))
+    (dotimes (i (length str))
+      (let ((ch (aref str i)))
+        (if (= ch ?\t)
+            (let* ((spaces (- tw (% col tw)))
+                   (props (text-properties-at i str))
+                   (pad (apply #'propertize (make-string spaces ?\s) props)))
+              (setq result (concat result pad))
+              (setq col (+ col spaces)))
+          (setq result (concat result (substring str i (1+ i))))
+          (setq col (1+ col)))))
+    result))
+
 (defun taskjuggler--cal-splice-line (old new col)
   "Splice NEW into OLD at column COL, preserving surrounding text.
 OLD is the original buffer line, NEW is the calendar row to insert.
 Tab characters in OLD are expanded to spaces before slicing so that
-COL is a visual column, not a character offset.
+COL is a visual column, not a character offset.  Text properties on
+OLD (including font-lock faces) are preserved in the returned string.
 Returns the combined string."
-  (let* ((old-vis (taskjuggler--cal-expand-tabs (substring-no-properties old)))
-         (old-len (length old-vis))
+  (let* ((old-exp (taskjuggler--cal-expand-tabs-with-props old))
+         (old-len (length old-exp))
          (new-len (length new))
          (left (if (<= col old-len)
-                   (substring old-vis 0 col)
-                 (concat old-vis (make-string (- col old-len) ?\s))))
+                   (substring old-exp 0 col)
+                 (concat old-exp (make-string (- col old-len) ?\s))))
          (right-start (+ col new-len))
          (right (if (< right-start old-len)
-                    (substring old-vis right-start)
+                    (substring old-exp right-start)
                   "")))
     (concat left new right)))
 

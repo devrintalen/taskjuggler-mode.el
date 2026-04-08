@@ -2235,6 +2235,17 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
     (should (equal (taskjuggler--cal-splice-line "        X" "CAL" 4)
                    (taskjuggler--cal-splice-line "\tX" "CAL" 4)))))
 
+(ert-deftest taskjuggler-cal-splice-line--preserves-text-properties ()
+  "Text properties on the OLD string are preserved in the output."
+  (let* ((old (propertize "leftXXXright" 'face 'font-lock-keyword-face))
+         (result (taskjuggler--cal-splice-line old "CAL" 4)))
+    ;; The left portion "left" should still carry the face property.
+    (should (equal 'font-lock-keyword-face
+                   (get-text-property 0 'face result)))
+    ;; The right portion starting at col 7 ("right") should also have it.
+    (should (equal 'font-lock-keyword-face
+                   (get-text-property 7 'face result)))))
+
 ;;; Runner
 
 (when noninteractive
