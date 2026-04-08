@@ -2160,6 +2160,11 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
   (should (equal '(2025 3 7)
                  (taskjuggler--parse-partial-date "2025-03" '(2026 4 7)))))
 
+(ert-deftest taskjuggler-parse-partial-date--year-and-single-digit-month ()
+  "YYYY-M (1-digit month) sets year and month; day comes from the default."
+  (should (equal '(2026 4 7)
+                 (taskjuggler--parse-partial-date "2026-4" '(2026 1 7)))))
+
 (ert-deftest taskjuggler-parse-partial-date--full-ten-chars ()
   "All 10 characters set year, month, and day."
   (should (equal '(2025 3 20)

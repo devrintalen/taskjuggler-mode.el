@@ -959,22 +959,29 @@ larger numbers."
 
 (defun taskjuggler--parse-partial-date (partial default-date)
   "Parse PARTIAL date prefix string and return (YEAR MONTH DAY).
-PARTIAL is a prefix of YYYY-MM-DD.  Uses DEFAULT-DATE (a (YEAR MONTH DAY)
-list) for any components not present in PARTIAL."
+PARTIAL is a prefix of YYYY-MM-DD; month and day components may be 1 or 2
+digits.  Uses DEFAULT-DATE (a (YEAR MONTH DAY) list) for any components not
+present in PARTIAL."
   (let* ((year (nth 0 default-date))
          (month (nth 1 default-date))
          (day (nth 2 default-date))
-         (len (length partial)))
-    (when (>= len 4)
-      (let ((y (string-to-number (substring partial 0 4))))
-        (when (> y 0) (setq year y))))
-    (when (>= len 7)
-      (let ((m (string-to-number (substring partial 5 7))))
-        (when (<= 1 m 12) (setq month m))))
-    (when (>= len 10)
-      (let ((d (string-to-number (substring partial 8 10))))
-        (when (>= d 1)
-          (setq day (min d (calendar-last-day-of-month month year))))))
+         (parts (split-string partial "-")))
+    ;; Year: must be exactly 4 digits.
+    (let ((y-str (nth 0 parts)))
+      (when (and y-str (= (length y-str) 4))
+        (let ((y (string-to-number y-str)))
+          (when (> y 0) (setq year y)))))
+    ;; Month: 1 or 2 digits, value 1-12.
+    (when-let ((m-str (nth 1 parts)))
+      (when (>= (length m-str) 1)
+        (let ((m (string-to-number m-str)))
+          (when (<= 1 m 12) (setq month m)))))
+    ;; Day: 1 or 2 digits, clamped to the parsed month.
+    (when-let ((d-str (nth 2 parts)))
+      (when (>= (length d-str) 1)
+        (let ((d (string-to-number d-str)))
+          (when (>= d 1)
+            (setq day (min d (calendar-last-day-of-month month year)))))))
     (list year month (taskjuggler--cal-clamp-day year month day))))
 
 (defun taskjuggler--parse-tj-date (date-string)
