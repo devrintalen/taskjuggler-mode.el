@@ -1683,11 +1683,12 @@ the calendar picker to insert a fresh date.
 If point is on whitespace or at end of line, insert a new date.
 Otherwise, signal a user-error."
   (interactive)
-  (cond
-   ((taskjuggler--date-bounds-at-point)
-    (taskjuggler-edit-date-at-point))
-   ((when-let ((bounds (taskjuggler--partial-date-bounds-at-point)))
-      (let* ((partial (buffer-substring-no-properties (car bounds) (cdr bounds)))
+  (let ((partial-bounds (taskjuggler--partial-date-bounds-at-point)))
+    (cond
+     ((taskjuggler--date-bounds-at-point)
+      (taskjuggler-edit-date-at-point))
+     (partial-bounds
+      (let* ((partial (buffer-substring-no-properties (car partial-bounds) (cdr partial-bounds)))
              (partial-len (length partial)))
         (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
                      (decode-time)))
@@ -1696,19 +1697,19 @@ Otherwise, signal a user-error."
                  (year (nth 0 parsed))
                  (month (nth 1 parsed))
                  (day (nth 2 parsed)))
-            (delete-region (car bounds) (cdr bounds))
-            (goto-char (car bounds))
+            (delete-region (car partial-bounds) (cdr partial-bounds))
+            (goto-char (car partial-bounds))
             (let ((date-beg (point)))
               (insert (taskjuggler--format-tj-date year month day))
               (goto-char date-beg)
               (taskjuggler--cal-edit date-beg year month day t)
               ;; Position point after the typed prefix so post-command-hook
               ;; picks it up as typed-len = partial-len.
-              (goto-char (+ date-beg partial-len))))))))
-   ((or (eolp) (looking-at-p "[ \t]"))
-    (taskjuggler-insert-date))
-   (t
-    (user-error "No date at point"))))
+              (goto-char (+ date-beg partial-len)))))))
+     ((or (eolp) (looking-at-p "[ \t]"))
+      (taskjuggler-insert-date))
+     (t
+      (user-error "No date at point")))))
 
 (defun taskjuggler-edit-date-at-point ()
   "Edit the TJ3 date literal at point using an inline calendar.
