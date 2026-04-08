@@ -1879,9 +1879,8 @@ re-checked after a compile run that may have created it."
     (define-key km (kbd "n") #'taskjuggler-narrow-to-block)
     km)
   "Keymap for TaskJuggler commands after `taskjuggler-keymap-prefix'.")
-(fset 'taskjuggler-command-map taskjuggler-command-map)
+(defalias 'taskjuggler-command-map taskjuggler-command-map)
 
-;;;###autoload
 (defvar taskjuggler-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "M-<up>")   #'taskjuggler-move-block-up)
