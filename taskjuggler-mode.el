@@ -924,8 +924,9 @@ Installed as `forward-sexp-function' in `taskjuggler-mode'."
 
 (defconst taskjuggler--partial-date-re
   "[0-9]\\{1,4\\}\\(?:-[0-9]\\{0,2\\}\\(?:-[0-9]\\{0,2\\}\\)?\\)?"
-  "Regexp matching any prefix of YYYY-MM-DD: 1-4 year digits optionally
-followed by a hyphen + 0-2 month digits + an optional hyphen + 0-2 day digits.")
+  "Regexp matching any prefix of YYYY-MM-DD.
+Matches 1-4 year digits optionally followed by a hyphen + 0-2 month
+digits + an optional hyphen + 0-2 day digits.")
 
 (defun taskjuggler--partial-date-bounds-at-point ()
   "Return (BEG . END) of a partial date prefix at point, or nil.
