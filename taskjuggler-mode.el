@@ -1825,7 +1825,15 @@ dots and hyphens) are kept; the copyright header is discarded."
 
 (defun taskjuggler--fontify-tj3man ()
   "Apply man-style faces and buttons to the current *tj3man* buffer."
-  (let ((inhibit-read-only t))
+  (let* ((inhibit-read-only t)
+         ;; Detect the tag column width from the Keyword: line.  This matches
+         ;; tagW in KeywordDocumentation.rb (currently 13) and controls how
+         ;; far argument continuation lines are indented.
+         (tag-width (save-excursion
+                      (goto-char (point-min))
+                      (if (re-search-forward "^Keyword:[ \t]+" nil t)
+                          (current-column)
+                        13))))
     ;; Section headers get Man-overstrike face.
     (save-excursion
       (goto-char (point-min))
@@ -1847,8 +1855,8 @@ dots and hyphens) are kept; the copyright header is discarded."
             (put-text-property (match-beginning 0) (match-end 0)
                                'face 'Man-underline)))))
     ;; Argument names and types in the Arguments: section.
-    ;; Prefix is exactly 13 chars ("Arguments:   " or 13 spaces) so that
-    ;; deeper-indented description continuation lines are not matched.
+    ;; Continuation lines are indented by tag-width spaces (matching tagW in
+    ;; KeywordDocumentation.rb) so description wrap lines are not matched.
     ;; Names may be multi-word (e.g. "color name") or start with uppercase.
     ;; name -> Man-overstrike, TYPE (without brackets) -> Man-underline.
     (save-excursion
@@ -1863,9 +1871,12 @@ dots and hyphens) are kept; the copyright header is discarded."
                      (match-beginning 0)
                    (point-max)))))
           (while (re-search-forward
-                  "^\\(?:Arguments:[ \t]+\\|             \\)\
-\\([a-zA-Z][a-zA-Z0-9._-]*\\(?:[ \t][a-zA-Z][a-zA-Z0-9._-]*\\)*\\)\
-\\(?:[ \t]+\\[\\([A-Z][A-Z0-9]*\\)\\]\\)?[ \t]*:"
+                  (concat "^\\(?:Arguments:[ \t]+\\|"
+                          (make-string tag-width ?\s)
+                          "\\)"
+                          "\\([a-zA-Z][a-zA-Z0-9._-]*"
+                          "\\(?:[ \t][a-zA-Z][a-zA-Z0-9._-]*\\)*\\)"
+                          "\\(?:[ \t]+\\[\\([A-Z][A-Z0-9]*\\)\\]\\)?[ \t]*:")
                   section-end t)
             (put-text-property (match-beginning 1) (match-end 1)
                                'face 'Man-overstrike)

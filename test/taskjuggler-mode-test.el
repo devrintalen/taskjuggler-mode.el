@@ -5,6 +5,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'man)
 (load (expand-file-name "../taskjuggler-mode.el"
                         (file-name-directory (or load-file-name buffer-file-name))))
 
@@ -2384,7 +2385,6 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
 (defmacro with-tj3man-buffer (&rest body)
   "Run BODY in a temp buffer containing `test-tj3man-output', fontified."
   `(with-temp-buffer
-     (require 'man)
      (insert test-tj3man-output)
      (let ((taskjuggler--tj3man-keywords '("task" "allocate" "depends"
                                            "duration" "milestone" "properties"
