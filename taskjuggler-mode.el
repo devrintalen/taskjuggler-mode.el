@@ -99,6 +99,14 @@ Set to nil to disable cursor tracking entirely."
   :type 'boolean
   :group 'taskjuggler)
 
+(defcustom taskjuggler-auto-cal-on-date-keyword nil
+  "When non-nil, automatically open the calendar popup after typing a date keyword.
+Keywords that expect a date value (such as `start' and `end') trigger the
+inline calendar picker when the user types a space or tab immediately after them.
+See `taskjuggler--date-keyword-list' for the full list of triggering keywords."
+  :type 'boolean
+  :group 'taskjuggler)
+
 ;;; Helpers
 
 (defun taskjuggler--tj3-executable (name)
@@ -1728,6 +1736,28 @@ The existing date pre-fills the calendar."
         (goto-char date-beg)
         (taskjuggler--cal-edit date-beg year month day nil)))))
 
+;;; Auto-launch calendar on date keywords
+
+(defconst taskjuggler--date-keyword-list
+  '("start" "end" "maxend" "maxstart" "minend" "minstart" "now")
+  "Property keywords that expect a date literal to immediately follow them.
+Used by `taskjuggler--maybe-launch-calendar' to trigger the inline calendar
+picker automatically when `taskjuggler-auto-cal-on-date-keyword' is non-nil.")
+
+(defun taskjuggler--maybe-launch-calendar ()
+  "Auto-launch the calendar picker after typing a date keyword and a space.
+Installed on `post-self-insert-hook'.  When `taskjuggler-auto-cal-on-date-keyword'
+is non-nil and the calendar is not already active, fires when the character just
+inserted is a space or tab and the text immediately before it ends with a keyword
+from `taskjuggler--date-keyword-list'."
+  (when (and taskjuggler-auto-cal-on-date-keyword
+             (not taskjuggler-cal-active-mode)
+             (memq last-command-event '(?\s ?\t))
+             (looking-back (concat (regexp-opt taskjuggler--date-keyword-list 'words)
+                                   "[ \t]")
+                           (line-beginning-position)))
+    (taskjuggler-insert-date)))
+
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
@@ -2179,6 +2209,8 @@ See URL `https://taskjuggler.org' for more information.
     (setq-local compile-command
                 (concat (taskjuggler--tj3-executable "tj3") " "
                         (shell-quote-argument (buffer-file-name)))))
+  ;; Auto-launch calendar popup after date-expecting keywords.
+  (add-hook 'post-self-insert-hook #'taskjuggler--maybe-launch-calendar nil t)
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.
