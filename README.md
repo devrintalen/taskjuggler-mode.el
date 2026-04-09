@@ -79,6 +79,8 @@ under `file://` without CORS restrictions.
 - Defaults to the word at point, so placing the cursor on a keyword and
   pressing `C-c C-t m RET` shows its documentation immediately.
 - Output is shown in a `*tj3man*` help window (press `q` to dismiss).
+- Uses syntax highlighting to make the pages easier to read.
+- Hyperlinks used to jump to related pages.
 
 `tj3man` is resolved via `taskjuggler-tj3-bin-dir`.
 
