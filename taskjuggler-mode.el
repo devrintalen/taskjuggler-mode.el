@@ -366,7 +366,7 @@ Calls `syntax-ppss' at each match to skip occurrences inside existing
 comments or strings.  This is safe inside `syntax-propertize-function'
 because Emacs binds `syntax-propertize--done' to `most-positive-fixnum'
 for the call duration, preventing recursive re-entry.  Scanning
-left-to-right means a `#' comment-start property is applied before any
+left-to-right means a `#' `comment-start' property is applied before any
 -8<- on the same line is reached, so `syntax-ppss' correctly sees the
 latter as inside a comment."
   (save-excursion
