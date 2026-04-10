@@ -15,39 +15,39 @@
 
 (ert-deftest tj-cal-leap-year ()
   "Test leap year detection."
-  (should (taskjuggler--cal-leap-year-p 2000))
-  (should (taskjuggler--cal-leap-year-p 2024))
-  (should-not (taskjuggler--cal-leap-year-p 1900))
-  (should-not (taskjuggler--cal-leap-year-p 2023)))
+  (should (calendar-leap-year-p 2000))
+  (should (calendar-leap-year-p 2024))
+  (should-not (calendar-leap-year-p 1900))
+  (should-not (calendar-leap-year-p 2023)))
 
 ;; ---- Days in month ----
 
 (ert-deftest tj-cal-days-in-month ()
   "Test days-in-month for all months and leap year February."
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 1)))
-  (should (= 29 (taskjuggler--cal-days-in-month 2024 2)))
-  (should (= 28 (taskjuggler--cal-days-in-month 2023 2)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 3)))
-  (should (= 30 (taskjuggler--cal-days-in-month 2024 4)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 5)))
-  (should (= 30 (taskjuggler--cal-days-in-month 2024 6)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 7)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 8)))
-  (should (= 30 (taskjuggler--cal-days-in-month 2024 9)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 10)))
-  (should (= 30 (taskjuggler--cal-days-in-month 2024 11)))
-  (should (= 31 (taskjuggler--cal-days-in-month 2024 12))))
+  (should (= 31 (calendar-last-day-of-month 1 2024)))
+  (should (= 29 (calendar-last-day-of-month 2 2024)))
+  (should (= 28 (calendar-last-day-of-month 2 2023)))
+  (should (= 31 (calendar-last-day-of-month 3 2024)))
+  (should (= 30 (calendar-last-day-of-month 4 2024)))
+  (should (= 31 (calendar-last-day-of-month 5 2024)))
+  (should (= 30 (calendar-last-day-of-month 6 2024)))
+  (should (= 31 (calendar-last-day-of-month 7 2024)))
+  (should (= 31 (calendar-last-day-of-month 8 2024)))
+  (should (= 30 (calendar-last-day-of-month 9 2024)))
+  (should (= 31 (calendar-last-day-of-month 10 2024)))
+  (should (= 30 (calendar-last-day-of-month 11 2024)))
+  (should (= 31 (calendar-last-day-of-month 12 2024))))
 
 ;; ---- Day of week ----
 
 (ert-deftest tj-cal-day-of-week ()
   "Test day-of-week calculation against known dates."
   ;; 2024-01-01 is a Monday.
-  (should (= 1 (taskjuggler--cal-day-of-week 2024 1 1)))
+  (should (= 1 (calendar-day-of-week '(1 1 2024))))
   ;; 2024-03-01 is a Friday.
-  (should (= 5 (taskjuggler--cal-day-of-week 2024 3 1)))
+  (should (= 5 (calendar-day-of-week '(3 1 2024))))
   ;; 2026-03-01 is a Sunday.
-  (should (= 0 (taskjuggler--cal-day-of-week 2026 3 1))))
+  (should (= 0 (calendar-day-of-week '(3 1 2026)))))
 
 ;; ---- Clamp day ----
 
