@@ -20,14 +20,9 @@ Byte-compile to check for warnings:
 emacs --batch -f batch-byte-compile taskjuggler-mode.el
 ```
 
-Run the main ERT test suite:
+Run the ERT test suite:
 ```
 emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
-```
-
-Run the calendar picker test suite:
-```
-emacs --batch -l taskjuggler-mode.el -l test/taskjuggler-cal-test.el -f ert-run-tests-batch-and-exit
 ```
 
 Open a test fixture to exercise the mode:
