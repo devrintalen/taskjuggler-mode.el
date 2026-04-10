@@ -1744,6 +1744,12 @@ The existing date pre-fills the calendar."
 Used by `taskjuggler--maybe-launch-calendar' to trigger the inline calendar
 picker automatically when `taskjuggler-auto-cal-on-date-keyword' is non-nil.")
 
+(defconst taskjuggler--date-keyword-regexp
+  (concat (regexp-opt taskjuggler--date-keyword-list 'words) "[ \t]")
+  "Regexp matching a date keyword followed by a space or tab.
+Pre-computed so `taskjuggler--maybe-launch-calendar' avoids rebuilding it on
+every keystroke.")
+
 (defun taskjuggler--maybe-launch-calendar ()
   "Auto-launch the calendar picker after typing a date keyword and a space.
 Installed on `post-self-insert-hook'.  When `taskjuggler-auto-cal-on-date-keyword'
@@ -1753,8 +1759,7 @@ from `taskjuggler--date-keyword-list'."
   (when (and taskjuggler-auto-cal-on-date-keyword
              (not taskjuggler-cal-active-mode)
              (memq last-command-event '(?\s ?\t))
-             (looking-back (concat (regexp-opt taskjuggler--date-keyword-list 'words)
-                                   "[ \t]")
+             (looking-back taskjuggler--date-keyword-regexp
                            (line-beginning-position)))
     (taskjuggler-insert-date)))
 
