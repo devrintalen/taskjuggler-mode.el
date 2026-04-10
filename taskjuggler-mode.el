@@ -344,7 +344,8 @@ Distinguishes characters the user has typed from the pre-filled suffix."
   "Extend propertize region backward to cover any enclosing scissors string.
 If START falls inside an open -8<- … ->8- scissors string whose opener
 precedes START, extend START back to include the opener so the propertize
-function can re-establish both delimiters atomically.
+function can re-establish both delimiters atomically.  END is returned
+unchanged when an extension is needed.
 
 This function is added to `syntax-propertize-extend-region-functions',
 which Emacs calls BEFORE `remove-text-properties' clears the region —
@@ -365,7 +366,7 @@ Calls `syntax-ppss' at each match to skip occurrences inside existing
 comments or strings.  This is safe inside `syntax-propertize-function'
 because Emacs binds `syntax-propertize--done' to `most-positive-fixnum'
 for the call duration, preventing recursive re-entry.  Scanning
-left-to-right means a # comment-start property is applied before any
+left-to-right means a `#' comment-start property is applied before any
 -8<- on the same line is reached, so `syntax-ppss' correctly sees the
 latter as inside a comment."
   (save-excursion
