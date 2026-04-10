@@ -337,26 +337,58 @@ Distinguishes characters the user has typed from the pre-filled suffix."
 
 ;;; Syntax propertize (for # line comments and scissor strings)
 
-(defconst taskjuggler--syntax-propertize
-  (syntax-propertize-rules
-   ;; # starts a style-b (line) comment, closed by newline ("> b").
-   ;; "< b": class=comment-start, match=space (none), flag=b (style b).
-   ;; syntax-propertize-rules automatically skips strings and comments.
-   ("#" (0 "< b"))
-   ;; Scissors multi-line strings: -8<- ... ->8-
-   ;; Mark the last char of -8<- as a string-fence opener, then search
-   ;; forward for ->8- and mark its last char as the matching closer.
-   ;; syntax-propertize-rules skips matches inside strings/comments, so
-   ;; the opening -8<- only fires outside strings; the closing ->8- is
-   ;; inside the string we just opened, so it must be handled here.
-   ("-8<\\(-\\)"
-    (1 (prog1 (string-to-syntax "|")
-         (goto-char (match-end 0))
-         (when (re-search-forward "->8\\(-\\)" nil t)
-           (put-text-property (match-beginning 1) (match-end 1)
-                              'syntax-table (string-to-syntax "|")))))))
-  "Syntax propertize rules for `taskjuggler-mode'.
-Handles # as a line comment and -8<- … ->8- as string delimiters.")
+(defconst taskjuggler--syntax-comment-start (string-to-syntax "< b"))
+(defconst taskjuggler--syntax-string-fence  (string-to-syntax "|"))
+
+(defun taskjuggler--syntax-propertize-extend-region (start end)
+  "Extend propertize region backward to cover any enclosing scissors string.
+If START falls inside an open -8<- … ->8- scissors string whose opener
+precedes START, extend START back to include the opener so the propertize
+function can re-establish both delimiters atomically.  END is returned
+unchanged when an extension is needed.
+
+This function is added to `syntax-propertize-extend-region-functions',
+which Emacs calls BEFORE `remove-text-properties' clears the region —
+so `syntax-ppss' is safe to call here and returns the correct state."
+  (let ((state (syntax-ppss start)))
+    (when (eq t (nth 3 state))
+      ;; (nth 8 state) is the fence character (last - of -8<-); back up 3
+      ;; to reach the first character of the 4-char -8<- pattern.
+      (let ((new-start (max (point-min) (- (nth 8 state) 3))))
+        (when (< new-start start)
+          (cons new-start end))))))
+
+(defun taskjuggler--syntax-propertize (start end)
+  "Propertize region START..END for `taskjuggler-mode'.
+Handles # as a line comment and -8<- … ->8- as string delimiters.
+
+Calls `syntax-ppss' at each match to skip occurrences inside existing
+comments or strings.  This is safe inside `syntax-propertize-function'
+because Emacs binds `syntax-propertize--done' to `most-positive-fixnum'
+for the call duration, preventing recursive re-entry.  Scanning
+left-to-right means a `#' `comment-start' property is applied before any
+-8<- on the same line is reached, so `syntax-ppss' correctly sees the
+latter as inside a comment."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward "\\(#\\)\\|-8<\\(-\\)" end t)
+      (let ((ppss (save-excursion
+                    (goto-char (match-beginning 0))
+                    (syntax-ppss))))
+        (unless (or (nth 3 ppss) (nth 4 ppss))
+          (cond
+           ((match-beginning 1)
+            (put-text-property (match-beginning 1) (match-end 1)
+                               'syntax-table taskjuggler--syntax-comment-start))
+           ((match-beginning 2)
+            (put-text-property (match-beginning 2) (match-end 2)
+                               'syntax-table taskjuggler--syntax-string-fence)
+            (save-excursion
+              (goto-char (match-end 0))
+              (when (re-search-forward "->8\\(-\\)" nil t)
+                (put-text-property (match-beginning 1) (match-end 1)
+                                   'syntax-table taskjuggler--syntax-string-fence))))))))))
+
 
 ;;; Indentation
 
@@ -2163,7 +2195,11 @@ See URL `https://taskjuggler.org' for more information.
   (setq-local comment-end "")
   (setq-local comment-start-skip "\\(?://+\\|#+\\|/\\*+\\)[ \t]*")
   ;; Syntax propertize handles # as a line comment character.
-  (setq-local syntax-propertize-function taskjuggler--syntax-propertize)
+  (setq-local syntax-propertize-function #'taskjuggler--syntax-propertize)
+  ;; Extend the propertize region to cover any enclosing scissors string so
+  ;; that -8<- … ->8- fence pairs are always re-propertized as a unit.
+  (add-hook 'syntax-propertize-extend-region-functions
+            #'taskjuggler--syntax-propertize-extend-region nil t)
   ;; Indentation
   (setq-local indent-line-function #'taskjuggler-indent-line)
   (setq-local indent-region-function #'taskjuggler-indent-region)

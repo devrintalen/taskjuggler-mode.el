@@ -1251,6 +1251,30 @@ so that syntax-ppss returns correct depth on every line."
     (re-search-forward "orphaned")
     (should (test-tj--in-string-p (point)))))
 
+(ert-deftest taskjuggler-scissors--commented-out-does-not-open-string ()
+  "A -8<- inside a # comment does not open a scissors string."
+  (with-temp-buffer
+    (insert "task foo \"Foo\" {\n  # note -8<-\n  effort 1d\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (re-search-forward "effort")
+    (should (not (test-tj--in-string-p (point))))))
+
+(ert-deftest taskjuggler-scissors--commented-out-does-not-break-indent ()
+  "A task following a block with `# note -8<-' indents to sibling level."
+  (with-indent-buffer (concat "task p \"P\" {\n"
+                               "  task a \"A\" {\n"
+                               "    # note -8<-\n"
+                               "  }\n"
+                               "  task b \"B\" {\n"
+                               "    effort 1d\n"
+                               "  }\n"
+                               "}\n")
+    ;; Line 5 is "task b" — it should indent to depth 1 (inside task p),
+    ;; not to depth 2+ as if still inside a scissors string.
+    (should (= taskjuggler-indent-level (indent-at-line 5)))))
+
 ;;; Corner cases: full-task-id on the closing `}' line
 
 (ert-deftest taskjuggler-full-task-id--on-closing-brace-line ()
