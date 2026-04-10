@@ -1788,10 +1788,11 @@ Installed on `post-self-insert-hook'.  When
 `taskjuggler-auto-cal-on-date-keyword' is non-nil and the calendar is not
 already active, fires when the character just inserted is a space or tab
 and the text immediately before it ends with a keyword from
-`taskjuggler--date-keyword-list'."
+`taskjuggler--date-keyword-list'.  Suppressed inside comments and strings."
   (when (and taskjuggler-auto-cal-on-date-keyword
              (not taskjuggler-cal-active-mode)
              (memq last-command-event '(?\s ?\t))
+             (not (nth 8 (syntax-ppss)))
              (looking-back taskjuggler--date-keyword-regexp
                            (line-beginning-position)))
     (taskjuggler-insert-date)))
