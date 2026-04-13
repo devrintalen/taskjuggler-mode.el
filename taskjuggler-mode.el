@@ -2221,6 +2221,12 @@ when the user stops moving) and a regular repeating timer for the
 browser→editor click poll (so clicks are noticed even when Emacs does not
 have input focus).  Does nothing when `taskjuggler-cursor-idle-delay' is nil."
   (when taskjuggler-cursor-idle-delay
+    ;; Cancel any existing timers first so re-initialization (e.g. via
+    ;; revert-buffer or M-x taskjuggler-mode) does not orphan them.
+    (when (timerp taskjuggler--cursor-idle-timer)
+      (cancel-timer taskjuggler--cursor-idle-timer))
+    (when (timerp taskjuggler--click-poll-timer)
+      (cancel-timer taskjuggler--click-poll-timer))
     (let ((buf (current-buffer)))
       ;; Editor → Browser: idle timer writes cursor position on quiescence.
       (setq taskjuggler--cursor-idle-timer
