@@ -107,6 +107,19 @@ See `taskjuggler--date-keyword-list' for the full list of triggering keywords."
   :type 'boolean
   :group 'taskjuggler)
 
+(defcustom taskjuggler-auto-start-tj3d-tj3webd nil
+  "When non-nil, start tj3d and tj3webd when `taskjuggler-mode' activates.
+Daemons are only started if they are not already running."
+  :type 'boolean
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-auto-add-project-tj3d nil
+  "When non-nil, add the current project to tj3d when visiting a TJ3 file.
+Uses `taskjuggler--find-tjp-file' to locate the .tjp file and adds it
+via `taskjuggler-tj3d-add-project' if it is not already loaded."
+  :type 'boolean
+  :group 'taskjuggler)
+
 ;;; Helpers
 
 (defun taskjuggler--tj3-executable (name)
@@ -2298,6 +2311,9 @@ Passed via --port to tj3webd and used to construct the browse URL."
   "Current modeline string for daemon status.
 Updated by `taskjuggler--daemon-update-modeline'.")
 
+(defvar taskjuggler--auto-add-pending nil
+  "The .tjp file path for which an auto-add is in progress, or nil.")
+
 (defun taskjuggler--tj3d-alive-p ()
   "Return non-nil if the tj3d daemon is reachable.
 When Emacs started tj3d (with -d), checks the process object.
@@ -2309,6 +2325,15 @@ Otherwise probes via `tj3client status'."
         (zerop (call-process (taskjuggler--tj3-executable "tj3client")
                              nil nil nil "status"))
       (error nil))))
+
+(defun taskjuggler--tj3d-accepting-p ()
+  "Return non-nil if tj3d is accepting connections.
+Unlike `taskjuggler--tj3d-alive-p', this always probes via
+`tj3client status' rather than relying on the process object."
+  (condition-case nil
+      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
+                           nil nil nil "status"))
+    (error nil)))
 
 (defun taskjuggler--tj3webd-alive-p ()
   "Return non-nil if tj3webd is running.
@@ -2388,6 +2413,55 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                        (message "tj3client add failed (exit %d); see *tj3client*"
                                 (process-exit-status proc)))))))))
 
+(defun taskjuggler--tj3d-project-loaded-p (tjp)
+  "Return non-nil if TJP is already loaded in the running tj3d daemon."
+  (when (and tjp (taskjuggler--tj3d-alive-p))
+    (condition-case nil
+        (with-temp-buffer
+          (when (zerop (call-process
+                        (taskjuggler--tj3-executable "tj3client")
+                        nil t nil "status"))
+            (goto-char (point-min))
+            (search-forward (file-name-nondirectory tjp) nil t)))
+      (error nil))))
+
+(defun taskjuggler--auto-add-project-tj3d ()
+  "Add the current project to tj3d if not already loaded.
+When tj3d is accepting connections and the project is not yet loaded,
+adds it immediately.  When tj3d is not yet ready (e.g. just started),
+retries up to 5 times at 1-second intervals.
+Guards against duplicate attempts via `taskjuggler--auto-add-pending'."
+  (let ((tjp (taskjuggler--find-tjp-file)))
+    (when (and tjp
+               (not (equal tjp taskjuggler--auto-add-pending))
+               (not (taskjuggler--tj3d-project-loaded-p tjp)))
+      (setq taskjuggler--auto-add-pending tjp)
+      (if (taskjuggler--tj3d-accepting-p)
+          (progn
+            (taskjuggler-tj3d-add-project)
+            (setq taskjuggler--auto-add-pending nil))
+        ;; tj3d was just started; poll until accepting connections.
+        (let ((retries 0)
+              (timer nil))
+          (setq timer
+                (run-with-timer
+                 1 1
+                 (lambda ()
+                   (setq retries (1+ retries))
+                   (cond
+                    ((taskjuggler--tj3d-project-loaded-p tjp)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((taskjuggler--tj3d-accepting-p)
+                     (cancel-timer timer)
+                     (taskjuggler-tj3d-add-project)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((>= retries 5)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil)
+                     (message "tj3d not ready after %d attempts; \
+skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
+
 (defun taskjuggler-tj3webd-start ()
   "Start the tj3webd web daemon from the current project directory.
 Launches with -d (don't daemonize) so Emacs manages the process
@@ -2465,6 +2539,8 @@ Uses `taskjuggler-tj3webd-port' for the port number."
      :noquery t
      :sentinel (lambda (proc _event)
                  (when (memq (process-status proc) '(exit signal))
+                   (with-current-buffer (process-buffer proc)
+                     (special-mode))
                    (display-buffer (process-buffer proc)))))))
 
 (defun taskjuggler-tj3webd-browse ()
@@ -2485,11 +2561,11 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (setq taskjuggler--daemon-modeline
           (cond
            ((and d w)
-            (propertize " 󰒍D+W" 'face '(:foreground "#50fa7b")))
+            (propertize " 󰙬󰒍" 'face 'success))
            (d
-            (propertize " 󰒍D" 'face '(:foreground "#50fa7b")))
+            (propertize " 󰙬" 'face 'success))
            (w
-            (propertize " 󰒍W" 'face '(:foreground "#f1fa8c")))
+            (propertize " 󰒍" 'face 'warning))
            (t "")))
     (force-mode-line-update t)))
 
@@ -2637,6 +2713,15 @@ See URL `https://taskjuggler.org' for more information.
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
   ;; Daemon modeline: append daemon status indicator after the mode name.
   (setq mode-line-process '(:eval taskjuggler--daemon-modeline))
+  ;; Auto-start tj3d and tj3webd if configured.
+  (when taskjuggler-auto-start-tj3d-tj3webd
+    (unless (taskjuggler--tj3d-alive-p)
+      (taskjuggler-tj3d-start))
+    (unless (taskjuggler--tj3webd-alive-p)
+      (taskjuggler-tj3webd-start)))
+  ;; Auto-add project to tj3d if configured.
+  (when taskjuggler-auto-add-project-tj3d
+    (taskjuggler--auto-add-project-tj3d))
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.
