@@ -2369,7 +2369,7 @@ Respects `taskjuggler-tj3-bin-dir' for executable resolution."
 Uses `tj3client add' with the .tjp file for the current buffer."
   (interactive)
   (unless (taskjuggler--tj3d-alive-p)
-    (user-error "tj3d is not running; start it with `taskjuggler-tj3d-start'"))
+    (user-error "Process tj3d is not running; start it with `taskjuggler-tj3d-start'"))
   (let ((tjp (taskjuggler--find-tjp-file)))
     (unless tjp
       (user-error "No .tjp file found for the current buffer"))
@@ -2419,7 +2419,7 @@ Uses `taskjuggler-tj3webd-port' for the port number."
                (process-id taskjuggler--tj3webd-process)))))
 
 (defun taskjuggler--daemon-stop-process (proc)
-  "Stop daemon process PROC if it is live.  Returns non-nil if it was stopped."
+  "Stop daemon process PROC if it is live.  Return non-nil if it was stopped."
   (when (and proc (processp proc) (process-live-p proc))
     (kill-process proc)
     t))
@@ -2471,11 +2471,11 @@ Uses `taskjuggler-tj3webd-port' for the port number."
   "Open the tj3webd URL in the default browser."
   (interactive)
   (unless (taskjuggler--tj3webd-alive-p)
-    (user-error "tj3webd is not running"))
+    (user-error "Process tj3webd is not running"))
   (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
 
 (defun taskjuggler--daemon-sentinel (_proc _event)
-  "Process sentinel for tj3d/tj3webd; updates the modeline on state change."
+  "Process sentinel for tj3d/tj3webd; update the modeline on state change."
   (taskjuggler--daemon-update-modeline))
 
 (defun taskjuggler--daemon-update-modeline ()
@@ -2549,7 +2549,7 @@ dies outside of Emacs (e.g. killed from a terminal)."
 ;;; Mode definition
 
 (defcustom taskjuggler-keymap-prefix (kbd "C-c C-t")
-  "Prefix key for `taskjuggler-command-map'."
+  "Prefix key for variable `taskjuggler-command-map'."
   :group 'taskjuggler
   :type 'key-sequence)
 
