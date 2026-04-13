@@ -2903,6 +2903,92 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
     (goto-char (point-min))
     (should-not (taskjuggler--goto-task-id "outer.nonexistent"))))
 
+;;; Tests: daemon management
+
+(ert-deftest taskjuggler-find-tjp-file--returns-tjp-directly ()
+  "Returns the buffer file when visiting a .tjp file."
+  (let ((tjp-file (expand-file-name "test.tjp" temporary-file-directory)))
+    (with-temp-buffer
+      (setq buffer-file-name tjp-file)
+      (should (equal tjp-file (taskjuggler--find-tjp-file))))))
+
+(ert-deftest taskjuggler-find-tjp-file--searches-for-tji ()
+  "Searches directory for a .tjp file when visiting a .tji file."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (tjp (expand-file-name "project.tjp" dir))
+         (tji (expand-file-name "include.tji" dir)))
+    (unwind-protect
+        (progn
+          (write-region "" nil tjp)
+          (write-region "" nil tji)
+          (with-temp-buffer
+            (setq buffer-file-name tji)
+            (setq default-directory (file-name-as-directory dir))
+            (should (equal tjp (taskjuggler--find-tjp-file)))))
+      (delete-directory dir t))))
+
+(ert-deftest taskjuggler-find-tjp-file--nil-for-other-files ()
+  "Returns nil when not visiting a .tjp or .tji file."
+  (with-temp-buffer
+    (setq buffer-file-name "/tmp/notes.txt")
+    (should-not (taskjuggler--find-tjp-file))))
+
+(ert-deftest taskjuggler-find-tjp-file--nil-for-no-file ()
+  "Returns nil when the buffer is not visiting a file."
+  (with-temp-buffer
+    (should-not (taskjuggler--find-tjp-file))))
+
+(ert-deftest taskjuggler-daemon-update-modeline--no-daemons ()
+  "Modeline is empty when neither daemon is running."
+  (let ((taskjuggler--daemon-modeline "old"))
+    (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () nil))
+              ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () nil)))
+      (taskjuggler--daemon-update-modeline)
+      (should (equal "" taskjuggler--daemon-modeline)))))
+
+(ert-deftest taskjuggler-daemon-update-modeline--tj3d-only ()
+  "Modeline shows D when only tj3d is running."
+  (let ((taskjuggler--daemon-modeline ""))
+    (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () t))
+              ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () nil)))
+      (taskjuggler--daemon-update-modeline)
+      (should (string-match-p "D" taskjuggler--daemon-modeline))
+      (should-not (string-match-p "W" taskjuggler--daemon-modeline)))))
+
+(ert-deftest taskjuggler-daemon-update-modeline--tj3webd-only ()
+  "Modeline shows W when only tj3webd is running."
+  (let ((taskjuggler--daemon-modeline ""))
+    (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () nil))
+              ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t)))
+      (taskjuggler--daemon-update-modeline)
+      (should (string-match-p "W" taskjuggler--daemon-modeline))
+      (should-not (string-match-p "D" taskjuggler--daemon-modeline)))))
+
+(ert-deftest taskjuggler-daemon-update-modeline--both ()
+  "Modeline shows D+W when both daemons are running."
+  (let ((taskjuggler--daemon-modeline ""))
+    (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () t))
+              ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t)))
+      (taskjuggler--daemon-update-modeline)
+      (should (string-match-p "D\\+W" taskjuggler--daemon-modeline)))))
+
+(ert-deftest taskjuggler-daemon-stop--kills-running-processes ()
+  "Stopping daemons kills live processes."
+  (let* ((proc1 (start-process "test-sleep1" nil "sleep" "60"))
+         (proc2 (start-process "test-sleep2" nil "sleep" "60"))
+         (taskjuggler--tj3d-process proc1)
+         (taskjuggler--tj3webd-process proc2))
+    (taskjuggler-daemon-stop)
+    (sit-for 0.1)
+    (should-not (process-live-p proc1))
+    (should-not (process-live-p proc2))))
+
+(ert-deftest taskjuggler-daemon-stop--no-error-when-none-running ()
+  "Stopping when no daemons are running should not error."
+  (let ((taskjuggler--tj3d-process nil)
+        (taskjuggler--tj3webd-process nil))
+    (taskjuggler-daemon-stop)))
+
 ;;; Runner
 
 (when noninteractive

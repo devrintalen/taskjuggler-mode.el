@@ -2270,6 +2270,252 @@ re-checked after a compile run that may have created it."
           (setq taskjuggler--cursor-file-cache :unset)
           (setq taskjuggler--cursor-js-file-cache :unset))))))
 
+;;; Daemon management (tj3d / tj3webd)
+
+;; tj3d is the TaskJuggler scheduling daemon.  Once started, projects can be
+;; added to it with `tj3client' and it will re-schedule on file changes.
+;; tj3webd is a companion web server that serves reports from tj3d.  Both
+;; daemons fork into the background (the launcher process exits immediately),
+;; so liveness is checked via `tj3client status' rather than process objects.
+;; Daemons started by Emacs are terminated on exit via `kill-emacs-hook'.
+
+(defcustom taskjuggler-tj3webd-port 8080
+  "Port for the tj3webd web server.
+Passed via --port to tj3webd and used to construct the browse URL."
+  :type 'integer
+  :group 'taskjuggler)
+
+(defvar taskjuggler--tj3d-process nil
+  "The tj3d process started by Emacs, or nil.")
+
+(defvar taskjuggler--tj3webd-process nil
+  "The tj3webd process started by Emacs, or nil.")
+
+(defvar taskjuggler--daemon-status-timer nil
+  "Timer that polls daemon status for modeline updates.")
+
+(defvar taskjuggler--daemon-modeline ""
+  "Current modeline string for daemon status.
+Updated by `taskjuggler--daemon-update-modeline'.")
+
+(defun taskjuggler--tj3d-alive-p ()
+  "Return non-nil if the tj3d daemon is reachable.
+When Emacs started tj3d (with -d), checks the process object.
+Otherwise probes via `tj3client status'."
+  (if (and taskjuggler--tj3d-process
+           (processp taskjuggler--tj3d-process))
+      (process-live-p taskjuggler--tj3d-process)
+    (condition-case nil
+        (zerop (call-process (taskjuggler--tj3-executable "tj3client")
+                             nil nil nil "status"))
+      (error nil))))
+
+(defun taskjuggler--tj3webd-alive-p ()
+  "Return non-nil if tj3webd is running.
+When Emacs started tj3webd (with -d), checks the process object.
+Otherwise probes the port via TCP."
+  (if (and taskjuggler--tj3webd-process
+           (processp taskjuggler--tj3webd-process))
+      (process-live-p taskjuggler--tj3webd-process)
+    (condition-case nil
+        (let ((proc (make-network-process
+                     :name "tj3webd-probe"
+                     :host "127.0.0.1"
+                     :service taskjuggler-tj3webd-port
+                     :nowait nil)))
+          (delete-process proc)
+          t)
+      (error nil))))
+
+(defun taskjuggler--find-tjp-file ()
+  "Return the .tjp file for the current buffer.
+If visiting a .tjp file, return it directly.  If visiting a .tji file,
+search `default-directory' for a .tjp file.  Returns nil if none found."
+  (let ((file (buffer-file-name)))
+    (cond
+     ((and file (string-suffix-p ".tjp" file)) file)
+     ((and file (string-suffix-p ".tji" file))
+      (car (directory-files default-directory t "\\.tjp\\'" t)))
+     (t nil))))
+
+(defun taskjuggler-tj3d-start ()
+  "Start the tj3d daemon from the current project directory.
+Launches with -d (don't daemonize) so Emacs manages the process
+directly and the working directory is preserved.
+Respects `taskjuggler-tj3-bin-dir' for executable resolution."
+  (interactive)
+  (if (taskjuggler--tj3d-alive-p)
+      (message "tj3d is already running")
+    (let* ((tjp (taskjuggler--find-tjp-file))
+           (default-directory (if tjp (file-name-directory tjp)
+                                default-directory))
+           (cmd (taskjuggler--tj3-executable "tj3d"))
+           (buf (get-buffer-create "*tj3d*")))
+      (setq taskjuggler--tj3d-process
+            (make-process
+             :name "tj3d"
+             :buffer buf
+             :command (list cmd "-d")
+             :noquery t
+             :sentinel #'taskjuggler--daemon-sentinel))
+      (taskjuggler--daemon-ensure-cleanup-hook)
+      (taskjuggler--daemon-ensure-status-timer)
+      (taskjuggler--daemon-update-modeline)
+      (message "tj3d started (pid %d)"
+               (process-id taskjuggler--tj3d-process)))))
+
+(defun taskjuggler-tj3d-add-project ()
+  "Add the current project to the running tj3d daemon.
+Uses `tj3client add' with the .tjp file for the current buffer."
+  (interactive)
+  (unless (taskjuggler--tj3d-alive-p)
+    (user-error "tj3d is not running; start it with `taskjuggler-tj3d-start'"))
+  (let ((tjp (taskjuggler--find-tjp-file)))
+    (unless tjp
+      (user-error "No .tjp file found for the current buffer"))
+    (let ((cmd (taskjuggler--tj3-executable "tj3client")))
+      (message "Adding %s to tj3d..." (file-name-nondirectory tjp))
+      (make-process
+       :name "tj3client-add"
+       :buffer (get-buffer-create "*tj3client*")
+       :command (list cmd "add" tjp)
+       :noquery t
+       :sentinel (lambda (proc _event)
+                   (when (memq (process-status proc) '(exit signal))
+                     (if (zerop (process-exit-status proc))
+                         (message "Project added to tj3d: %s"
+                                  (file-name-nondirectory tjp))
+                       (message "tj3client add failed (exit %d); see *tj3client*"
+                                (process-exit-status proc)))))))))
+
+(defun taskjuggler-tj3webd-start ()
+  "Start the tj3webd web daemon from the current project directory.
+Launches with -d (don't daemonize) so Emacs manages the process
+directly and the working directory is preserved.
+Uses `taskjuggler-tj3webd-port' for the port number."
+  (interactive)
+  (if (taskjuggler--tj3webd-alive-p)
+      (message "tj3webd is already running on port %d"
+               taskjuggler-tj3webd-port)
+    (let* ((tjp (taskjuggler--find-tjp-file))
+           (default-directory (if tjp (file-name-directory tjp)
+                                 default-directory))
+           (cmd (taskjuggler--tj3-executable "tj3webd"))
+           (buf (get-buffer-create "*tj3webd*")))
+      (setq taskjuggler--tj3webd-process
+            (make-process
+             :name "tj3webd"
+             :buffer buf
+             :command (list cmd "-d"
+                            "--webserver-port"
+                            (number-to-string taskjuggler-tj3webd-port))
+             :noquery t
+             :sentinel #'taskjuggler--daemon-sentinel))
+      (taskjuggler--daemon-ensure-cleanup-hook)
+      (taskjuggler--daemon-ensure-status-timer)
+      (taskjuggler--daemon-update-modeline)
+      (message "tj3webd started on port %d (pid %d)"
+               taskjuggler-tj3webd-port
+               (process-id taskjuggler--tj3webd-process)))))
+
+(defun taskjuggler--daemon-stop-process (proc)
+  "Stop daemon process PROC if it is live.  Returns non-nil if it was stopped."
+  (when (and proc (processp proc) (process-live-p proc))
+    (kill-process proc)
+    t))
+
+(defun taskjuggler-daemon-stop ()
+  "Stop running TJ3 daemons started by Emacs."
+  (interactive)
+  (let ((stopped nil))
+    (when (taskjuggler--daemon-stop-process taskjuggler--tj3webd-process)
+      (setq taskjuggler--tj3webd-process nil)
+      (push "tj3webd" stopped))
+    (when (taskjuggler--daemon-stop-process taskjuggler--tj3d-process)
+      (setq taskjuggler--tj3d-process nil)
+      (push "tj3d" stopped))
+    (taskjuggler--daemon-update-modeline)
+    (if stopped
+        (message "Stopped: %s" (string-join stopped ", "))
+      (message "No TJ3 daemons running"))))
+
+(defun taskjuggler-daemon-restart ()
+  "Restart TJ3 daemons that Emacs started."
+  (interactive)
+  (let ((had-tj3d (taskjuggler--tj3d-alive-p))
+        (had-tj3webd (taskjuggler--tj3webd-alive-p)))
+    (taskjuggler-daemon-stop)
+    (when (or had-tj3d had-tj3webd)
+      (sit-for 0.3))
+    (when had-tj3d (taskjuggler-tj3d-start))
+    (when had-tj3webd (taskjuggler-tj3webd-start))))
+
+(defun taskjuggler-daemon-status ()
+  "Display `tj3client status' output in a popup buffer."
+  (interactive)
+  (let ((cmd (taskjuggler--tj3-executable "tj3client"))
+        (buf (get-buffer-create "*tj3client status*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)))
+    (make-process
+     :name "tj3client-status"
+     :buffer buf
+     :command (list cmd "status")
+     :noquery t
+     :sentinel (lambda (proc _event)
+                 (when (memq (process-status proc) '(exit signal))
+                   (display-buffer (process-buffer proc)))))))
+
+(defun taskjuggler-tj3webd-browse ()
+  "Open the tj3webd URL in the default browser."
+  (interactive)
+  (unless (taskjuggler--tj3webd-alive-p)
+    (user-error "tj3webd is not running"))
+  (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
+
+(defun taskjuggler--daemon-sentinel (_proc _event)
+  "Process sentinel for tj3d/tj3webd; updates the modeline on state change."
+  (taskjuggler--daemon-update-modeline))
+
+(defun taskjuggler--daemon-update-modeline ()
+  "Recompute `taskjuggler--daemon-modeline' from current daemon state."
+  (let ((d (taskjuggler--tj3d-alive-p))
+        (w (taskjuggler--tj3webd-alive-p)))
+    (setq taskjuggler--daemon-modeline
+          (cond
+           ((and d w)
+            (propertize " 󰒍D+W" 'face '(:foreground "#50fa7b")))
+           (d
+            (propertize " 󰒍D" 'face '(:foreground "#50fa7b")))
+           (w
+            (propertize " 󰒍W" 'face '(:foreground "#f1fa8c")))
+           (t "")))
+    (force-mode-line-update t)))
+
+(defun taskjuggler--daemon-ensure-status-timer ()
+  "Ensure the daemon status polling timer is running.
+Polls every 5 seconds so the modeline stays current even if a daemon
+dies outside of Emacs (e.g. killed from a terminal)."
+  (unless (and taskjuggler--daemon-status-timer
+               (timerp taskjuggler--daemon-status-timer))
+    (setq taskjuggler--daemon-status-timer
+          (run-with-timer 5 5 #'taskjuggler--daemon-update-modeline))))
+
+(defun taskjuggler--daemon-cleanup ()
+  "Stop TJ3 daemons that Emacs started.  Added to `kill-emacs-hook'."
+  (taskjuggler--daemon-stop-process taskjuggler--tj3webd-process)
+  (setq taskjuggler--tj3webd-process nil)
+  (taskjuggler--daemon-stop-process taskjuggler--tj3d-process)
+  (setq taskjuggler--tj3d-process nil)
+  (when (timerp taskjuggler--daemon-status-timer)
+    (cancel-timer taskjuggler--daemon-status-timer)
+    (setq taskjuggler--daemon-status-timer nil)))
+
+(defun taskjuggler--daemon-ensure-cleanup-hook ()
+  "Ensure `taskjuggler--daemon-cleanup' is on `kill-emacs-hook'."
+  (add-hook 'kill-emacs-hook #'taskjuggler--daemon-cleanup))
+
 ;;; Evil integration
 
 (declare-function evil-define-key* "evil-core")
@@ -2312,6 +2558,13 @@ re-checked after a compile run that may have created it."
     (define-key km (kbd "d") #'taskjuggler-date-dwim)
     (define-key km (kbd "m") #'taskjuggler-man)
     (define-key km (kbd "n") #'taskjuggler-narrow-to-block)
+    (define-key km (kbd "D") #'taskjuggler-tj3d-start)
+    (define-key km (kbd "a") #'taskjuggler-tj3d-add-project)
+    (define-key km (kbd "W") #'taskjuggler-tj3webd-start)
+    (define-key km (kbd "b") #'taskjuggler-tj3webd-browse)
+    (define-key km (kbd "s") #'taskjuggler-daemon-status)
+    (define-key km (kbd "q") #'taskjuggler-daemon-stop)
+    (define-key km (kbd "R") #'taskjuggler-daemon-restart)
     km)
   "Keymap for TaskJuggler commands after `taskjuggler-keymap-prefix'.")
 (defalias 'taskjuggler-command-map taskjuggler-command-map)
@@ -2382,6 +2635,8 @@ See URL `https://taskjuggler.org' for more information.
   (taskjuggler--start-cursor-tracking)
   (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
+  ;; Daemon modeline: append daemon status indicator after the mode name.
+  (setq mode-line-process '(:eval taskjuggler--daemon-modeline))
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.
