@@ -2147,6 +2147,14 @@ polling path (which loads `js/tj-cursor.js' via a script tag) also works."
               (when (file-directory-p js-dir)
                 (expand-file-name "tj-cursor.js" js-dir)))))))
 
+(defun taskjuggler--read-file-string (file)
+  "Return the contents of FILE as a string, or \"\" on any error."
+  (condition-case nil
+      (with-temp-buffer
+        (insert-file-contents file)
+        (buffer-string))
+    (error "")))
+
 (defun taskjuggler--cursor-parse-field (content name)
   "Return the value assigned to window.NAME in tj-cursor.js CONTENT.
 Handles quoted string values and bare integer values.  Returns a string
@@ -2169,24 +2177,27 @@ browser-pipe fields (_tjClickTaskId, _tjClickTs) by reading the file
 before writing so the SSE watcher does not fire a spurious event.
 Does nothing when the buffer is not visiting a file."
   (when-let ((file (taskjuggler--cursor-file)))
-    (let* ((existing (condition-case nil
-                         (with-temp-buffer
-                           (insert-file-contents file)
-                           (buffer-string))
-                       (error "")))
-           (click-id (taskjuggler--cursor-parse-field existing "_tjClickTaskId"))
-           (click-ts (or (taskjuggler--cursor-parse-field existing "_tjClickTs") "0"))
-           (cursor-ts (number-to-string (floor (float-time))))
+    (let* ((cursor-ts (number-to-string (floor (float-time))))
            (cursor-id-js (if task-id (concat "\"" task-id "\"") "null"))
-           (click-id-js  (if click-id (concat "\"" click-id "\"") "null"))
-           (content (concat "window._tjCursorTaskId = " cursor-id-js ";\n"
-                            "window._tjCursorTs     = " cursor-ts ";\n"
-                            "window._tjClickTaskId  = " click-id-js ";\n"
-                            "window._tjClickTs      = " click-ts ";\n")))
-      (write-region content nil file nil 'quiet)
-      ;; Also write to js/tj-cursor.js so the file:// script-tag poller works.
-      (when-let ((js-file (taskjuggler--cursor-js-file)))
-        (write-region content nil js-file nil 'quiet)))))
+           ;; Preserve browser click fields only when actively tracking.
+           ;; On shutdown (task-id nil), zero them so a stale click in the
+           ;; file does not trigger navigation when the mode next starts.
+           (click-id-js "null")
+           (click-ts "0"))
+      (when task-id
+        (let ((existing (taskjuggler--read-file-string file)))
+          (when-let ((id (taskjuggler--cursor-parse-field existing "_tjClickTaskId")))
+            (setq click-id-js (concat "\"" id "\"")))
+          (when-let ((ts (taskjuggler--cursor-parse-field existing "_tjClickTs")))
+            (setq click-ts ts))))
+      (let ((content (concat "window._tjCursorTaskId = " cursor-id-js ";\n"
+                             "window._tjCursorTs     = " cursor-ts ";\n"
+                             "window._tjClickTaskId  = " click-id-js ";\n"
+                             "window._tjClickTs      = " click-ts ";\n")))
+        (write-region content nil file nil 'quiet)
+        ;; Also write to js/tj-cursor.js so the file:// script-tag poller works.
+        (when-let ((js-file (taskjuggler--cursor-js-file)))
+          (write-region content nil js-file nil 'quiet))))))
 
 (defun taskjuggler--maybe-navigate-to-click ()
   "Navigate to a task clicked in the browser, if the click is new.
@@ -2194,11 +2205,7 @@ Reads _tjClickTs and _tjClickTaskId from tj-cursor.js.  When _tjClickTs
 exceeds `taskjuggler--cursor-last-click-ts', moves point to the matching
 task declaration and recenters the window."
   (when-let ((file (taskjuggler--cursor-file)))
-    (let* ((content (condition-case nil
-                        (with-temp-buffer
-                          (insert-file-contents file)
-                          (buffer-string))
-                      (error "")))
+    (let* ((content (taskjuggler--read-file-string file))
            (click-ts-str (taskjuggler--cursor-parse-field content "_tjClickTs"))
            (click-ts (if click-ts-str (string-to-number click-ts-str) 0)))
       (when (> click-ts taskjuggler--cursor-last-click-ts)
