@@ -2816,6 +2816,93 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
     (goto-char (+ 7 (point-min)))
     (should-not (taskjuggler--date-bounds-at-point))))
 
+;;; Tests: taskjuggler--cursor-parse-field
+
+(ert-deftest taskjuggler-cursor-parse-field--quoted-value ()
+  "Parses a quoted string value."
+  (should (equal "outer.inner"
+                 (taskjuggler--cursor-parse-field
+                  "window._tjCursorTaskId = \"outer.inner\";\n"
+                  "_tjCursorTaskId"))))
+
+(ert-deftest taskjuggler-cursor-parse-field--numeric-value ()
+  "Parses a bare integer value."
+  (should (equal "1712844002"
+                 (taskjuggler--cursor-parse-field
+                  "window._tjCursorTs     = 1712844002;\n"
+                  "_tjCursorTs"))))
+
+(ert-deftest taskjuggler-cursor-parse-field--null-value ()
+  "Returns nil for null (unquoted non-numeric) assignments."
+  (should (null (taskjuggler--cursor-parse-field
+                 "window._tjCursorTaskId = null;\n"
+                 "_tjCursorTaskId"))))
+
+(ert-deftest taskjuggler-cursor-parse-field--missing-field ()
+  "Returns nil when the field is not present."
+  (should (null (taskjuggler--cursor-parse-field
+                 "window._tjClickTs = 0;\n"
+                 "_tjCursorTaskId"))))
+
+(ert-deftest taskjuggler-cursor-parse-field--all-four-fields ()
+  "Parses all four fields from a complete tj-cursor.js content string."
+  (let ((content (concat "window._tjCursorTaskId = \"foo.bar\";\n"
+                         "window._tjCursorTs     = 1000;\n"
+                         "window._tjClickTaskId  = \"baz.qux\";\n"
+                         "window._tjClickTs      = 999;\n")))
+    (should (equal "foo.bar"
+                   (taskjuggler--cursor-parse-field content "_tjCursorTaskId")))
+    (should (equal "1000"
+                   (taskjuggler--cursor-parse-field content "_tjCursorTs")))
+    (should (equal "baz.qux"
+                   (taskjuggler--cursor-parse-field content "_tjClickTaskId")))
+    (should (equal "999"
+                   (taskjuggler--cursor-parse-field content "_tjClickTs")))))
+
+;;; Tests: taskjuggler--goto-task-id
+
+(ert-deftest taskjuggler-goto-task-id--top-level ()
+  "Navigates to a top-level task."
+  (with-temp-buffer
+    (insert "task outer \"Outer\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-max))
+    (should (taskjuggler--goto-task-id "outer"))
+    (should (looking-at "task outer"))))
+
+(ert-deftest taskjuggler-goto-task-id--nested ()
+  "Navigates to a nested task by its full dotted ID."
+  (with-temp-buffer
+    (insert "task outer \"Outer\" {\n  task inner \"Inner\" {\n  }\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-max))
+    (should (taskjuggler--goto-task-id "outer.inner"))
+    (should (looking-at "[ \t]*task inner"))))
+
+(ert-deftest taskjuggler-goto-task-id--disambiguates-same-leaf-id ()
+  "Uses the full hierarchy to distinguish tasks with the same leaf ID."
+  (with-temp-buffer
+    (insert "task alpha \"Alpha\" {\n  task child \"Child\" {\n  }\n}\n"
+            "task beta \"Beta\" {\n  task child \"Child\" {\n  }\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-max))
+    (should (taskjuggler--goto-task-id "beta.child"))
+    ;; Point should be on the second `task child' line (inside beta).
+    (should (looking-at "[ \t]*task child"))
+    (should (equal "beta.child" (taskjuggler--full-task-id-at-point)))))
+
+(ert-deftest taskjuggler-goto-task-id--returns-nil-for-unknown ()
+  "Returns nil and leaves point unchanged when the task is not found."
+  (with-temp-buffer
+    (insert "task outer \"Outer\" {\n}\n")
+    (taskjuggler-mode)
+    (syntax-propertize (point-max))
+    (goto-char (point-min))
+    (should-not (taskjuggler--goto-task-id "outer.nonexistent"))))
+
 ;;; Runner
 
 (when noninteractive
