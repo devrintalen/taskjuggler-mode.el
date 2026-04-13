@@ -2947,30 +2947,31 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
       (should (equal "" taskjuggler--daemon-modeline)))))
 
 (ert-deftest taskjuggler-daemon-update-modeline--tj3d-only ()
-  "Modeline shows D when only tj3d is running."
+  "Modeline shows tj3d icon when only tj3d is running."
   (let ((taskjuggler--daemon-modeline ""))
     (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () t))
               ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () nil)))
       (taskjuggler--daemon-update-modeline)
-      (should (string-match-p "D" taskjuggler--daemon-modeline))
-      (should-not (string-match-p "W" taskjuggler--daemon-modeline)))))
+      (should (string-match-p "󰙬" taskjuggler--daemon-modeline))
+      (should-not (string-match-p "󰒍" taskjuggler--daemon-modeline)))))
 
 (ert-deftest taskjuggler-daemon-update-modeline--tj3webd-only ()
-  "Modeline shows W when only tj3webd is running."
+  "Modeline shows tj3webd icon when only tj3webd is running."
   (let ((taskjuggler--daemon-modeline ""))
     (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () nil))
               ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t)))
       (taskjuggler--daemon-update-modeline)
-      (should (string-match-p "W" taskjuggler--daemon-modeline))
-      (should-not (string-match-p "D" taskjuggler--daemon-modeline)))))
+      (should (string-match-p "󰒍" taskjuggler--daemon-modeline))
+      (should-not (string-match-p "󰙬" taskjuggler--daemon-modeline)))))
 
 (ert-deftest taskjuggler-daemon-update-modeline--both ()
-  "Modeline shows D+W when both daemons are running."
+  "Modeline shows both icons when both daemons are running."
   (let ((taskjuggler--daemon-modeline ""))
     (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () t))
               ((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t)))
       (taskjuggler--daemon-update-modeline)
-      (should (string-match-p "D\\+W" taskjuggler--daemon-modeline)))))
+      (should (string-match-p "󰙬" taskjuggler--daemon-modeline))
+      (should (string-match-p "󰒍" taskjuggler--daemon-modeline)))))
 
 (ert-deftest taskjuggler-daemon-stop--kills-running-processes ()
   "Stopping daemons kills live processes."
