@@ -2311,6 +2311,9 @@ Passed via --port to tj3webd and used to construct the browse URL."
   "Current modeline string for daemon status.
 Updated by `taskjuggler--daemon-update-modeline'.")
 
+(defvar taskjuggler--auto-add-pending nil
+  "The .tjp file path for which an auto-add is in progress, or nil.")
+
 (defun taskjuggler--tj3d-alive-p ()
   "Return non-nil if the tj3d daemon is reachable.
 When Emacs started tj3d (with -d), checks the process object.
@@ -2322,6 +2325,15 @@ Otherwise probes via `tj3client status'."
         (zerop (call-process (taskjuggler--tj3-executable "tj3client")
                              nil nil nil "status"))
       (error nil))))
+
+(defun taskjuggler--tj3d-accepting-p ()
+  "Return non-nil if tj3d is accepting connections.
+Unlike `taskjuggler--tj3d-alive-p', this always probes via
+`tj3client status' rather than relying on the process object."
+  (condition-case nil
+      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
+                           nil nil nil "status"))
+    (error nil)))
 
 (defun taskjuggler--tj3webd-alive-p ()
   "Return non-nil if tj3webd is running.
@@ -2415,34 +2427,40 @@ Uses `tj3client add' with the .tjp file for the current buffer."
 
 (defun taskjuggler--auto-add-project-tj3d ()
   "Add the current project to tj3d if not already loaded.
-When tj3d is alive and the project is not yet loaded, adds it immediately.
-When tj3d is not yet ready (e.g. just started), retries up to 5 times at
-1-second intervals."
+When tj3d is accepting connections and the project is not yet loaded,
+adds it immediately.  When tj3d is not yet ready (e.g. just started),
+retries up to 5 times at 1-second intervals.
+Guards against duplicate attempts via `taskjuggler--auto-add-pending'."
   (let ((tjp (taskjuggler--find-tjp-file)))
-    (when tjp
-      (if (taskjuggler--tj3d-project-loaded-p tjp)
-          (message "Project already loaded in tj3d: %s"
-                   (file-name-nondirectory tjp))
-        (if (taskjuggler--tj3d-alive-p)
+    (when (and tjp
+               (not (equal tjp taskjuggler--auto-add-pending))
+               (not (taskjuggler--tj3d-project-loaded-p tjp)))
+      (setq taskjuggler--auto-add-pending tjp)
+      (if (taskjuggler--tj3d-accepting-p)
+          (progn
             (taskjuggler-tj3d-add-project)
-          ;; tj3d was just started; poll until ready.
-          (let ((retries 0)
-                (timer nil))
-            (setq timer
-                  (run-with-timer
-                   1 1
-                   (lambda ()
-                     (setq retries (1+ retries))
-                     (cond
-                      ((taskjuggler--tj3d-project-loaded-p tjp)
-                       (cancel-timer timer))
-                      ((taskjuggler--tj3d-alive-p)
-                       (cancel-timer timer)
-                       (taskjuggler-tj3d-add-project))
-                      ((>= retries 5)
-                       (cancel-timer timer)
-                       (message "tj3d not ready after %d attempts; \
-skipping auto-add for %s" retries (file-name-nondirectory tjp)))))))))))))
+            (setq taskjuggler--auto-add-pending nil))
+        ;; tj3d was just started; poll until accepting connections.
+        (let ((retries 0)
+              (timer nil))
+          (setq timer
+                (run-with-timer
+                 1 1
+                 (lambda ()
+                   (setq retries (1+ retries))
+                   (cond
+                    ((taskjuggler--tj3d-project-loaded-p tjp)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((taskjuggler--tj3d-accepting-p)
+                     (cancel-timer timer)
+                     (taskjuggler-tj3d-add-project)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((>= retries 5)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil)
+                     (message "tj3d not ready after %d attempts; \
+skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
 
 (defun taskjuggler-tj3webd-start ()
   "Start the tj3webd web daemon from the current project directory.
