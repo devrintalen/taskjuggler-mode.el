@@ -2539,6 +2539,8 @@ Uses `taskjuggler-tj3webd-port' for the port number."
      :noquery t
      :sentinel (lambda (proc _event)
                  (when (memq (process-status proc) '(exit signal))
+                   (with-current-buffer (process-buffer proc)
+                     (special-mode))
                    (display-buffer (process-buffer proc)))))))
 
 (defun taskjuggler-tj3webd-browse ()
