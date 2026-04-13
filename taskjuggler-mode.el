@@ -2057,11 +2057,21 @@ defaulting to the word at point."
 (defvar-local taskjuggler--cursor-idle-timer nil
   "Idle timer that updates tj-cursor.js while this buffer is live.")
 
+(defvar-local taskjuggler--click-poll-timer nil
+  "Repeating timer that polls for browser clicks regardless of focus.")
+
 (defvar-local taskjuggler--cursor-last-id :unset
   "Last task ID written to tj-cursor.js; :unset before the first write.")
 
+(defvar-local taskjuggler--cursor-last-click-ts 0
+  "Last _tjClickTs value acted upon; prevents re-navigating the same click.")
+
 (defvar-local taskjuggler--cursor-file-cache :unset
-  "Cached path to the tj-cursor.js sidecar file, or nil if js/ is absent.
+  "Cached path to the root tj-cursor.js sidecar file.
+:unset before the first lookup.")
+
+(defvar-local taskjuggler--cursor-js-file-cache :unset
+  "Cached path to js/tj-cursor.js (file:// polling copy), or nil.
 :unset before the first lookup.")
 
 (defun taskjuggler--block-header-task-id (header-pos)
@@ -2092,41 +2102,133 @@ Returns nil when point is not inside any `task' block."
         (when ids
           (mapconcat #'identity ids "."))))))
 
+(defun taskjuggler--goto-task-id (dotted-id)
+  "Move point to the `task' declaration for DOTTED-ID.
+Searches for lines beginning with `task <leaf-id>' and verifies the full
+dotted hierarchy via `taskjuggler--full-task-id-at-point'.  Returns t on
+success, nil when no matching declaration is found."
+  (let* ((leaf (car (last (split-string dotted-id "\\."))))
+         (re (concat "^[ \t]*task[ \t]+" (regexp-quote leaf) "\\b"))
+         target)
+    (save-excursion
+      (goto-char (point-min))
+      (while (and (not target)
+                  (re-search-forward re nil t))
+        (let ((candidate (line-beginning-position)))
+          (when (equal (save-excursion
+                         (goto-char candidate)
+                         (taskjuggler--full-task-id-at-point))
+                       dotted-id)
+            (setq target candidate)))))
+    (when target
+      (goto-char target)
+      t)))
+
 (defun taskjuggler--cursor-file ()
-  "Return the absolute path to the tj-cursor.js sidecar file, or nil.
-The file is placed in the js/ subdirectory of the buffer's directory.
-Returns nil when the buffer is not visiting a file or js/ does not exist.
-Result is cached in `taskjuggler--cursor-file-cache'; the not-found
-message is emitted only once per buffer."
+  "Return the absolute path to the root tj-cursor.js sidecar file, or nil.
+This is the primary file: the CursorServlet watches it (SSE path), the
+click pipe is written here, and the editor cursor pipe is read from here.
+Returns nil when the buffer is not visiting a file."
   (if (not (eq taskjuggler--cursor-file-cache :unset))
       taskjuggler--cursor-file-cache
     (setq taskjuggler--cursor-file-cache
           (when-let ((file (buffer-file-name)))
+            (expand-file-name "tj-cursor.js" (file-name-directory file))))))
+
+(defun taskjuggler--cursor-js-file ()
+  "Return the path to js/tj-cursor.js, or nil when js/ does not exist.
+This secondary copy is written alongside the root file so the file://
+polling path (which loads `js/tj-cursor.js' via a script tag) also works."
+  (if (not (eq taskjuggler--cursor-js-file-cache :unset))
+      taskjuggler--cursor-js-file-cache
+    (setq taskjuggler--cursor-js-file-cache
+          (when-let ((file (buffer-file-name)))
             (let ((js-dir (expand-file-name "js" (file-name-directory file))))
-              (if (file-directory-p js-dir)
-                  (expand-file-name "tj-cursor.js" js-dir)
-                (message "taskjuggler: js/ not found in %s; cursor tracking disabled"
-                         (file-name-directory file))
-                nil))))))
+              (when (file-directory-p js-dir)
+                (expand-file-name "tj-cursor.js" js-dir)))))))
+
+(defun taskjuggler--read-file-string (file)
+  "Return the contents of FILE as a string, or \"\" on any error."
+  (condition-case nil
+      (with-temp-buffer
+        (insert-file-contents file)
+        (buffer-string))
+    (error "")))
+
+(defun taskjuggler--cursor-parse-field (content name)
+  "Return the value assigned to window.NAME in tj-cursor.js CONTENT.
+Handles quoted string values and bare integer values.  Returns a string
+in both cases, or nil when NAME is not present in CONTENT."
+  (cond
+   ((string-match (concat "window\\." (regexp-quote name)
+                          "\\s-*=\\s-*\"\\([^\"]*\\)\"")
+                  content)
+    (match-string 1 content))
+   ((string-match (concat "window\\." (regexp-quote name)
+                          "\\s-*=\\s-*\\([0-9]+\\)")
+                  content)
+    (match-string 1 content))
+   (t nil)))
 
 (defun taskjuggler--write-cursor-json (task-id)
-  "Write TASK-ID (a string or nil) to the tj-cursor.js sidecar file.
-Writes a JS assignment setting window._tjCursorTaskId to the quoted ID
-string or null.  Uses a .js file so the browser can load it via a script
-tag, which works under file:// without CORS restrictions.
+  "Write TASK-ID and current timestamp to the tj-cursor.js sidecar file.
+Uses the four-field format expected by the CursorServlet, preserving the
+browser-pipe fields (_tjClickTaskId, _tjClickTs) by reading the file
+before writing so the SSE watcher does not fire a spurious event.
 Does nothing when the buffer is not visiting a file."
   (when-let ((file (taskjuggler--cursor-file)))
-    (write-region
-     (if task-id
-         (concat "window._tjCursorTaskId=\"" task-id "\";\n")
-       "window._tjCursorTaskId=null;\n")
-     nil file nil 'quiet)))
+    (let* ((cursor-ts (number-to-string (floor (float-time))))
+           (cursor-id-js (if task-id (concat "\"" task-id "\"") "null"))
+           ;; Preserve browser click fields only when actively tracking.
+           ;; On shutdown (task-id nil), zero them so a stale click in the
+           ;; file does not trigger navigation when the mode next starts.
+           (click-id-js "null")
+           (click-ts "0"))
+      (when task-id
+        (let ((existing (taskjuggler--read-file-string file)))
+          (when-let ((id (taskjuggler--cursor-parse-field existing "_tjClickTaskId")))
+            (setq click-id-js (concat "\"" id "\"")))
+          (when-let ((ts (taskjuggler--cursor-parse-field existing "_tjClickTs")))
+            (setq click-ts ts))))
+      (let ((content (concat "window._tjCursorTaskId = " cursor-id-js ";\n"
+                             "window._tjCursorTs     = " cursor-ts ";\n"
+                             "window._tjClickTaskId  = " click-id-js ";\n"
+                             "window._tjClickTs      = " click-ts ";\n")))
+        (write-region content nil file nil 'quiet)
+        ;; Also write to js/tj-cursor.js so the file:// script-tag poller works.
+        (when-let ((js-file (taskjuggler--cursor-js-file)))
+          (write-region content nil js-file nil 'quiet))))))
+
+(defun taskjuggler--maybe-navigate-to-click ()
+  "Navigate to a task clicked in the browser, if the click is new.
+Reads _tjClickTs and _tjClickTaskId from tj-cursor.js.  When _tjClickTs
+exceeds `taskjuggler--cursor-last-click-ts', moves point to the matching
+task declaration and recenters the window."
+  (when-let ((file (taskjuggler--cursor-file)))
+    (let* ((content (taskjuggler--read-file-string file))
+           (click-ts-str (taskjuggler--cursor-parse-field content "_tjClickTs"))
+           (click-ts (if click-ts-str (string-to-number click-ts-str) 0)))
+      (when (> click-ts taskjuggler--cursor-last-click-ts)
+        (setq taskjuggler--cursor-last-click-ts click-ts)
+        (when-let ((click-id (taskjuggler--cursor-parse-field content "_tjClickTaskId")))
+          (when (taskjuggler--goto-task-id click-id)
+            (recenter)))))))
 
 (defun taskjuggler--start-cursor-tracking ()
-  "Start idle-timer-based task-at-point tracking for the current buffer.
-Does nothing when `taskjuggler-cursor-idle-delay' is nil."
+  "Start cursor tracking for the current buffer.
+Uses an idle timer for the editor→browser cursor write (so we only write
+when the user stops moving) and a regular repeating timer for the
+browser→editor click poll (so clicks are noticed even when Emacs does not
+have input focus).  Does nothing when `taskjuggler-cursor-idle-delay' is nil."
   (when taskjuggler-cursor-idle-delay
+    ;; Cancel any existing timers first so re-initialization (e.g. via
+    ;; revert-buffer or M-x taskjuggler-mode) does not orphan them.
+    (when (timerp taskjuggler--cursor-idle-timer)
+      (cancel-timer taskjuggler--cursor-idle-timer))
+    (when (timerp taskjuggler--click-poll-timer)
+      (cancel-timer taskjuggler--click-poll-timer))
     (let ((buf (current-buffer)))
+      ;; Editor → Browser: idle timer writes cursor position on quiescence.
       (setq taskjuggler--cursor-idle-timer
             (run-with-idle-timer
              taskjuggler-cursor-idle-delay t
@@ -2136,13 +2238,25 @@ Does nothing when `taskjuggler-cursor-idle-delay' is nil."
                    (let ((id (taskjuggler--full-task-id-at-point)))
                      (unless (equal id taskjuggler--cursor-last-id)
                        (setq taskjuggler--cursor-last-id id)
-                       (taskjuggler--write-cursor-json id)))))))))))
+                       (taskjuggler--write-cursor-json id))))))))
+      ;; Browser → Editor: repeating timer polls for clicks even when
+      ;; Emacs is not focused.
+      (setq taskjuggler--click-poll-timer
+            (run-with-timer
+             taskjuggler-cursor-idle-delay taskjuggler-cursor-idle-delay
+             (lambda ()
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (taskjuggler--maybe-navigate-to-click)))))))))
 
 (defun taskjuggler--stop-cursor-tracking ()
-  "Cancel the cursor-tracking timer and write null to the tj-cursor.js file."
+  "Cancel cursor-tracking timers and write null to the tj-cursor.js file."
   (when (timerp taskjuggler--cursor-idle-timer)
     (cancel-timer taskjuggler--cursor-idle-timer)
     (setq taskjuggler--cursor-idle-timer nil))
+  (when (timerp taskjuggler--click-poll-timer)
+    (cancel-timer taskjuggler--click-poll-timer)
+    (setq taskjuggler--click-poll-timer nil))
   (taskjuggler--write-cursor-json nil))
 
 (defun taskjuggler--reset-cursor-file-cache (&rest _)
@@ -2153,7 +2267,8 @@ re-checked after a compile run that may have created it."
     (when (buffer-live-p buf)
       (with-current-buffer buf
         (when (derived-mode-p 'taskjuggler-mode)
-          (setq taskjuggler--cursor-file-cache :unset))))))
+          (setq taskjuggler--cursor-file-cache :unset)
+          (setq taskjuggler--cursor-js-file-cache :unset))))))
 
 ;;; Evil integration
 
