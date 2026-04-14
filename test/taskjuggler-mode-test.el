@@ -2973,22 +2973,6 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
       (should (string-match-p "󰙬" taskjuggler--daemon-modeline))
       (should (string-match-p "󰒍" taskjuggler--daemon-modeline)))))
 
-(ert-deftest taskjuggler-daemon-stop--kills-running-processes ()
-  "Stopping daemons kills live processes."
-  (let* ((proc1 (start-process "test-sleep1" nil "sleep" "60"))
-         (proc2 (start-process "test-sleep2" nil "sleep" "60"))
-         (taskjuggler--tj3d-process proc1)
-         (taskjuggler--tj3webd-process proc2))
-    (taskjuggler-daemon-stop)
-    (sit-for 0.1)
-    (should-not (process-live-p proc1))
-    (should-not (process-live-p proc2))))
-
-(ert-deftest taskjuggler-daemon-stop--no-error-when-none-running ()
-  "Stopping when no daemons are running should not error."
-  (let ((taskjuggler--tj3d-process nil)
-        (taskjuggler--tj3webd-process nil))
-    (taskjuggler-daemon-stop)))
 
 ;;; Runner
 
