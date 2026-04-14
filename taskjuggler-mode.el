@@ -62,9 +62,6 @@
 (declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
 (declare-function yas--load-snippet-dirs "yasnippet" ())
 
-;; Forward declaration: defcustom defined in the daemon management section.
-(defvar taskjuggler-tj3webd-port)
-
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
   :group 'languages
@@ -93,7 +90,7 @@ The arguments are inserted between the `tj3' executable and the file name."
   :group 'taskjuggler)
 
 (defcustom taskjuggler-cursor-idle-delay 0.3
-  "Seconds of Emacs idle time before updating the tj-cursor.json sidecar file.
+  "Seconds of Emacs idle time before syncing the cursor position.
 Set to nil to disable cursor tracking entirely."
   :type '(choice (number :tag "Idle delay in seconds")
                  (const :tag "Disabled" nil))
@@ -123,6 +120,12 @@ Daemons are only started if they are not already running."
 Uses `taskjuggler--find-tjp-file' to locate the .tjp file and adds it
 via `taskjuggler-tj3d-add-project' if it is not already loaded."
   :type 'boolean
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-tj3webd-port 8080
+  "Port for the tj3webd web server.
+Passed via --port to tj3webd and used to construct the browse URL."
+  :type 'integer
   :group 'taskjuggler)
 
 ;;; Helpers
@@ -2073,6 +2076,8 @@ defaulting to the word at point."
 ;;      TJP file when js/ exists (file:// polling fallback).
 ;;   3. Neither available — cursor tracking is silently disabled.
 
+;; ---- Variables ----
+
 (defvar-local taskjuggler--cursor-idle-timer nil
   "Idle timer that updates cursor position while this buffer is live.")
 
@@ -2092,6 +2097,8 @@ Non-nil means the /cursor endpoint was reachable when tracking started.")
 (defvar-local taskjuggler--cursor-js-file-cache :unset
   "Cached path to js/tj-cursor.js (file:// polling fallback), or nil.
 :unset before the first lookup.")
+
+;; ---- Task ID helpers ----
 
 (defun taskjuggler--block-header-task-id (header-pos)
   "If the line at HEADER-POS is a `task' declaration, return its ID string.
@@ -2143,16 +2150,7 @@ success, nil when no matching declaration is found."
       (goto-char target)
       t)))
 
-(defun taskjuggler--cursor-js-file ()
-  "Return the path to js/tj-cursor.js, or nil when js/ does not exist.
-Used as the file-based fallback when the cursor API is unavailable."
-  (if (not (eq taskjuggler--cursor-js-file-cache :unset))
-      taskjuggler--cursor-js-file-cache
-    (setq taskjuggler--cursor-js-file-cache
-          (when-let ((file (buffer-file-name)))
-            (let ((js-dir (expand-file-name "js" (file-name-directory file))))
-              (when (file-directory-p js-dir)
-                (expand-file-name "tj-cursor.js" js-dir)))))))
+;; ---- API transport (tj3webd /cursor endpoint) ----
 
 (defun taskjuggler--cursor-api-probe ()
   "Probe whether the tj3webd cursor API is reachable.
@@ -2171,6 +2169,60 @@ or nil when the endpoint is not available."
                     (format "http://127.0.0.1:%d" taskjuggler-tj3webd-port)))
               (kill-buffer))))
       (error nil))))
+
+(defun taskjuggler--cursor-post-api (task-id)
+  "POST TASK-ID to the tj3webd /cursor endpoint.
+TASK-ID may be a string or nil (clears the cursor).
+Returns non-nil on success."
+  (when taskjuggler--cursor-api-url
+    (let ((url (concat taskjuggler--cursor-api-url "/cursor"))
+          (url-request-method "POST")
+          (url-request-extra-headers '(("Content-Type" . "application/json")))
+          (url-request-data
+           (encode-coding-string
+            (json-encode `(("id" . ,(or task-id ""))
+                           ("source" . "editor")))
+            'utf-8))
+          (url-show-status nil))
+      (condition-case nil
+          (let ((buf (url-retrieve-synchronously url t nil 2)))
+            (when buf (kill-buffer buf))
+            t)
+        (error nil)))))
+
+(defun taskjuggler--cursor-poll-api ()
+  "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
+Returns nil on error or when the last event was from the editor."
+  (when taskjuggler--cursor-api-url
+    (let ((url (concat taskjuggler--cursor-api-url "/cursor/state"))
+          (url-request-method "GET")
+          (url-show-status nil))
+      (condition-case nil
+          (with-current-buffer (url-retrieve-synchronously url t nil 2)
+            (unwind-protect
+                (progn
+                  (goto-char (point-min))
+                  (when (re-search-forward "\n\n" nil t)
+                    (let* ((data (json-read))
+                           (source (cdr (assq 'source data))))
+                      (when (equal source "browser")
+                        (cons (cdr (assq 'id data))
+                              (cdr (assq 'ts data)))))))
+              (kill-buffer)))
+        (error nil)))))
+
+;; ---- File transport (js/tj-cursor.js fallback) ----
+
+(defun taskjuggler--cursor-js-file ()
+  "Return the path to js/tj-cursor.js, or nil when js/ does not exist.
+Used as the file-based fallback when the cursor API is unavailable."
+  (if (not (eq taskjuggler--cursor-js-file-cache :unset))
+      taskjuggler--cursor-js-file-cache
+    (setq taskjuggler--cursor-js-file-cache
+          (when-let ((file (buffer-file-name)))
+            (let ((js-dir (expand-file-name "js" (file-name-directory file))))
+              (when (file-directory-p js-dir)
+                (expand-file-name "tj-cursor.js" js-dir)))))))
 
 (defun taskjuggler--read-file-string (file)
   "Return the contents of FILE as a string, or \"\" on any error."
@@ -2195,26 +2247,6 @@ in both cases, or nil when NAME is not present in CONTENT."
     (match-string 1 content))
    (t nil)))
 
-(defun taskjuggler--cursor-post-api (task-id)
-  "POST TASK-ID to the tj3webd /cursor endpoint.
-TASK-ID may be a string or nil (clears the cursor).
-Returns non-nil on success."
-  (when taskjuggler--cursor-api-url
-    (let ((url (concat taskjuggler--cursor-api-url "/cursor"))
-          (url-request-method "POST")
-          (url-request-extra-headers '(("Content-Type" . "application/json")))
-          (url-request-data
-           (encode-coding-string
-            (json-encode `(("id" . ,(or task-id ""))
-                           ("source" . "editor")))
-            'utf-8))
-          (url-show-status nil))
-      (condition-case nil
-          (let ((buf (url-retrieve-synchronously url t nil 2)))
-            (when buf (kill-buffer buf))
-            t)
-        (error nil)))))
-
 (defun taskjuggler--write-cursor-js (task-id)
   "Write TASK-ID to js/tj-cursor.js as file-based fallback.
 Does nothing when js/ does not exist."
@@ -2235,6 +2267,8 @@ Does nothing when js/ does not exist."
                              "window._tjClickTs      = " click-ts ";\n")))
         (write-region content nil js-file nil 'quiet)))))
 
+;; ---- Dispatchers ----
+
 (defun taskjuggler--write-cursor-json (task-id)
   "Send TASK-ID to the cursor API, or write js/tj-cursor.js as fallback.
 When `taskjuggler--cursor-api-url' is set, POSTs to /cursor.
@@ -2243,27 +2277,6 @@ Does nothing when neither method is available."
   (if taskjuggler--cursor-api-url
       (taskjuggler--cursor-post-api task-id)
     (taskjuggler--write-cursor-js task-id)))
-
-(defun taskjuggler--cursor-poll-api ()
-  "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
-Returns nil on error or when the last event was from the editor."
-  (when taskjuggler--cursor-api-url
-    (let ((url (concat taskjuggler--cursor-api-url "/cursor/state"))
-          (url-request-method "GET")
-          (url-show-status nil))
-      (condition-case nil
-          (with-current-buffer (url-retrieve-synchronously url t nil 2)
-            (unwind-protect
-                (progn
-                  (goto-char (point-min))
-                  (when (re-search-forward "\n\n" nil t)
-                    (let* ((data (json-read))
-                           (source (cdr (assq 'source data))))
-                      (when (equal source "browser")
-                        (cons (cdr (assq 'id data))
-                              (cdr (assq 'ts data)))))))
-              (kill-buffer)))
-        (error nil)))))
 
 (defun taskjuggler--maybe-navigate-to-click ()
   "Navigate to a task clicked in the browser, if the click is new.
@@ -2286,6 +2299,8 @@ Uses the cursor API when available, otherwise reads js/tj-cursor.js."
       (when (and click-id (not (string-empty-p click-id)))
         (when (taskjuggler--goto-task-id click-id)
           (recenter))))))
+
+;; ---- Lifecycle ----
 
 (defun taskjuggler--start-cursor-tracking ()
   "Start cursor tracking for the current buffer.
@@ -2364,12 +2379,6 @@ after a compile that started tj3webd."
 ;; daemons fork into the background (the launcher process exits immediately),
 ;; so liveness is checked via `tj3client status' rather than process objects.
 ;; Daemons started by Emacs are terminated on exit via `kill-emacs-hook'.
-
-(defcustom taskjuggler-tj3webd-port 8080
-  "Port for the tj3webd web server.
-Passed via --port to tj3webd and used to construct the browse URL."
-  :type 'integer
-  :group 'taskjuggler)
 
 (defvar taskjuggler--tj3d-process nil
   "The tj3d process started by Emacs, or nil.")
@@ -2563,7 +2572,21 @@ Uses `taskjuggler-tj3webd-port' for the port number."
       (taskjuggler--daemon-update-modeline)
       (message "tj3webd started on port %d (pid %d)"
                taskjuggler-tj3webd-port
-               (process-id taskjuggler--tj3webd-process)))))
+               (process-id taskjuggler--tj3webd-process))
+      ;; Re-probe the cursor API once the server has had time to bind.
+      (run-with-timer
+       2 nil
+       (lambda ()
+         (dolist (buf (buffer-list))
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (when (and (derived-mode-p 'taskjuggler-mode)
+                          (not taskjuggler--cursor-api-url))
+                 (setq taskjuggler--cursor-api-url
+                       (taskjuggler--cursor-api-probe))
+                 (when (and taskjuggler--cursor-api-url
+                            (not taskjuggler--cursor-idle-timer))
+                   (taskjuggler--start-cursor-tracking)))))))))))
 
 (defun taskjuggler--daemon-stop-process (proc)
   "Stop daemon process PROC if it is live.  Return non-nil if it was stopped."
