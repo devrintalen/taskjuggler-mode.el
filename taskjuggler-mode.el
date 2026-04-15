@@ -4,7 +4,7 @@
 
 ;; Author: Devrin Talen <devrin@fastmail.com>
 ;; Keywords: languages, project-management
-;; Package-Version: 0.4.0
+;; Package-Version: 0.5.1
 ;; Package-Requires: ((emacs "27.1"))
 ;; URL: https://github.com/devrintalen/taskjuggler-mode.el
 ;; SPDX-License-Identifier: GPL-3.0-or-later
