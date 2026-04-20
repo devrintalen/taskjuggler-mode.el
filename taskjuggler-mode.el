@@ -2587,19 +2587,23 @@ Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
   (condition-case nil
       (when (taskjuggler--tj3d-alive-p)
         (call-process (taskjuggler--tj3-executable "tj3client")
-                      nil nil nil "quit"))
+                      nil nil nil "terminate"))
     (error nil))
   ;; tj3webd: no quit command; find the process by port and send SIGTERM.
+  ;; Filter out Emacs's own PID since it may hold an open connection.
   (condition-case nil
       (when (taskjuggler--tj3webd-alive-p)
-        (let ((pids (split-string
+        (let ((our-pid (emacs-pid))
+              (pids (split-string
                      (string-trim
                       (shell-command-to-string
                        (format "lsof -ti tcp:%d 2>/dev/null"
                                taskjuggler-tj3webd-port)))
                      "\n" t)))
           (dolist (pid pids)
-            (signal-process (string-to-number pid) 'SIGTERM))))
+            (let ((n (string-to-number pid)))
+              (unless (= n our-pid)
+                (signal-process n 'SIGTERM))))))
     (error nil)))
 
 (add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
