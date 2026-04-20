@@ -2580,6 +2580,32 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (user-error "Process tj3webd is not running"))
   (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
 
+(defun taskjuggler--stop-daemons ()
+  "Stop tj3d and tj3webd if they are running.
+Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
+  ;; tj3d: use the official tj3client quit command.
+  (condition-case nil
+      (when (taskjuggler--tj3d-alive-p)
+        (call-process (taskjuggler--tj3-executable "tj3client")
+                      nil nil nil "terminate"))
+    (error nil))
+  ;; tj3webd: no quit command; find the process by port and send SIGTERM.
+  ;; Filter out Emacs's own PID since it may hold an open connection.
+  (condition-case nil
+      (when (taskjuggler--tj3webd-alive-p)
+        (let ((our-pid (emacs-pid))
+              (pids (split-string
+                     (string-trim
+                      (shell-command-to-string
+                       (format "lsof -ti tcp:%d 2>/dev/null"
+                               taskjuggler-tj3webd-port)))
+                     "\n" t)))
+          (dolist (pid pids)
+            (let ((n (string-to-number pid)))
+              (unless (= n our-pid)
+                (signal-process n 'SIGTERM))))))
+    (error nil)))
+
 (defun taskjuggler--daemon-update-modeline ()
   "Recompute `taskjuggler--daemon-modeline' from current daemon state."
   (let ((d (taskjuggler--tj3d-alive-p))
@@ -2587,11 +2613,11 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (setq taskjuggler--daemon-modeline
           (cond
            ((and d w)
-            (propertize " 󰙬󰒍" 'face 'success))
+            (propertize "󰙬󰒍" 'face 'success))
            (d
-            (propertize " 󰙬" 'face 'success))
+            (propertize "󰙬" 'face 'success))
            (w
-            (propertize " 󰒍" 'face 'warning))
+            (propertize "󰒍" 'face 'warning))
            (t "")))
     (force-mode-line-update t)))
 
@@ -2670,6 +2696,40 @@ dies outside of Emacs (e.g. killed from a terminal)."
     map)
   "Keymap for `taskjuggler-mode'.")
 
+(easy-menu-define taskjuggler-menu taskjuggler-mode-map
+  "Menu for `taskjuggler-mode'."
+  '("TJ3"
+    ["Date DWIM" taskjuggler-date-dwim]
+    ["Man Lookup" taskjuggler-man]
+    ["Narrow to Block" taskjuggler-narrow-to-block]
+    "---"
+    ("Block Navigation"
+     ["Move Block Up" taskjuggler-move-block-up]
+     ["Move Block Down" taskjuggler-move-block-down]
+     ["Next Block" taskjuggler-next-block]
+     ["Prev Block" taskjuggler-prev-block]
+     ["Goto Parent" taskjuggler-goto-parent]
+     ["Goto First Child" taskjuggler-goto-first-child]
+     ["Mark Block" taskjuggler-mark-block])
+    "---"
+    ("Daemons"
+     ["Start tj3d" taskjuggler-tj3d-start]
+     ["Add Project to tj3d" taskjuggler-tj3d-add-project]
+     ["Start tj3webd" taskjuggler-tj3webd-start]
+     ["Browse tj3webd" taskjuggler-tj3webd-browse]
+     ["Daemon Status" taskjuggler-daemon-status])))
+
+(defvar taskjuggler--mode-line-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] #'taskjuggler--show-mode-line-menu)
+    map)
+  "Keymap for the TJ3 modeline indicator.")
+
+(defun taskjuggler--show-mode-line-menu ()
+  "Show `taskjuggler-menu' as a popup from the modeline."
+  (interactive)
+  (popup-menu taskjuggler-menu))
+
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
 
@@ -2722,8 +2782,14 @@ See URL `https://taskjuggler.org' for more information.
   (taskjuggler--start-cursor-tracking)
   (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
-  ;; Daemon modeline: append daemon status indicator after the mode name.
-  (setq mode-line-process '(:eval taskjuggler--daemon-modeline))
+  ;; Daemon modeline: combine "TJ3" label with daemon status in one clickable entry.
+  (setq mode-line-process nil)
+  (setq mode-name
+        `(,(propertize "TJ3"
+                       'mouse-face 'mode-line-highlight
+                       'help-echo "mouse-1: TaskJuggler menu"
+                       'local-map taskjuggler--mode-line-map)
+          (:eval taskjuggler--daemon-modeline)))
   ;; Auto-start tj3d and tj3webd if configured.
   (when taskjuggler-auto-start-tj3d-tj3webd
     (unless (taskjuggler--tj3d-alive-p)
@@ -2733,6 +2799,8 @@ See URL `https://taskjuggler.org' for more information.
   ;; Auto-add project to tj3d if configured.
   (when taskjuggler-auto-add-project-tj3d
     (taskjuggler--auto-add-project-tj3d))
+  ;; Shut down daemons when Emacs exits (idempotent; safe to add per buffer).
+  (add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.
