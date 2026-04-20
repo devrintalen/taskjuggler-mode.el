@@ -2606,8 +2606,6 @@ Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
                 (signal-process n 'SIGTERM))))))
     (error nil)))
 
-(add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
-
 (defun taskjuggler--daemon-update-modeline ()
   "Recompute `taskjuggler--daemon-modeline' from current daemon state."
   (let ((d (taskjuggler--tj3d-alive-p))
@@ -2615,11 +2613,11 @@ Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
     (setq taskjuggler--daemon-modeline
           (cond
            ((and d w)
-            (propertize " 󰙬󰒍" 'face 'success))
+            (propertize "󰙬󰒍" 'face 'success))
            (d
-            (propertize " 󰙬" 'face 'success))
+            (propertize "󰙬" 'face 'success))
            (w
-            (propertize " 󰒍" 'face 'warning))
+            (propertize "󰒍" 'face 'warning))
            (t "")))
     (force-mode-line-update t)))
 
@@ -2801,6 +2799,8 @@ See URL `https://taskjuggler.org' for more information.
   ;; Auto-add project to tj3d if configured.
   (when taskjuggler-auto-add-project-tj3d
     (taskjuggler--auto-add-project-tj3d))
+  ;; Shut down daemons when Emacs exits (idempotent; safe to add per buffer).
+  (add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.
