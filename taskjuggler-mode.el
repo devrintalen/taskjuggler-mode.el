@@ -2580,6 +2580,30 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (user-error "Process tj3webd is not running"))
   (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
 
+(defun taskjuggler--stop-daemons ()
+  "Stop tj3d and tj3webd if they are running.
+Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
+  ;; tj3d: use the official tj3client quit command.
+  (condition-case nil
+      (when (taskjuggler--tj3d-alive-p)
+        (call-process (taskjuggler--tj3-executable "tj3client")
+                      nil nil nil "quit"))
+    (error nil))
+  ;; tj3webd: no quit command; find the process by port and send SIGTERM.
+  (condition-case nil
+      (when (taskjuggler--tj3webd-alive-p)
+        (let ((pids (split-string
+                     (string-trim
+                      (shell-command-to-string
+                       (format "lsof -ti tcp:%d 2>/dev/null"
+                               taskjuggler-tj3webd-port)))
+                     "\n" t)))
+          (dolist (pid pids)
+            (signal-process (string-to-number pid) 'SIGTERM))))
+    (error nil)))
+
+(add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
+
 (defun taskjuggler--daemon-update-modeline ()
   "Recompute `taskjuggler--daemon-modeline' from current daemon state."
   (let ((d (taskjuggler--tj3d-alive-p))
