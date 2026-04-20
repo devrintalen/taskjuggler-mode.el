@@ -1,5 +1,7 @@
 # taskjuggler-mode.el
 
+[![MELPA](https://melpa.org/packages/taskjuggler-mode-badge.svg)](https://melpa.org/#/taskjuggler-mode)
+
 An Emacs major mode for editing [TaskJuggler v3](https://taskjuggler.org)
 project files (`.tjp`, `.tji`).
 
@@ -231,19 +233,39 @@ The following snippet templates are available:
 
 ## Installation
 
-Not on MELPA (yet). In the meantime, here are options.
-
 Note that all of these assume your `tj3` and `tj3man` programs are
 located at `~/bin`, adjust this path to where they are on your system.
+
+### MELPA (recommended)
+
+Add MELPA to your package archives if you haven't already, then install:
+
+```emacs-lisp
+(require 'package)
+(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
+(package-initialize)
+```
+
+```
+M-x package-install RET taskjuggler-mode RET
+```
+
+Or with `use-package`:
+
+```emacs-lisp
+(use-package taskjuggler-mode
+  :ensure t
+  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
+  :hook (taskjuggler-mode . flymake-mode)
+  :custom
+  (taskjuggler-tj3-bin-dir "~/bin"))
+```
 
 ### `straight.el` with `use-package`
 
 ```emacs-lisp
 (use-package taskjuggler-mode
-  :straight (taskjuggler-mode :type git
-                              :host github
-                              :repo "devrintalen/taskjuggler-mode.el"
-                              :files ("*.el" "snippets"))
+  :straight t
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
   :hook (taskjuggler-mode . flymake-mode)
   :custom
@@ -258,25 +280,6 @@ Built-in, no extra package manager needed.
 (use-package taskjuggler-mode
   :vc (:url "https://github.com/devrintalen/taskjuggler-mode.el"
        :rev :newest)
-  :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
-  :hook (taskjuggler-mode . flymake-mode)
-  :custom
-  (taskjuggler-tj3-bin-dir "~/bin"))
-```
-
-### `package-vc-install` (Emacs 29+)
-
-One-time interactive install from a `*scratch*` buffer or `M-:`:
-
-```emacs-lisp
-(package-vc-install
- '(taskjuggler-mode :url "https://github.com/devrintalen/taskjuggler-mode.el"))
-```
-
-Then configure with `use-package` (no `:vc` needed after install):
-
-```emacs-lisp
-(use-package taskjuggler-mode
   :mode (("\\.tj[ip]\\'" . taskjuggler-mode))
   :hook (taskjuggler-mode . flymake-mode)
   :custom
