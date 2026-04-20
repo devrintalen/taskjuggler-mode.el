@@ -2670,6 +2670,40 @@ dies outside of Emacs (e.g. killed from a terminal)."
     map)
   "Keymap for `taskjuggler-mode'.")
 
+(easy-menu-define taskjuggler-menu taskjuggler-mode-map
+  "Menu for `taskjuggler-mode'."
+  '("TJ3"
+    ["Date DWIM" taskjuggler-date-dwim]
+    ["Man Lookup" taskjuggler-man]
+    ["Narrow to Block" taskjuggler-narrow-to-block]
+    "---"
+    ("Block Navigation"
+     ["Move Block Up" taskjuggler-move-block-up]
+     ["Move Block Down" taskjuggler-move-block-down]
+     ["Next Block" taskjuggler-next-block]
+     ["Prev Block" taskjuggler-prev-block]
+     ["Goto Parent" taskjuggler-goto-parent]
+     ["Goto First Child" taskjuggler-goto-first-child]
+     ["Mark Block" taskjuggler-mark-block])
+    "---"
+    ("Daemons"
+     ["Start tj3d" taskjuggler-tj3d-start]
+     ["Add Project to tj3d" taskjuggler-tj3d-add-project]
+     ["Start tj3webd" taskjuggler-tj3webd-start]
+     ["Browse tj3webd" taskjuggler-tj3webd-browse]
+     ["Daemon Status" taskjuggler-daemon-status])))
+
+(defvar taskjuggler--mode-line-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] #'taskjuggler--show-mode-line-menu)
+    map)
+  "Keymap for the TJ3 modeline indicator.")
+
+(defun taskjuggler--show-mode-line-menu ()
+  "Show `taskjuggler-menu' as a popup from the modeline."
+  (interactive)
+  (popup-menu taskjuggler-menu))
+
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
 
@@ -2722,8 +2756,14 @@ See URL `https://taskjuggler.org' for more information.
   (taskjuggler--start-cursor-tracking)
   (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
-  ;; Daemon modeline: append daemon status indicator after the mode name.
-  (setq mode-line-process '(:eval taskjuggler--daemon-modeline))
+  ;; Daemon modeline: combine "TJ3" label with daemon status in one clickable entry.
+  (setq mode-line-process nil)
+  (setq mode-name
+        `(,(propertize "TJ3"
+                       'mouse-face 'mode-line-highlight
+                       'help-echo "mouse-1: TaskJuggler menu"
+                       'local-map taskjuggler--mode-line-map)
+          (:eval taskjuggler--daemon-modeline)))
   ;; Auto-start tj3d and tj3webd if configured.
   (when taskjuggler-auto-start-tj3d-tj3webd
     (unless (taskjuggler--tj3d-alive-p)
