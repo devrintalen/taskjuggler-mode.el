@@ -4,7 +4,7 @@
 
 ;; Author: Devrin Talen <devrin@fastmail.com>
 ;; Keywords: languages, project-management
-;; Package-Version: 0.4.0
+;; Package-Version: 0.5.1
 ;; Package-Requires: ((emacs "27.1"))
 ;; URL: https://github.com/devrintalen/taskjuggler-mode.el
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -56,6 +56,8 @@
 
 (require 'calendar)
 (require 'man)
+(require 'url)
+(require 'json)
 
 (declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
 (declare-function yas--load-snippet-dirs "yasnippet" ())
@@ -88,7 +90,7 @@ The arguments are inserted between the `tj3' executable and the file name."
   :group 'taskjuggler)
 
 (defcustom taskjuggler-cursor-idle-delay 0.3
-  "Seconds of Emacs idle time before updating the tj-cursor.json sidecar file.
+  "Seconds of Emacs idle time before syncing the cursor position.
 Set to nil to disable cursor tracking entirely."
   :type '(choice (number :tag "Idle delay in seconds")
                  (const :tag "Disabled" nil))
@@ -105,6 +107,25 @@ Keywords that expect a date value (such as `start' and `end') trigger
 the inline calendar picker when the user types a space or tab after them.
 See `taskjuggler--date-keyword-list' for the full list of triggering keywords."
   :type 'boolean
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-auto-start-tj3d-tj3webd nil
+  "When non-nil, start tj3d and tj3webd when `taskjuggler-mode' activates.
+Daemons are only started if they are not already running."
+  :type 'boolean
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-auto-add-project-tj3d nil
+  "When non-nil, add the current project to tj3d when visiting a TJ3 file.
+Uses `taskjuggler--find-tjp-file' to locate the .tjp file and adds it
+via `taskjuggler-tj3d-add-project' if it is not already loaded."
+  :type 'boolean
+  :group 'taskjuggler)
+
+(defcustom taskjuggler-tj3webd-port 8080
+  "Port for the tj3webd web server.
+Passed via --port to tj3webd and used to construct the browse URL."
+  :type 'integer
   :group 'taskjuggler)
 
 ;;; Helpers
@@ -2042,37 +2063,42 @@ defaulting to the word at point."
       (with-current-buffer standard-output
         (taskjuggler--fontify-tj3man)))))
 
-;;; Cursor tracking (task-at-point → tj-cursor.json)
+;;; Cursor tracking (task-at-point → tj3webd / js fallback)
 
 ;; When a TJP buffer is live, an idle timer periodically identifies the
-;; innermost `task' block enclosing point and writes its full dotted ID to
-;; tj-cursor.json in the same directory as the buffer file.  A JavaScript
-;; polling loop in the generated HTML report reads this file and highlights
-;; the matching row in the Gantt chart.
+;; innermost `task' block enclosing point and sends its full dotted ID to
+;; the browser for two-way task highlighting.
+;;
+;; Transport priority:
+;;   1. tj3webd cursor API (POST /cursor, GET /cursor/state) — used when
+;;      tj3webd is running and the /cursor endpoint is reachable.
+;;   2. js/tj-cursor.js file — written to the js/ subdirectory next to the
+;;      TJP file when js/ exists (file:// polling fallback).
+;;   3. Neither available — cursor tracking is silently disabled.
 
-;; TODO: The output directory is assumed to be the same as the TJP file's
-;; directory.  Add a defcustom (or derive from taskreport `outputdir') so
-;; the sidecar file can land next to the generated HTML when they differ.
+;; ---- Variables ----
 
 (defvar-local taskjuggler--cursor-idle-timer nil
-  "Idle timer that updates tj-cursor.js while this buffer is live.")
+  "Idle timer that updates cursor position while this buffer is live.")
 
 (defvar-local taskjuggler--click-poll-timer nil
   "Repeating timer that polls for browser clicks regardless of focus.")
 
 (defvar-local taskjuggler--cursor-last-id :unset
-  "Last task ID written to tj-cursor.js; :unset before the first write.")
+  "Last task ID sent/written; :unset before the first update.")
 
 (defvar-local taskjuggler--cursor-last-click-ts 0
-  "Last _tjClickTs value acted upon; prevents re-navigating the same click.")
+  "Last click timestamp acted upon; prevents re-navigating the same click.")
 
-(defvar-local taskjuggler--cursor-file-cache :unset
-  "Cached path to the root tj-cursor.js sidecar file.
-:unset before the first lookup.")
+(defvar-local taskjuggler--cursor-api-url nil
+  "Base URL for the tj3webd cursor API (e.g. \"http://127.0.0.1:8080\"), or nil.
+Non-nil means the /cursor endpoint was reachable when tracking started.")
 
 (defvar-local taskjuggler--cursor-js-file-cache :unset
-  "Cached path to js/tj-cursor.js (file:// polling copy), or nil.
+  "Cached path to js/tj-cursor.js (file:// polling fallback), or nil.
 :unset before the first lookup.")
+
+;; ---- Task ID helpers ----
 
 (defun taskjuggler--block-header-task-id (header-pos)
   "If the line at HEADER-POS is a `task' declaration, return its ID string.
@@ -2124,21 +2150,72 @@ success, nil when no matching declaration is found."
       (goto-char target)
       t)))
 
-(defun taskjuggler--cursor-file ()
-  "Return the absolute path to the root tj-cursor.js sidecar file, or nil.
-This is the primary file: the CursorServlet watches it (SSE path), the
-click pipe is written here, and the editor cursor pipe is read from here.
-Returns nil when the buffer is not visiting a file."
-  (if (not (eq taskjuggler--cursor-file-cache :unset))
-      taskjuggler--cursor-file-cache
-    (setq taskjuggler--cursor-file-cache
-          (when-let ((file (buffer-file-name)))
-            (expand-file-name "tj-cursor.js" (file-name-directory file))))))
+;; ---- API transport (tj3webd /cursor endpoint) ----
+
+(defun taskjuggler--cursor-api-probe ()
+  "Probe whether the tj3webd cursor API is reachable.
+Returns the base URL string (e.g. \"http://127.0.0.1:8080\") on success,
+or nil when the endpoint is not available."
+  (let ((url (format "http://127.0.0.1:%d/cursor/state"
+                     taskjuggler-tj3webd-port)))
+    (condition-case nil
+        (let ((url-request-method "GET")
+              (url-show-status nil))
+          (with-current-buffer (url-retrieve-synchronously url t nil 2)
+            (unwind-protect
+                (progn
+                  (goto-char (point-min))
+                  (when (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
+                    (format "http://127.0.0.1:%d" taskjuggler-tj3webd-port)))
+              (kill-buffer))))
+      (error nil))))
+
+(defun taskjuggler--cursor-post-api (task-id)
+  "POST TASK-ID to the tj3webd /cursor endpoint.
+TASK-ID may be a string or nil (clears the cursor).
+Returns non-nil on success."
+  (when taskjuggler--cursor-api-url
+    (let ((url (concat taskjuggler--cursor-api-url "/cursor"))
+          (url-request-method "POST")
+          (url-request-extra-headers '(("Content-Type" . "application/json")))
+          (url-request-data
+           (encode-coding-string
+            (json-encode `(("id" . ,(or task-id ""))
+                           ("source" . "editor")))
+            'utf-8))
+          (url-show-status nil))
+      (condition-case nil
+          (let ((buf (url-retrieve-synchronously url t nil 2)))
+            (when buf (kill-buffer buf))
+            t)
+        (error nil)))))
+
+(defun taskjuggler--cursor-poll-api ()
+  "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
+Returns nil on error or when the last event was from the editor."
+  (when taskjuggler--cursor-api-url
+    (let ((url (concat taskjuggler--cursor-api-url "/cursor/state"))
+          (url-request-method "GET")
+          (url-show-status nil))
+      (condition-case nil
+          (with-current-buffer (url-retrieve-synchronously url t nil 2)
+            (unwind-protect
+                (progn
+                  (goto-char (point-min))
+                  (when (re-search-forward "\n\n" nil t)
+                    (let* ((data (json-read))
+                           (source (cdr (assq 'source data))))
+                      (when (equal source "browser")
+                        (cons (cdr (assq 'id data))
+                              (cdr (assq 'ts data)))))))
+              (kill-buffer)))
+        (error nil)))))
+
+;; ---- File transport (js/tj-cursor.js fallback) ----
 
 (defun taskjuggler--cursor-js-file ()
   "Return the path to js/tj-cursor.js, or nil when js/ does not exist.
-This secondary copy is written alongside the root file so the file://
-polling path (which loads `js/tj-cursor.js' via a script tag) also works."
+Used as the file-based fallback when the cursor API is unavailable."
   (if (not (eq taskjuggler--cursor-js-file-cache :unset))
       taskjuggler--cursor-js-file-cache
     (setq taskjuggler--cursor-js-file-cache
@@ -2170,22 +2247,16 @@ in both cases, or nil when NAME is not present in CONTENT."
     (match-string 1 content))
    (t nil)))
 
-(defun taskjuggler--write-cursor-json (task-id)
-  "Write TASK-ID and current timestamp to the tj-cursor.js sidecar file.
-Uses the four-field format expected by the CursorServlet, preserving the
-browser-pipe fields (_tjClickTaskId, _tjClickTs) by reading the file
-before writing so the SSE watcher does not fire a spurious event.
-Does nothing when the buffer is not visiting a file."
-  (when-let ((file (taskjuggler--cursor-file)))
+(defun taskjuggler--write-cursor-js (task-id)
+  "Write TASK-ID to js/tj-cursor.js as file-based fallback.
+Does nothing when js/ does not exist."
+  (when-let ((js-file (taskjuggler--cursor-js-file)))
     (let* ((cursor-ts (number-to-string (floor (float-time))))
            (cursor-id-js (if task-id (concat "\"" task-id "\"") "null"))
-           ;; Preserve browser click fields only when actively tracking.
-           ;; On shutdown (task-id nil), zero them so a stale click in the
-           ;; file does not trigger navigation when the mode next starts.
            (click-id-js "null")
            (click-ts "0"))
       (when task-id
-        (let ((existing (taskjuggler--read-file-string file)))
+        (let ((existing (taskjuggler--read-file-string js-file)))
           (when-let ((id (taskjuggler--cursor-parse-field existing "_tjClickTaskId")))
             (setq click-id-js (concat "\"" id "\"")))
           (when-let ((ts (taskjuggler--cursor-parse-field existing "_tjClickTs")))
@@ -2194,28 +2265,50 @@ Does nothing when the buffer is not visiting a file."
                              "window._tjCursorTs     = " cursor-ts ";\n"
                              "window._tjClickTaskId  = " click-id-js ";\n"
                              "window._tjClickTs      = " click-ts ";\n")))
-        (write-region content nil file nil 'quiet)
-        ;; Also write to js/tj-cursor.js so the file:// script-tag poller works.
-        (when-let ((js-file (taskjuggler--cursor-js-file)))
-          (write-region content nil js-file nil 'quiet))))))
+        (write-region content nil js-file nil 'quiet)))))
+
+;; ---- Dispatchers ----
+
+(defun taskjuggler--write-cursor-json (task-id)
+  "Send TASK-ID to the cursor API, or write js/tj-cursor.js as fallback.
+When `taskjuggler--cursor-api-url' is set, POSTs to /cursor.
+Otherwise writes to js/tj-cursor.js if the js/ directory exists.
+Does nothing when neither method is available."
+  (if taskjuggler--cursor-api-url
+      (taskjuggler--cursor-post-api task-id)
+    (taskjuggler--write-cursor-js task-id)))
 
 (defun taskjuggler--maybe-navigate-to-click ()
   "Navigate to a task clicked in the browser, if the click is new.
-Reads _tjClickTs and _tjClickTaskId from tj-cursor.js.  When _tjClickTs
-exceeds `taskjuggler--cursor-last-click-ts', moves point to the matching
-task declaration and recenters the window."
-  (when-let ((file (taskjuggler--cursor-file)))
-    (let* ((content (taskjuggler--read-file-string file))
-           (click-ts-str (taskjuggler--cursor-parse-field content "_tjClickTs"))
-           (click-ts (if click-ts-str (string-to-number click-ts-str) 0)))
-      (when (> click-ts taskjuggler--cursor-last-click-ts)
-        (setq taskjuggler--cursor-last-click-ts click-ts)
-        (when-let ((click-id (taskjuggler--cursor-parse-field content "_tjClickTaskId")))
-          (when (taskjuggler--goto-task-id click-id)
-            (recenter)))))))
+Uses the cursor API when available, otherwise reads js/tj-cursor.js."
+  (let (click-id click-ts)
+    (if taskjuggler--cursor-api-url
+        ;; API path: poll /cursor/state, only act on browser-sourced events.
+        (when-let ((result (taskjuggler--cursor-poll-api)))
+          (setq click-id (car result)
+                click-ts (cdr result)))
+      ;; File fallback: read js/tj-cursor.js.
+      (when-let ((js-file (taskjuggler--cursor-js-file)))
+        (let* ((content (taskjuggler--read-file-string js-file))
+               (ts-str (taskjuggler--cursor-parse-field content "_tjClickTs")))
+          (setq click-ts (if ts-str (string-to-number ts-str) 0)
+                click-id (taskjuggler--cursor-parse-field
+                          content "_tjClickTaskId")))))
+    (when (and click-ts (> click-ts taskjuggler--cursor-last-click-ts))
+      (setq taskjuggler--cursor-last-click-ts click-ts)
+      (when (and click-id (not (string-empty-p click-id)))
+        (when (taskjuggler--goto-task-id click-id)
+          (recenter))))))
+
+;; ---- Lifecycle ----
 
 (defun taskjuggler--start-cursor-tracking ()
   "Start cursor tracking for the current buffer.
+Probes the tj3webd cursor API; if reachable, uses HTTP for both
+directions.  Otherwise falls back to js/tj-cursor.js (if the js/
+directory exists).  When neither is available, cursor tracking is
+silently skipped.
+
 Uses an idle timer for the editor→browser cursor write (so we only write
 when the user stops moving) and a regular repeating timer for the
 browser→editor click poll (so clicks are noticed even when Emacs does not
@@ -2227,48 +2320,56 @@ have input focus).  Does nothing when `taskjuggler-cursor-idle-delay' is nil."
       (cancel-timer taskjuggler--cursor-idle-timer))
     (when (timerp taskjuggler--click-poll-timer)
       (cancel-timer taskjuggler--click-poll-timer))
-    (let ((buf (current-buffer)))
-      ;; Editor → Browser: idle timer writes cursor position on quiescence.
-      (setq taskjuggler--cursor-idle-timer
-            (run-with-idle-timer
-             taskjuggler-cursor-idle-delay t
-             (lambda ()
-               (when (buffer-live-p buf)
-                 (with-current-buffer buf
-                   (let ((id (taskjuggler--full-task-id-at-point)))
-                     (unless (equal id taskjuggler--cursor-last-id)
-                       (setq taskjuggler--cursor-last-id id)
-                       (taskjuggler--write-cursor-json id))))))))
-      ;; Browser → Editor: repeating timer polls for clicks even when
-      ;; Emacs is not focused.
-      (setq taskjuggler--click-poll-timer
-            (run-with-timer
-             taskjuggler-cursor-idle-delay taskjuggler-cursor-idle-delay
-             (lambda ()
-               (when (buffer-live-p buf)
-                 (with-current-buffer buf
-                   (taskjuggler--maybe-navigate-to-click)))))))))
+    ;; Decide transport: API first, then js/ file, then nothing.
+    (setq taskjuggler--cursor-api-url (taskjuggler--cursor-api-probe))
+    (when (or taskjuggler--cursor-api-url (taskjuggler--cursor-js-file))
+      (let ((buf (current-buffer)))
+        ;; Editor → Browser: idle timer writes cursor position on quiescence.
+        (setq taskjuggler--cursor-idle-timer
+              (run-with-idle-timer
+               taskjuggler-cursor-idle-delay t
+               (lambda ()
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (let ((id (taskjuggler--full-task-id-at-point)))
+                       (unless (equal id taskjuggler--cursor-last-id)
+                         (setq taskjuggler--cursor-last-id id)
+                         (taskjuggler--write-cursor-json id))))))))
+        ;; Browser → Editor: repeating timer polls for clicks even when
+        ;; Emacs is not focused.
+        (setq taskjuggler--click-poll-timer
+              (run-with-timer
+               taskjuggler-cursor-idle-delay taskjuggler-cursor-idle-delay
+               (lambda ()
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (taskjuggler--maybe-navigate-to-click))))))))))
 
 (defun taskjuggler--stop-cursor-tracking ()
-  "Cancel cursor-tracking timers and write null to the tj-cursor.js file."
+  "Cancel cursor-tracking timers and clear cursor state."
   (when (timerp taskjuggler--cursor-idle-timer)
     (cancel-timer taskjuggler--cursor-idle-timer)
     (setq taskjuggler--cursor-idle-timer nil))
   (when (timerp taskjuggler--click-poll-timer)
     (cancel-timer taskjuggler--click-poll-timer)
     (setq taskjuggler--click-poll-timer nil))
-  (taskjuggler--write-cursor-json nil))
+  (taskjuggler--write-cursor-json nil)
+  (setq taskjuggler--cursor-api-url nil))
 
 (defun taskjuggler--reset-cursor-file-cache (&rest _)
   "Reset the cursor file cache in all live `taskjuggler-mode' buffers.
 Added to `compilation-finish-functions' so the js/ directory is
-re-checked after a compile run that may have created it."
+re-checked after a compile run that may have created it.
+Also re-probes the cursor API, which may have become available
+after a compile that started tj3webd."
   (dolist (buf (buffer-list))
     (when (buffer-live-p buf)
       (with-current-buffer buf
         (when (derived-mode-p 'taskjuggler-mode)
-          (setq taskjuggler--cursor-file-cache :unset)
-          (setq taskjuggler--cursor-js-file-cache :unset))))))
+          (setq taskjuggler--cursor-js-file-cache :unset)
+          (unless taskjuggler--cursor-api-url
+            (setq taskjuggler--cursor-api-url
+                  (taskjuggler--cursor-api-probe))))))))
 
 ;;; Daemon management (tj3d / tj3webd)
 
@@ -2276,20 +2377,8 @@ re-checked after a compile run that may have created it."
 ;; added to it with `tj3client' and it will re-schedule on file changes.
 ;; tj3webd is a companion web server that serves reports from tj3d.  Both
 ;; daemons fork into the background (the launcher process exits immediately),
-;; so liveness is checked via `tj3client status' rather than process objects.
-;; Daemons started by Emacs are terminated on exit via `kill-emacs-hook'.
-
-(defcustom taskjuggler-tj3webd-port 8080
-  "Port for the tj3webd web server.
-Passed via --port to tj3webd and used to construct the browse URL."
-  :type 'integer
-  :group 'taskjuggler)
-
-(defvar taskjuggler--tj3d-process nil
-  "The tj3d process started by Emacs, or nil.")
-
-(defvar taskjuggler--tj3webd-process nil
-  "The tj3webd process started by Emacs, or nil.")
+;; so liveness is checked via `tj3client status' / TCP probe rather than
+;; process objects.
 
 (defvar taskjuggler--daemon-status-timer nil
   "Timer that polls daemon status for modeline updates.")
@@ -2298,34 +2387,38 @@ Passed via --port to tj3webd and used to construct the browse URL."
   "Current modeline string for daemon status.
 Updated by `taskjuggler--daemon-update-modeline'.")
 
+(defvar taskjuggler--auto-add-pending nil
+  "The .tjp file path for which an auto-add is in progress, or nil.")
+
 (defun taskjuggler--tj3d-alive-p ()
   "Return non-nil if the tj3d daemon is reachable.
-When Emacs started tj3d (with -d), checks the process object.
-Otherwise probes via `tj3client status'."
-  (if (and taskjuggler--tj3d-process
-           (processp taskjuggler--tj3d-process))
-      (process-live-p taskjuggler--tj3d-process)
-    (condition-case nil
-        (zerop (call-process (taskjuggler--tj3-executable "tj3client")
-                             nil nil nil "status"))
-      (error nil))))
+Probes via `tj3client status'."
+  (condition-case nil
+      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
+                           nil nil nil "status"))
+    (error nil)))
+
+(defun taskjuggler--tj3d-accepting-p ()
+  "Return non-nil if tj3d is accepting connections.
+Unlike `taskjuggler--tj3d-alive-p', this always probes via
+`tj3client status' rather than relying on the process object."
+  (condition-case nil
+      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
+                           nil nil nil "status"))
+    (error nil)))
 
 (defun taskjuggler--tj3webd-alive-p ()
   "Return non-nil if tj3webd is running.
-When Emacs started tj3webd (with -d), checks the process object.
-Otherwise probes the port via TCP."
-  (if (and taskjuggler--tj3webd-process
-           (processp taskjuggler--tj3webd-process))
-      (process-live-p taskjuggler--tj3webd-process)
-    (condition-case nil
-        (let ((proc (make-network-process
-                     :name "tj3webd-probe"
-                     :host "127.0.0.1"
-                     :service taskjuggler-tj3webd-port
-                     :nowait nil)))
-          (delete-process proc)
-          t)
-      (error nil))))
+Probes the port via TCP."
+  (condition-case nil
+      (let ((proc (make-network-process
+                   :name "tj3webd-probe"
+                   :host "127.0.0.1"
+                   :service taskjuggler-tj3webd-port
+                   :nowait nil)))
+        (delete-process proc)
+        t)
+    (error nil)))
 
 (defun taskjuggler--find-tjp-file ()
   "Return the .tjp file for the current buffer.
@@ -2340,8 +2433,7 @@ search `default-directory' for a .tjp file.  Returns nil if none found."
 
 (defun taskjuggler-tj3d-start ()
   "Start the tj3d daemon from the current project directory.
-Launches with -d (don't daemonize) so Emacs manages the process
-directly and the working directory is preserved.
+The daemon forks into the background automatically.
 Respects `taskjuggler-tj3-bin-dir' for executable resolution."
   (interactive)
   (if (taskjuggler--tj3d-alive-p)
@@ -2349,20 +2441,11 @@ Respects `taskjuggler-tj3-bin-dir' for executable resolution."
     (let* ((tjp (taskjuggler--find-tjp-file))
            (default-directory (if tjp (file-name-directory tjp)
                                 default-directory))
-           (cmd (taskjuggler--tj3-executable "tj3d"))
-           (buf (get-buffer-create "*tj3d*")))
-      (setq taskjuggler--tj3d-process
-            (make-process
-             :name "tj3d"
-             :buffer buf
-             :command (list cmd "-d")
-             :noquery t
-             :sentinel #'taskjuggler--daemon-sentinel))
-      (taskjuggler--daemon-ensure-cleanup-hook)
+           (cmd (taskjuggler--tj3-executable "tj3d")))
+      (call-process cmd nil nil nil "--auto-update")
       (taskjuggler--daemon-ensure-status-timer)
       (taskjuggler--daemon-update-modeline)
-      (message "tj3d started (pid %d)"
-               (process-id taskjuggler--tj3d-process)))))
+      (message "tj3d started"))))
 
 (defun taskjuggler-tj3d-add-project ()
   "Add the current project to the running tj3d daemon.
@@ -2388,10 +2471,58 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                        (message "tj3client add failed (exit %d); see *tj3client*"
                                 (process-exit-status proc)))))))))
 
+(defun taskjuggler--tj3d-project-loaded-p (tjp)
+  "Return non-nil if TJP is already loaded in the running tj3d daemon."
+  (when (and tjp (taskjuggler--tj3d-alive-p))
+    (condition-case nil
+        (with-temp-buffer
+          (when (zerop (call-process
+                        (taskjuggler--tj3-executable "tj3client")
+                        nil t nil "status"))
+            (goto-char (point-min))
+            (search-forward (file-name-nondirectory tjp) nil t)))
+      (error nil))))
+
+(defun taskjuggler--auto-add-project-tj3d ()
+  "Add the current project to tj3d if not already loaded.
+When tj3d is accepting connections and the project is not yet loaded,
+adds it immediately.  When tj3d is not yet ready (e.g. just started),
+retries up to 5 times at 1-second intervals.
+Guards against duplicate attempts via `taskjuggler--auto-add-pending'."
+  (let ((tjp (taskjuggler--find-tjp-file)))
+    (when (and tjp
+               (not (equal tjp taskjuggler--auto-add-pending))
+               (not (taskjuggler--tj3d-project-loaded-p tjp)))
+      (setq taskjuggler--auto-add-pending tjp)
+      (if (taskjuggler--tj3d-accepting-p)
+          (progn
+            (taskjuggler-tj3d-add-project)
+            (setq taskjuggler--auto-add-pending nil))
+        ;; tj3d was just started; poll until accepting connections.
+        (let ((retries 0)
+              (timer nil))
+          (setq timer
+                (run-with-timer
+                 1 1
+                 (lambda ()
+                   (setq retries (1+ retries))
+                   (cond
+                    ((taskjuggler--tj3d-project-loaded-p tjp)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((taskjuggler--tj3d-accepting-p)
+                     (cancel-timer timer)
+                     (taskjuggler-tj3d-add-project)
+                     (setq taskjuggler--auto-add-pending nil))
+                    ((>= retries 5)
+                     (cancel-timer timer)
+                     (setq taskjuggler--auto-add-pending nil)
+                     (message "tj3d not ready after %d attempts; \
+skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
+
 (defun taskjuggler-tj3webd-start ()
   "Start the tj3webd web daemon from the current project directory.
-Launches with -d (don't daemonize) so Emacs manages the process
-directly and the working directory is preserved.
+The daemon forks into the background automatically.
 Uses `taskjuggler-tj3webd-port' for the port number."
   (interactive)
   (if (taskjuggler--tj3webd-alive-p)
@@ -2400,55 +2531,28 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (let* ((tjp (taskjuggler--find-tjp-file))
            (default-directory (if tjp (file-name-directory tjp)
                                  default-directory))
-           (cmd (taskjuggler--tj3-executable "tj3webd"))
-           (buf (get-buffer-create "*tj3webd*")))
-      (setq taskjuggler--tj3webd-process
-            (make-process
-             :name "tj3webd"
-             :buffer buf
-             :command (list cmd "-d"
-                            "--webserver-port"
-                            (number-to-string taskjuggler-tj3webd-port))
-             :noquery t
-             :sentinel #'taskjuggler--daemon-sentinel))
-      (taskjuggler--daemon-ensure-cleanup-hook)
+           (cmd (taskjuggler--tj3-executable "tj3webd")))
+      (call-process cmd nil nil nil
+                    "--webserver-port"
+                    (number-to-string taskjuggler-tj3webd-port))
       (taskjuggler--daemon-ensure-status-timer)
       (taskjuggler--daemon-update-modeline)
-      (message "tj3webd started on port %d (pid %d)"
-               taskjuggler-tj3webd-port
-               (process-id taskjuggler--tj3webd-process)))))
+      (message "tj3webd started on port %d" taskjuggler-tj3webd-port)
+      ;; Re-probe the cursor API once the server has had time to bind.
+      (run-with-timer
+       2 nil
+       (lambda ()
+         (dolist (buf (buffer-list))
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (when (and (derived-mode-p 'taskjuggler-mode)
+                          (not taskjuggler--cursor-api-url))
+                 (setq taskjuggler--cursor-api-url
+                       (taskjuggler--cursor-api-probe))
+                 (when (and taskjuggler--cursor-api-url
+                            (not taskjuggler--cursor-idle-timer))
+                   (taskjuggler--start-cursor-tracking)))))))))))
 
-(defun taskjuggler--daemon-stop-process (proc)
-  "Stop daemon process PROC if it is live.  Return non-nil if it was stopped."
-  (when (and proc (processp proc) (process-live-p proc))
-    (kill-process proc)
-    t))
-
-(defun taskjuggler-daemon-stop ()
-  "Stop running TJ3 daemons started by Emacs."
-  (interactive)
-  (let ((stopped nil))
-    (when (taskjuggler--daemon-stop-process taskjuggler--tj3webd-process)
-      (setq taskjuggler--tj3webd-process nil)
-      (push "tj3webd" stopped))
-    (when (taskjuggler--daemon-stop-process taskjuggler--tj3d-process)
-      (setq taskjuggler--tj3d-process nil)
-      (push "tj3d" stopped))
-    (taskjuggler--daemon-update-modeline)
-    (if stopped
-        (message "Stopped: %s" (string-join stopped ", "))
-      (message "No TJ3 daemons running"))))
-
-(defun taskjuggler-daemon-restart ()
-  "Restart TJ3 daemons that Emacs started."
-  (interactive)
-  (let ((had-tj3d (taskjuggler--tj3d-alive-p))
-        (had-tj3webd (taskjuggler--tj3webd-alive-p)))
-    (taskjuggler-daemon-stop)
-    (when (or had-tj3d had-tj3webd)
-      (sit-for 0.3))
-    (when had-tj3d (taskjuggler-tj3d-start))
-    (when had-tj3webd (taskjuggler-tj3webd-start))))
 
 (defun taskjuggler-daemon-status ()
   "Display `tj3client status' output in a popup buffer."
@@ -2465,6 +2569,8 @@ Uses `taskjuggler-tj3webd-port' for the port number."
      :noquery t
      :sentinel (lambda (proc _event)
                  (when (memq (process-status proc) '(exit signal))
+                   (with-current-buffer (process-buffer proc)
+                     (special-mode))
                    (display-buffer (process-buffer proc)))))))
 
 (defun taskjuggler-tj3webd-browse ()
@@ -2474,9 +2580,31 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (user-error "Process tj3webd is not running"))
   (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
 
-(defun taskjuggler--daemon-sentinel (_proc _event)
-  "Process sentinel for tj3d/tj3webd; update the modeline on state change."
-  (taskjuggler--daemon-update-modeline))
+(defun taskjuggler--stop-daemons ()
+  "Stop tj3d and tj3webd if they are running.
+Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
+  ;; tj3d: use the official tj3client quit command.
+  (condition-case nil
+      (when (taskjuggler--tj3d-alive-p)
+        (call-process (taskjuggler--tj3-executable "tj3client")
+                      nil nil nil "terminate"))
+    (error nil))
+  ;; tj3webd: no quit command; find the process by port and send SIGTERM.
+  ;; Filter out Emacs's own PID since it may hold an open connection.
+  (condition-case nil
+      (when (taskjuggler--tj3webd-alive-p)
+        (let ((our-pid (emacs-pid))
+              (pids (split-string
+                     (string-trim
+                      (shell-command-to-string
+                       (format "lsof -ti tcp:%d 2>/dev/null"
+                               taskjuggler-tj3webd-port)))
+                     "\n" t)))
+          (dolist (pid pids)
+            (let ((n (string-to-number pid)))
+              (unless (= n our-pid)
+                (signal-process n 'SIGTERM))))))
+    (error nil)))
 
 (defun taskjuggler--daemon-update-modeline ()
   "Recompute `taskjuggler--daemon-modeline' from current daemon state."
@@ -2485,11 +2613,11 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (setq taskjuggler--daemon-modeline
           (cond
            ((and d w)
-            (propertize " 󰒍D+W" 'face '(:foreground "#50fa7b")))
+            (propertize "󰙬󰒍" 'face 'success))
            (d
-            (propertize " 󰒍D" 'face '(:foreground "#50fa7b")))
+            (propertize "󰙬" 'face 'success))
            (w
-            (propertize " 󰒍W" 'face '(:foreground "#f1fa8c")))
+            (propertize "󰒍" 'face 'warning))
            (t "")))
     (force-mode-line-update t)))
 
@@ -2502,19 +2630,6 @@ dies outside of Emacs (e.g. killed from a terminal)."
     (setq taskjuggler--daemon-status-timer
           (run-with-timer 5 5 #'taskjuggler--daemon-update-modeline))))
 
-(defun taskjuggler--daemon-cleanup ()
-  "Stop TJ3 daemons that Emacs started.  Added to `kill-emacs-hook'."
-  (taskjuggler--daemon-stop-process taskjuggler--tj3webd-process)
-  (setq taskjuggler--tj3webd-process nil)
-  (taskjuggler--daemon-stop-process taskjuggler--tj3d-process)
-  (setq taskjuggler--tj3d-process nil)
-  (when (timerp taskjuggler--daemon-status-timer)
-    (cancel-timer taskjuggler--daemon-status-timer)
-    (setq taskjuggler--daemon-status-timer nil)))
-
-(defun taskjuggler--daemon-ensure-cleanup-hook ()
-  "Ensure `taskjuggler--daemon-cleanup' is on `kill-emacs-hook'."
-  (add-hook 'kill-emacs-hook #'taskjuggler--daemon-cleanup))
 
 ;;; Evil integration
 
@@ -2563,8 +2678,6 @@ dies outside of Emacs (e.g. killed from a terminal)."
     (define-key km (kbd "W") #'taskjuggler-tj3webd-start)
     (define-key km (kbd "b") #'taskjuggler-tj3webd-browse)
     (define-key km (kbd "s") #'taskjuggler-daemon-status)
-    (define-key km (kbd "q") #'taskjuggler-daemon-stop)
-    (define-key km (kbd "R") #'taskjuggler-daemon-restart)
     km)
   "Keymap for TaskJuggler commands after `taskjuggler-keymap-prefix'.")
 (defalias 'taskjuggler-command-map taskjuggler-command-map)
@@ -2582,6 +2695,40 @@ dies outside of Emacs (e.g. killed from a terminal)."
       (define-key map taskjuggler-keymap-prefix 'taskjuggler-command-map))
     map)
   "Keymap for `taskjuggler-mode'.")
+
+(easy-menu-define taskjuggler-menu taskjuggler-mode-map
+  "Menu for `taskjuggler-mode'."
+  '("TJ3"
+    ["Date DWIM" taskjuggler-date-dwim]
+    ["Man Lookup" taskjuggler-man]
+    ["Narrow to Block" taskjuggler-narrow-to-block]
+    "---"
+    ("Block Navigation"
+     ["Move Block Up" taskjuggler-move-block-up]
+     ["Move Block Down" taskjuggler-move-block-down]
+     ["Next Block" taskjuggler-next-block]
+     ["Prev Block" taskjuggler-prev-block]
+     ["Goto Parent" taskjuggler-goto-parent]
+     ["Goto First Child" taskjuggler-goto-first-child]
+     ["Mark Block" taskjuggler-mark-block])
+    "---"
+    ("Daemons"
+     ["Start tj3d" taskjuggler-tj3d-start]
+     ["Add Project to tj3d" taskjuggler-tj3d-add-project]
+     ["Start tj3webd" taskjuggler-tj3webd-start]
+     ["Browse tj3webd" taskjuggler-tj3webd-browse]
+     ["Daemon Status" taskjuggler-daemon-status])))
+
+(defvar taskjuggler--mode-line-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] #'taskjuggler--show-mode-line-menu)
+    map)
+  "Keymap for the TJ3 modeline indicator.")
+
+(defun taskjuggler--show-mode-line-menu ()
+  "Show `taskjuggler-menu' as a popup from the modeline."
+  (interactive)
+  (popup-menu taskjuggler-menu))
 
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
@@ -2631,12 +2778,29 @@ See URL `https://taskjuggler.org' for more information.
     (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
   ;; tj3man: populate keyword cache on first mode activation.
   (taskjuggler--populate-tj3man-keywords)
-  ;; Cursor tracking: write tj-cursor.json while this buffer is live.
+  ;; Cursor tracking: sync task-at-point via API or js/ fallback.
   (taskjuggler--start-cursor-tracking)
   (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
   (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
-  ;; Daemon modeline: append daemon status indicator after the mode name.
-  (setq mode-line-process '(:eval taskjuggler--daemon-modeline))
+  ;; Daemon modeline: combine "TJ3" label with daemon status in one clickable entry.
+  (setq mode-line-process nil)
+  (setq mode-name
+        `(,(propertize "TJ3"
+                       'mouse-face 'mode-line-highlight
+                       'help-echo "mouse-1: TaskJuggler menu"
+                       'local-map taskjuggler--mode-line-map)
+          (:eval taskjuggler--daemon-modeline)))
+  ;; Auto-start tj3d and tj3webd if configured.
+  (when taskjuggler-auto-start-tj3d-tj3webd
+    (unless (taskjuggler--tj3d-alive-p)
+      (taskjuggler-tj3d-start))
+    (unless (taskjuggler--tj3webd-alive-p)
+      (taskjuggler-tj3webd-start)))
+  ;; Auto-add project to tj3d if configured.
+  (when taskjuggler-auto-add-project-tj3d
+    (taskjuggler--auto-add-project-tj3d))
+  ;; Shut down daemons when Emacs exits (idempotent; safe to add per buffer).
+  (add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
   (taskjuggler--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.

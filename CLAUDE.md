@@ -37,10 +37,12 @@ The mode is implemented as a standard Emacs derived mode
 (`define-derived-mode` from `prog-mode`). All logic is in
 `taskjuggler-mode.el` in this order:
 
-1. **Customization** — Six defcustoms: `taskjuggler-indent-level`,
+1. **Customization** — Eight defcustoms: `taskjuggler-indent-level`,
    `taskjuggler-tj3-bin-dir`, `taskjuggler-tj3-extra-args`,
    `taskjuggler-cursor-idle-delay`, `taskjuggler-cal-show-week-numbers`,
-   `taskjuggler-auto-cal-on-date-keyword`
+   `taskjuggler-auto-cal-on-date-keyword`,
+   `taskjuggler-auto-start-tj3d-tj3webd`,
+   `taskjuggler-auto-add-project-tj3d`
 2. **Faces** — Three syntax faces (`taskjuggler-date-face`,
    `taskjuggler-duration-face`, `taskjuggler-macro-face`) plus eight
    calendar popup faces (`taskjuggler-cal-face`, `-header-face`,
