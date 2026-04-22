@@ -1,0 +1,5 @@
+_global:
+  authKey: topsecret
+  _log:
+    logLevel: 3
+    outputLevel: 3
