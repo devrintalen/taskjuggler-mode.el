@@ -1845,8 +1845,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
   (when (process-live-p taskjuggler--flymake-proc)
     (kill-process taskjuggler--flymake-proc))
   (let* ((source (current-buffer))
-         (file   (buffer-file-name))
-         (fname  (and file (file-name-nondirectory file))))
+         (file   (buffer-file-name)))
     (if (not file)
         (funcall report-fn nil)
       (setq taskjuggler--flymake-proc
@@ -1869,17 +1868,28 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
                              (replace-match ""))
                            ;; Collect errors for the current file only.
                            ;; Errors in included files are reported there instead.
-                           (goto-char (point-min))
                            (let (diags)
+                             (goto-char (point-min))
                              (while (re-search-forward
-                                     (concat "^" (regexp-quote fname)
-                                             ":\\([0-9]+\\): Error: \\(.*\\)")
+                                     (concat "^" (regexp-quote file)
+                                             ":\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)")
                                      nil t)
                                (let* ((lnum (string-to-number (match-string 1)))
-                                      (msg  (match-string 2))
+                                      (type (if (equal (match-string 2) "Error")
+                                                :error :warning))
+                                      (msg  (match-string 3))
                                       (reg  (flymake-diag-region source lnum)))
                                  (push (flymake-make-diagnostic
-                                        source (car reg) (cdr reg) :error msg)
+                                        source (car reg) (cdr reg) type msg)
+                                       diags)))
+                             ;; Prefix-less warnings (no file:line), pinned to line 1.
+                             (goto-char (point-min))
+                             (while (re-search-forward
+                                     "^Warning: \\(.*\\)" nil t)
+                               (let* ((msg (match-string 1))
+                                      (reg (flymake-diag-region source 1)))
+                                 (push (flymake-make-diagnostic
+                                        source (car reg) (cdr reg) :warning msg)
                                        diags)))
                              (funcall report-fn (nreverse diags))))
                        (flymake-log :debug "Canceling obsolete check %s" proc))
