@@ -2308,7 +2308,8 @@ Uses the cursor API when available, otherwise reads js/tj-cursor.js."
       (setq taskjuggler--cursor-last-click-ts click-ts)
       (when (and click-id (not (string-empty-p click-id)))
         (when (taskjuggler--goto-task-id click-id)
-          (recenter))))))
+          (when-let ((win (get-buffer-window (current-buffer) t)))
+            (with-selected-window win (recenter))))))))
 
 ;; ---- Lifecycle ----
 
