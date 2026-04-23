@@ -2589,7 +2589,7 @@ Uses `taskjuggler-tj3webd-port' for the port number."
   (interactive)
   (unless (taskjuggler--tj3webd-alive-p)
     (user-error "Process tj3webd is not running"))
-  (browse-url (format "http://localhost:%d" taskjuggler-tj3webd-port)))
+  (browse-url (format "http://localhost:%d/taskjuggler" taskjuggler-tj3webd-port)))
 
 (defun taskjuggler--stop-daemons ()
   "Stop tj3d and tj3webd if they are running.
