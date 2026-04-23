@@ -2088,6 +2088,20 @@ defaulting to the word at point."
 
 ;; ---- Variables ----
 
+;; TODO: the timer refs below should be `permanent-local'.
+;; `kill-all-local-variables' runs on mode re-activation (M-x
+;; taskjuggler-mode by hand, some revert paths, and — observed in
+;; practice — the mode getting activated in transient buffers like
+;; *company-documentation*).  It wipes these refs BEFORE
+;; `taskjuggler--start-cursor-tracking' gets a chance to cancel the
+;; prior timers, so the old timers stay scheduled forever against the
+;; old buffer.  Checking `list-timers' on a long-lived session shows
+;; stacks of them.  They are harmless (the handler checks
+;; `buffer-live-p') but accumulate.  Proper fix: mark both refs
+;; permanent-local and add a `change-major-mode-hook' entry that calls
+;; `taskjuggler--stop-cursor-tracking' before kill-all-local-variables
+;; can clear them.
+
 (defvar-local taskjuggler--cursor-idle-timer nil
   "Idle timer that updates cursor position while this buffer is live.")
 
@@ -2161,6 +2175,24 @@ success, nil when no matching declaration is found."
       t)))
 
 ;; ---- API transport (tj3webd /cursor endpoint) ----
+
+;; TODO: the functions below use `url-retrieve-synchronously' inside
+;; the 0.3s repeating click-poll timer.  That opens a recursive event
+;; loop from a timer handler, which is fragile.  Observed failure: the
+;; live `.tji' poll timer's next-fire-time stopped advancing (showed as
+;; ~47 hours overdue in `list-timers') while other timers in the same
+;; Emacs kept firing normally, and sync stayed dead until
+;; `taskjuggler--stop-cursor-tracking' + `--start-cursor-tracking'
+;; replaced the timer.  Orphan poll timers for *company-documentation*
+;; showed the same overdue pattern in BOTH broken and working sessions,
+;; so the orphans are not the cause — single-timer wedging of the live
+;; timer is.  Suspected triggers: C-g during the 2s timeout, or
+;; re-entrance when Emacs is busy (save + flymake + company +
+;; fontification stacking up).  Proper fix: convert
+;; `taskjuggler--cursor-poll-api' and `taskjuggler--cursor-post-api' to
+;; async `url-retrieve' with callbacks so no recursive event loop runs
+;; from the timer handler.  (`taskjuggler--cursor-api-probe' runs
+;; once at mode init, not from a timer, so it's fine.)
 
 (defun taskjuggler--cursor-api-probe ()
   "Probe whether the tj3webd cursor API is reachable.
