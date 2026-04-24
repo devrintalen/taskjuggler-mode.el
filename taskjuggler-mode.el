@@ -2652,28 +2652,49 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (user-error "Process tj3webd is not running"))
   (browse-url (format "http://localhost:%d/taskjuggler" taskjuggler-tj3webd-port)))
 
+(defun taskjuggler-tj3d-stop ()
+  "Stop the running tj3d daemon via `tj3client terminate'."
+  (interactive)
+  (unless (taskjuggler--tj3d-alive-p)
+    (user-error "Process tj3d is not running"))
+  (call-process (taskjuggler--tj3-executable "tj3client")
+                nil nil nil "--no-color" "terminate")
+  (taskjuggler--daemon-update-modeline)
+  (message "tj3d stopped"))
+
+(defun taskjuggler-tj3webd-stop ()
+  "Stop the running tj3webd daemon.
+tj3webd has no quit command, so this finds the process listening on
+`taskjuggler-tj3webd-port' via lsof and sends it SIGTERM.
+The -sTCP:LISTEN filter restricts to the server socket so connected
+clients (Firefox, Emacs, ...) are never signalled."
+  (interactive)
+  (unless (taskjuggler--tj3webd-alive-p)
+    (user-error "Process tj3webd is not running"))
+  (let ((pids (split-string
+               (string-trim
+                (shell-command-to-string
+                 (format "lsof -ti tcp:%d -sTCP:LISTEN 2>/dev/null"
+                         taskjuggler-tj3webd-port)))
+               "\n" t)))
+    (unless pids
+      (user-error "Could not find tj3webd listener on port %d"
+                  taskjuggler-tj3webd-port))
+    (dolist (pid pids)
+      (signal-process (string-to-number pid) 'SIGTERM)))
+  (taskjuggler--daemon-update-modeline)
+  (message "tj3webd stopped"))
+
 (defun taskjuggler--stop-daemons ()
   "Stop tj3d and tj3webd if they are running.
 Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
-  ;; tj3d: use the official tj3client quit command.
   (condition-case nil
       (when (taskjuggler--tj3d-alive-p)
-        (call-process (taskjuggler--tj3-executable "tj3client")
-                      nil nil nil "--no-color" "terminate"))
+        (taskjuggler-tj3d-stop))
     (error nil))
-  ;; tj3webd: no quit command; find the listening process by port and
-  ;; send SIGTERM.  -sTCP:LISTEN restricts to the server socket so we
-  ;; never signal connected clients (Firefox, Emacs, etc.).
   (condition-case nil
       (when (taskjuggler--tj3webd-alive-p)
-        (let ((pids (split-string
-                     (string-trim
-                      (shell-command-to-string
-                       (format "lsof -ti tcp:%d -sTCP:LISTEN 2>/dev/null"
-                               taskjuggler-tj3webd-port)))
-                     "\n" t)))
-          (dolist (pid pids)
-            (signal-process (string-to-number pid) 'SIGTERM))))
+        (taskjuggler-tj3webd-stop))
     (error nil)))
 
 (defun taskjuggler--daemon-update-modeline ()
@@ -2784,8 +2805,10 @@ dies outside of Emacs (e.g. killed from a terminal)."
     "---"
     ("Daemons"
      ["Start tj3d" taskjuggler-tj3d-start]
+     ["Stop tj3d" taskjuggler-tj3d-stop]
      ["Add Project to tj3d" taskjuggler-tj3d-add-project]
      ["Start tj3webd" taskjuggler-tj3webd-start]
+     ["Stop tj3webd" taskjuggler-tj3webd-stop]
      ["Browse tj3webd" taskjuggler-tj3webd-browse]
      ["Daemon Status" taskjuggler-daemon-status])))
 
