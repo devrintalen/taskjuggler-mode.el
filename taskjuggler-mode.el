@@ -2709,6 +2709,16 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                        (message "tj3client add failed (exit %d); see *tj3client*"
                                 (process-exit-status proc)))))))))
 
+(defun taskjuggler--tj3d-refresh-on-save ()
+  "Re-run `tj3client add' when tj3d owns the current buffer's project.
+Runs from `after-save-hook' so the tj3d Flymake backend's cached
+diagnostics stay in sync with what's on disk.  No-op when tj3d isn't
+running or isn't authoritative for this buffer — in which case the
+direct tj3 Flymake backend is already handling the file."
+  (when (and (taskjuggler--tj3d-alive-p)
+             (taskjuggler--tj3d-owns-current-buffer-p))
+    (taskjuggler-tj3d-add-project)))
+
 (defun taskjuggler--tj3-project-id (tjp)
   "Return the project ID declared in TJP, or nil if none found.
 Reads from a buffer visiting TJP when available; otherwise reads the
@@ -3063,6 +3073,10 @@ See URL `https://taskjuggler.org' for more information.
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-tj3d-flymake-backend nil t)
+  ;; Refresh tj3d diagnostics on save; the tj3d backend is synchronous and
+  ;; only reads cached output from `tj3client add', so without this the
+  ;; cache never updates after the initial add.
+  (add-hook 'after-save-hook #'taskjuggler--tj3d-refresh-on-save nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.
   (when (featurep 'compile)
     (add-to-list 'compilation-error-regexp-alist-alist
