@@ -54,7 +54,9 @@
 
 ;;; Code:
 
+(require 'ansi-color)
 (require 'calendar)
+(require 'comint)
 (require 'man)
 (require 'url)
 (require 'json)
@@ -2485,10 +2487,35 @@ Respects `taskjuggler-tj3-bin-dir' for executable resolution."
            (default-directory (if tjp (file-name-directory tjp)
                                 default-directory))
            (cmd (taskjuggler--tj3-executable "tj3d")))
-      (call-process cmd nil nil nil "--auto-update")
+      (call-process cmd nil nil nil "--no-color" "--auto-update")
       (taskjuggler--daemon-ensure-status-timer)
       (taskjuggler--daemon-update-modeline)
       (message "tj3d started"))))
+
+(defun taskjuggler--tj3-process-filter (proc string)
+  "Insert STRING from PROC, handling carriage returns and ANSI colors.
+TaskJuggler writes progress bars using lone `\\r' to overwrite the
+current line, and tj3d forwards ANSI SGR escapes for progress/error text
+over the tj3client socket even when tj3client/tj3d are invoked with
+`--no-color' (upstream bug: the flag only silences tj3client's own
+banner, not the daemon's forwarded output).  This filter runs
+`comint-carriage-motion' and `ansi-color-apply-on-region' over just the
+newly inserted text so the buffer reads like a terminal."
+  (let ((buf (process-buffer proc)))
+    (when (buffer-live-p buf)
+      (with-current-buffer buf
+        (let ((moving (= (point) (process-mark proc)))
+              (inhibit-read-only t)
+              start)
+          (save-excursion
+            (goto-char (process-mark proc))
+            (setq start (copy-marker (point) nil))
+            (insert string)
+            (set-marker (process-mark proc) (point))
+            (comint-carriage-motion start (process-mark proc))
+            (ansi-color-apply-on-region start (process-mark proc))
+            (set-marker start nil))
+          (when moving (goto-char (process-mark proc))))))))
 
 (defun taskjuggler-tj3d-add-project ()
   "Add the current project to the running tj3d daemon.
@@ -2504,8 +2531,9 @@ Uses `tj3client add' with the .tjp file for the current buffer."
       (make-process
        :name "tj3client-add"
        :buffer (get-buffer-create "*tj3client*")
-       :command (list cmd "add" tjp)
+       :command (list cmd "--no-color" "add" tjp)
        :noquery t
+       :filter #'taskjuggler--tj3-process-filter
        :sentinel (lambda (proc _event)
                    (when (memq (process-status proc) '(exit signal))
                      (if (zerop (process-exit-status proc))
@@ -2521,7 +2549,7 @@ Uses `tj3client add' with the .tjp file for the current buffer."
         (with-temp-buffer
           (when (zerop (call-process
                         (taskjuggler--tj3-executable "tj3client")
-                        nil t nil "status"))
+                        nil t nil "--no-color" "status"))
             (goto-char (point-min))
             (search-forward (file-name-nondirectory tjp) nil t)))
       (error nil))))
@@ -2608,8 +2636,9 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (make-process
      :name "tj3client-status"
      :buffer buf
-     :command (list cmd "status")
+     :command (list cmd "--no-color" "status")
      :noquery t
+     :filter #'taskjuggler--tj3-process-filter
      :sentinel (lambda (proc _event)
                  (when (memq (process-status proc) '(exit signal))
                    (with-current-buffer (process-buffer proc)
@@ -2630,7 +2659,7 @@ Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
   (condition-case nil
       (when (taskjuggler--tj3d-alive-p)
         (call-process (taskjuggler--tj3-executable "tj3client")
-                      nil nil nil "terminate"))
+                      nil nil nil "--no-color" "terminate"))
     (error nil))
   ;; tj3webd: no quit command; find the listening process by port and
   ;; send SIGTERM.  -sTCP:LISTEN restricts to the server socket so we
