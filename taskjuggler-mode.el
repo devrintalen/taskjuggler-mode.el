@@ -2669,54 +2669,108 @@ newly inserted text so the buffer reads like a terminal."
             (set-marker start nil))
           (when moving (goto-char (process-mark proc))))))))
 
+(defvar taskjuggler--tj3d-tracked-projects (make-hash-table :test 'equal)
+  "Hash of abs-.tjp paths submitted to tj3d this session.
+Used as a cheap gate by `taskjuggler--tj3d-refresh-on-save' — no
+`tj3client status' probe needed.  Cleared by `taskjuggler-tj3d-stop'.")
+
+(defvar taskjuggler--tj3d-refresh-queue nil
+  "Pending tj3d refreshes as a FIFO of (ABS-TJP . QUIET) pairs.
+At most one entry per distinct ABS-TJP: duplicate schedule requests
+coalesce so rapid saves don't pile up redundant `tj3client add' runs.")
+
+(defvar taskjuggler--tj3d-refresh-in-flight nil
+  "ABS-TJP currently being refreshed, or nil.
+Guards against two concurrent `tj3client add' runs clobbering the
+shared `*tj3client*' buffer.")
+
+(defun taskjuggler--tj3d-add-project-run (tjp quiet)
+  "Run `tj3client add' on TJP asynchronously and update diagnostics.
+When QUIET, suppress the progress messages (failures still report).
+Marks TJP as tracked and, on completion, drains the refresh queue."
+  (let* ((cmd (taskjuggler--tj3-executable "tj3client"))
+         (buf (get-buffer-create "*tj3client*")))
+    (puthash (expand-file-name tjp) t
+             taskjuggler--tj3d-tracked-projects)
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)))
+    (unless quiet
+      (message "Adding %s to tj3d..." (file-name-nondirectory tjp)))
+    (make-process
+     :name "tj3client-add"
+     :buffer buf
+     :command (list cmd "--no-color" "add" tjp)
+     :noquery t
+     :filter #'taskjuggler--tj3-process-filter
+     :sentinel
+     (lambda (proc _event)
+       (when (memq (process-status proc) '(exit signal))
+         (let ((old-files (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
+           (with-current-buffer (process-buffer proc)
+             (taskjuggler--tj3d-parse-diagnostics tjp))
+           (let ((new-files (gethash (expand-file-name tjp)
+                                     taskjuggler--tj3d-diag-files-by-project)))
+             ;; Always refresh the .tjp itself so the tj3 direct backend
+             ;; clears any stale errors now that tj3d owns the project.
+             (taskjuggler--tj3d-refresh-flymake-for-files
+              (delete-dups (cons (expand-file-name tjp)
+                                 (append old-files new-files))))))
+         (if (zerop (process-exit-status proc))
+             (unless quiet
+               (message "Project added to tj3d: %s"
+                        (file-name-nondirectory tjp)))
+           (message "tj3client add failed (exit %d); see *tj3client*"
+                    (process-exit-status proc)))
+         (setq taskjuggler--tj3d-refresh-in-flight nil)
+         (when taskjuggler--tj3d-refresh-queue
+           (let* ((next (pop taskjuggler--tj3d-refresh-queue))
+                  (next-abs (car next))
+                  (next-quiet (cdr next)))
+             (setq taskjuggler--tj3d-refresh-in-flight next-abs)
+             (taskjuggler--tj3d-add-project-run next-abs next-quiet))))))))
+
+(defun taskjuggler--tj3d-schedule-refresh (tjp quiet)
+  "Queue a `tj3client add' refresh for TJP, or start one if idle.
+Coalesces by path: if TJP is already in-flight or already queued, the
+request is dropped.  QUIET propagates through the sentinel's progress
+messages."
+  (let ((abs (expand-file-name tjp)))
+    (cond
+     ((equal abs taskjuggler--tj3d-refresh-in-flight) nil)
+     ((assoc abs taskjuggler--tj3d-refresh-queue) nil)
+     (taskjuggler--tj3d-refresh-in-flight
+      (setq taskjuggler--tj3d-refresh-queue
+            (append taskjuggler--tj3d-refresh-queue
+                    (list (cons abs quiet)))))
+     (t
+      (setq taskjuggler--tj3d-refresh-in-flight abs)
+      (taskjuggler--tj3d-add-project-run abs quiet)))))
+
 (defun taskjuggler-tj3d-add-project ()
   "Add the current project to the running tj3d daemon.
-Uses `tj3client add' with the .tjp file for the current buffer."
+Uses `tj3client add' with the .tjp file for the current buffer.
+Serialized through a shared queue so concurrent invocations (e.g.
+manual add during a save-triggered refresh) don't race on the
+`*tj3client*' buffer."
   (interactive)
   (unless (taskjuggler--tj3d-alive-p)
     (user-error "Process tj3d is not running; start it with `taskjuggler-tj3d-start'"))
   (let ((tjp (taskjuggler--find-tjp-file)))
     (unless tjp
       (user-error "No .tjp file found for the current buffer"))
-    (let* ((cmd (taskjuggler--tj3-executable "tj3client"))
-           (buf (get-buffer-create "*tj3client*")))
-      (with-current-buffer buf
-        (let ((inhibit-read-only t))
-          (erase-buffer)))
-      (message "Adding %s to tj3d..." (file-name-nondirectory tjp))
-      (make-process
-       :name "tj3client-add"
-       :buffer buf
-       :command (list cmd "--no-color" "add" tjp)
-       :noquery t
-       :filter #'taskjuggler--tj3-process-filter
-       :sentinel (lambda (proc _event)
-                   (when (memq (process-status proc) '(exit signal))
-                     (let ((old-files (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
-                       (with-current-buffer (process-buffer proc)
-                         (taskjuggler--tj3d-parse-diagnostics tjp))
-                       (let ((new-files (gethash (expand-file-name tjp)
-                                                 taskjuggler--tj3d-diag-files-by-project)))
-                         ;; Always refresh the .tjp itself so the tj3 direct
-                         ;; backend clears any stale errors now that tj3d
-                         ;; owns the project.
-                         (taskjuggler--tj3d-refresh-flymake-for-files
-                          (delete-dups (cons (expand-file-name tjp)
-                                             (append old-files new-files))))))
-                     (if (zerop (process-exit-status proc))
-                         (message "Project added to tj3d: %s"
-                                  (file-name-nondirectory tjp))
-                       (message "tj3client add failed (exit %d); see *tj3client*"
-                                (process-exit-status proc)))))))))
+    (taskjuggler--tj3d-schedule-refresh tjp nil)))
 
 (defun taskjuggler--tj3d-refresh-on-save ()
-  "Re-run `tj3client add' when tj3d owns the current buffer's project.
-Runs from `after-save-hook' so the tj3d Flymake backend's cached
-diagnostics stay in sync with what's on disk.  No-op when tj3d isn't
-authoritative for this buffer — in which case the direct tj3 Flymake
-backend is already handling the file."
-  (when (taskjuggler--tj3d-owns-current-buffer-p)
-    (taskjuggler-tj3d-add-project)))
+  "Schedule a tj3d refresh when this buffer's project is tracked.
+Runs from `after-save-hook'.  Cheap: no subprocess probe — just a hash
+lookup in `taskjuggler--tj3d-tracked-projects'.  The refresh itself
+runs asynchronously through the shared queue, which coalesces by path
+so rapid saves don't pile up redundant `tj3client add' runs."
+  (let ((tjp (taskjuggler--find-tjp-file)))
+    (when (and tjp (gethash (expand-file-name tjp)
+                            taskjuggler--tj3d-tracked-projects))
+      (taskjuggler--tj3d-schedule-refresh tjp t))))
 
 (defun taskjuggler--tj3-project-id (tjp)
   "Return the project ID declared in TJP, or nil if none found.
@@ -2860,12 +2914,16 @@ Uses `taskjuggler-tj3webd-port' for the port number."
   (browse-url (format "http://localhost:%d/taskjuggler" taskjuggler-tj3webd-port)))
 
 (defun taskjuggler-tj3d-stop ()
-  "Stop the running tj3d daemon via `tj3client terminate'."
+  "Stop the running tj3d daemon via `tj3client terminate'.
+Also clears the session's tracked-projects and pending refresh queue,
+since neither is meaningful after the daemon goes away."
   (interactive)
   (unless (taskjuggler--tj3d-alive-p)
     (user-error "Process tj3d is not running"))
   (call-process (taskjuggler--tj3-executable "tj3client")
                 nil nil nil "--no-color" "terminate")
+  (clrhash taskjuggler--tj3d-tracked-projects)
+  (setq taskjuggler--tj3d-refresh-queue nil)
   (taskjuggler--daemon-update-modeline)
   (message "tj3d stopped"))
 
