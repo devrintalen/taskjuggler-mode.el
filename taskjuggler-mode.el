@@ -1897,6 +1897,118 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
                        (flymake-log :debug "Canceling obsolete check %s" proc))
                    (kill-buffer (process-buffer proc))))))))))
 
+(defvar taskjuggler--tj3d-diagnostics (make-hash-table :test 'equal)
+  "Hash table of tj3d-reported diagnostics keyed by absolute file path.
+Each value is a list of (LINE TYPE MSG) entries where TYPE is :error or
+:warning.  Populated from `tj3client add' output and consumed by
+`taskjuggler-tj3d-flymake-backend'.")
+
+(defvar taskjuggler--tj3d-diag-files-by-project (make-hash-table :test 'equal)
+  "Hash table mapping a .tjp file to the list of files it annotated.
+Used to clear the right subset on re-add so diagnostics from other
+projects loaded in the same daemon are preserved.")
+
+(defun taskjuggler--tj3d-clear-diagnostics-for-project (tjp)
+  "Drop diagnostics previously recorded under project TJP.
+Returns the list of file paths that had diagnostics cleared so callers
+can refresh Flymake in their buffers."
+  (let* ((tjp-abs (expand-file-name tjp))
+         (files (gethash tjp-abs taskjuggler--tj3d-diag-files-by-project)))
+    (dolist (file files)
+      (remhash file taskjuggler--tj3d-diagnostics))
+    (remhash tjp-abs taskjuggler--tj3d-diag-files-by-project)
+    files))
+
+(defun taskjuggler--tj3d-record-diagnostic (file line type msg tjp)
+  "Record a daemon diagnostic on FILE:LINE of TYPE and MSG under project TJP."
+  (let* ((abs (if (file-name-absolute-p file)
+                  (expand-file-name file)
+                (expand-file-name file (file-name-directory tjp))))
+         (tjp-abs (expand-file-name tjp)))
+    (push (list line type msg) (gethash abs taskjuggler--tj3d-diagnostics))
+    (let ((files (gethash tjp-abs taskjuggler--tj3d-diag-files-by-project)))
+      (unless (member abs files)
+        (puthash tjp-abs (cons abs files)
+                 taskjuggler--tj3d-diag-files-by-project)))))
+
+(defun taskjuggler--tj3d-propagate-to-includers (child-file type msg tjp)
+  "Record a diagnostic on every `include' of CHILD-FILE's basename.
+Scans open taskjuggler-mode buffers for a line matching
+`include \"…<basename>\"' so that an error deep in an include chain
+surfaces at the point where the chain is entered.  TJP keys the
+annotation so it's cleared on re-add."
+  (let ((basename (file-name-nondirectory child-file))
+        (pattern nil))
+    (setq pattern (concat "^[ \t]*include[ \t]+\"[^\"]*"
+                          (regexp-quote basename) "\""))
+    (dolist (buf (buffer-list))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (when (and (derived-mode-p 'taskjuggler-mode)
+                     buffer-file-name
+                     (not (equal (expand-file-name buffer-file-name)
+                                 child-file)))
+            (save-excursion
+              (save-restriction
+                (widen)
+                (goto-char (point-min))
+                (while (re-search-forward pattern nil t)
+                  (taskjuggler--tj3d-record-diagnostic
+                   buffer-file-name
+                   (line-number-at-pos (match-beginning 0))
+                   type
+                   (format "In %s: %s" basename msg)
+                   tjp))))))))))
+
+(defun taskjuggler--tj3d-parse-diagnostics (tjp)
+  "Parse tj3client output in the current buffer, recording diags under TJP.
+Matches `FILE:LINE: Error|Warning: MSG' lines.  Errors whose FILE
+differs from TJP are also propagated to any open buffer that includes
+that file's basename."
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward
+            "^\\(.+?\\):\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)$"
+            nil t)
+      (let* ((file (match-string-no-properties 1))
+             (line (string-to-number (match-string 2)))
+             (type (if (equal (match-string 3) "Error") :error :warning))
+             (msg  (match-string-no-properties 4))
+             (abs  (if (file-name-absolute-p file)
+                       (expand-file-name file)
+                     (expand-file-name file (file-name-directory tjp)))))
+        (taskjuggler--tj3d-record-diagnostic file line type msg tjp)
+        (unless (equal abs (expand-file-name tjp))
+          (taskjuggler--tj3d-propagate-to-includers abs type msg tjp))))))
+
+(defun taskjuggler--tj3d-refresh-flymake-for-files (files)
+  "Re-run Flymake in any taskjuggler-mode buffer visiting one of FILES."
+  (dolist (file files)
+    (let ((buf (find-buffer-visiting file)))
+      (when (and buf (buffer-live-p buf))
+        (with-current-buffer buf
+          (when (bound-and-true-p flymake-mode)
+            (flymake-start)))))))
+
+(defun taskjuggler-tj3d-flymake-backend (report-fn &rest _args)
+  "Flymake backend reporting diagnostics cached from `tj3client add'.
+Synchronous: no subprocess.  Looks up
+`taskjuggler--tj3d-diagnostics' for `buffer-file-name' and reports any
+entries through REPORT-FN."
+  (let* ((source (current-buffer))
+         (file (and buffer-file-name (expand-file-name buffer-file-name)))
+         (entries (and file (gethash file taskjuggler--tj3d-diagnostics)))
+         diags)
+    (dolist (entry entries)
+      (let* ((line (nth 0 entry))
+             (type (nth 1 entry))
+             (msg  (nth 2 entry))
+             (reg  (flymake-diag-region source line)))
+        (when reg
+          (push (flymake-make-diagnostic source (car reg) (cdr reg) type msg)
+                diags))))
+    (funcall report-fn diags)))
+
 ;;; tj3man
 
 (defvar taskjuggler--tj3man-keywords nil
@@ -2536,6 +2648,13 @@ Uses `tj3client add' with the .tjp file for the current buffer."
        :filter #'taskjuggler--tj3-process-filter
        :sentinel (lambda (proc _event)
                    (when (memq (process-status proc) '(exit signal))
+                     (let ((old-files (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
+                       (with-current-buffer (process-buffer proc)
+                         (taskjuggler--tj3d-parse-diagnostics tjp))
+                       (let ((new-files (gethash (expand-file-name tjp)
+                                                 taskjuggler--tj3d-diag-files-by-project)))
+                         (taskjuggler--tj3d-refresh-flymake-for-files
+                          (delete-dups (append old-files new-files)))))
                      (if (zerop (process-exit-status proc))
                          (message "Project added to tj3d: %s"
                                   (file-name-nondirectory tjp))
@@ -2864,6 +2983,7 @@ See URL `https://taskjuggler.org' for more information.
   (add-hook 'post-self-insert-hook #'taskjuggler--maybe-launch-calendar nil t)
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
+  (add-hook 'flymake-diagnostic-functions #'taskjuggler-tj3d-flymake-backend nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.
   (when (featurep 'compile)
     (add-to-list 'compilation-error-regexp-alist-alist
