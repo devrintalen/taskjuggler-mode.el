@@ -1931,40 +1931,52 @@ can refresh Flymake in their buffers."
         (puthash tjp-abs (cons abs files)
                  taskjuggler--tj3d-diag-files-by-project)))))
 
+(defun taskjuggler--tj3d-scan-include-lines (source basename)
+  "Return line numbers in SOURCE whose `include' quotes a path ending in BASENAME.
+SOURCE is either a live buffer or an absolute file path; a path that
+can't be read yields nil."
+  (let ((pattern (concat "^[ \t]*include[ \t]+\"[^\"]*"
+                         (regexp-quote basename) "\""))
+        lines)
+    (cond
+     ((bufferp source)
+      (with-current-buffer source
+        (save-excursion
+          (save-restriction
+            (widen)
+            (goto-char (point-min))
+            (while (re-search-forward pattern nil t)
+              (push (line-number-at-pos (match-beginning 0)) lines))))))
+     ((and (stringp source) (file-readable-p source))
+      (with-temp-buffer
+        (insert-file-contents source)
+        (goto-char (point-min))
+        (while (re-search-forward pattern nil t)
+          (push (line-number-at-pos (match-beginning 0)) lines)))))
+    (nreverse lines)))
+
 (defun taskjuggler--tj3d-propagate-to-includers (child-file type msg tjp)
-  "Record a diagnostic on every `include' of CHILD-FILE's basename.
-Scans open taskjuggler-mode buffers for a line matching
-`include \"…<basename>\"' so that an error deep in an include chain
-surfaces at the point where the chain is entered.  TJP keys the
-annotation so it's cleared on re-add."
-  (let ((basename (file-name-nondirectory child-file))
-        (pattern nil))
-    (setq pattern (concat "^[ \t]*include[ \t]+\"[^\"]*"
-                          (regexp-quote basename) "\""))
-    (dolist (buf (buffer-list))
-      (when (buffer-live-p buf)
-        (with-current-buffer buf
-          (when (and (derived-mode-p 'taskjuggler-mode)
-                     buffer-file-name
-                     (not (equal (expand-file-name buffer-file-name)
-                                 child-file)))
-            (save-excursion
-              (save-restriction
-                (widen)
-                (goto-char (point-min))
-                (while (re-search-forward pattern nil t)
-                  (taskjuggler--tj3d-record-diagnostic
-                   buffer-file-name
-                   (line-number-at-pos (match-beginning 0))
-                   type
-                   (format "In %s: %s" basename msg)
-                   tjp))))))))))
+  "Record a diagnostic on every `include' of CHILD-FILE's basename in TJP.
+Scans only the .tjp passed to `tj3client add' (the project root whose
+add produced the diagnostic) — not arbitrary open buffers — so an
+unrelated buffer whose include happens to share the same basename is
+not flagged.  Reads TJP from disk if no buffer is visiting it."
+  (let ((tjp-abs (expand-file-name tjp)))
+    (unless (equal tjp-abs child-file)
+      (let* ((basename (file-name-nondirectory child-file))
+             (source (or (find-buffer-visiting tjp-abs) tjp-abs))
+             (lines (taskjuggler--tj3d-scan-include-lines source basename)))
+        (dolist (line lines)
+          (taskjuggler--tj3d-record-diagnostic
+           tjp-abs line type
+           (format "In %s: %s" basename msg)
+           tjp))))))
 
 (defun taskjuggler--tj3d-parse-diagnostics (tjp)
   "Parse tj3client output in the current buffer, recording diags under TJP.
 Matches `FILE:LINE: Error|Warning: MSG' lines.  Errors whose FILE
-differs from TJP are also propagated to any open buffer that includes
-that file's basename."
+differs from TJP are also propagated to the `include' line in TJP
+that references that file's basename."
   (save-excursion
     (goto-char (point-min))
     (while (re-search-forward
