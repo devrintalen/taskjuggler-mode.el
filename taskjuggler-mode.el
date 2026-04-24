@@ -2713,10 +2713,9 @@ Uses `tj3client add' with the .tjp file for the current buffer."
   "Re-run `tj3client add' when tj3d owns the current buffer's project.
 Runs from `after-save-hook' so the tj3d Flymake backend's cached
 diagnostics stay in sync with what's on disk.  No-op when tj3d isn't
-running or isn't authoritative for this buffer — in which case the
-direct tj3 Flymake backend is already handling the file."
-  (when (and (taskjuggler--tj3d-alive-p)
-             (taskjuggler--tj3d-owns-current-buffer-p))
+authoritative for this buffer — in which case the direct tj3 Flymake
+backend is already handling the file."
+  (when (taskjuggler--tj3d-owns-current-buffer-p)
     (taskjuggler-tj3d-add-project)))
 
 (defun taskjuggler--tj3-project-id (tjp)
