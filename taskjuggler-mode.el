@@ -2698,17 +2698,48 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                        (message "tj3client add failed (exit %d); see *tj3client*"
                                 (process-exit-status proc)))))))))
 
-(defun taskjuggler--tj3d-project-loaded-p (tjp)
-  "Return non-nil if TJP is already loaded in the running tj3d daemon."
-  (when (and tjp (taskjuggler--tj3d-alive-p))
-    (condition-case nil
-        (with-temp-buffer
-          (when (zerop (call-process
-                        (taskjuggler--tj3-executable "tj3client")
-                        nil t nil "--no-color" "status"))
+(defun taskjuggler--tj3-project-id (tjp)
+  "Return the project ID declared in TJP, or nil if none found.
+Reads from a buffer visiting TJP when available; otherwise reads the
+file from disk.  Matches the first toplevel `project <id>' statement."
+  (let ((buf (and (stringp tjp) (find-buffer-visiting tjp)))
+        (pattern "^[ \t]*project[ \t]+\\([A-Za-z_][A-Za-z0-9_.-]*\\)"))
+    (cond
+     (buf
+      (with-current-buffer buf
+        (save-excursion
+          (save-restriction
+            (widen)
             (goto-char (point-min))
-            (search-forward (file-name-nondirectory tjp) nil t)))
-      (error nil))))
+            (when (re-search-forward pattern nil t)
+              (match-string-no-properties 1))))))
+     ((and (stringp tjp) (file-readable-p tjp))
+      (with-temp-buffer
+        (insert-file-contents tjp)
+        (goto-char (point-min))
+        (when (re-search-forward pattern nil t)
+          (match-string-no-properties 1)))))))
+
+(defun taskjuggler--tj3d-project-loaded-p (tjp)
+  "Return non-nil if TJP is already loaded in the running tj3d daemon.
+`tj3client status' lists projects by the ID declared inside the .tjp
+(not by filename), so we extract the ID and look for it in the Project
+ID column of the status table."
+  (when (and tjp (taskjuggler--tj3d-alive-p))
+    (let ((pid (taskjuggler--tj3-project-id tjp)))
+      (when pid
+        (condition-case nil
+            (with-temp-buffer
+              (when (zerop (call-process
+                            (taskjuggler--tj3-executable "tj3client")
+                            nil t nil "--no-color" "status"))
+                (goto-char (point-min))
+                (re-search-forward
+                 (concat "^[ \t]*[0-9]+[ \t]*|[ \t]*"
+                         (regexp-quote pid)
+                         "[ \t]*|")
+                 nil t)))
+          (error nil))))))
 
 (defun taskjuggler--auto-add-project-tj3d ()
   "Add the current project to tj3d if not already loaded.
