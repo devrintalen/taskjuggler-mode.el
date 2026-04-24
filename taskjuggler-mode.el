@@ -1839,14 +1839,25 @@ and the text immediately before it ends with a keyword from
 (defvar-local taskjuggler--flymake-proc nil
   "The currently running flymake process for this buffer.")
 
+;; Forward declaration so the byte-compiler doesn't warn about
+;; `taskjuggler--tj3d-owns-current-buffer-p'; the real defvar with
+;; initial value lives next to the daemon-diagnostic plumbing below.
+(defvar taskjuggler--tj3d-diag-files-by-project)
+
 (defun taskjuggler--tj3d-owns-current-buffer-p ()
-  "Return non-nil when tj3d has the current buffer's project loaded.
-Resolves .tji files to their sibling .tjp.  Used to make the two
-Flymake backends mutually exclusive: while the daemon is authoritative
-for a project, running `tj3' directly on the same file would duplicate
-work and produce conflicting diagnostics."
+  "Return non-nil when tj3d is authoritative for the current buffer's project.
+Authoritative when either the daemon reports the project is loaded OR
+a recent add attempt recorded diagnostics for it.  The second case
+matters when an add fails: the project isn't in `tj3client status',
+but the daemon produced the only error messages we have, so routing
+to the tj3-direct backend would drop them on the floor.  Resolves
+.tji files to their sibling .tjp.  Used to make the two Flymake
+backends mutually exclusive."
   (let ((tjp (taskjuggler--find-tjp-file)))
-    (and tjp (taskjuggler--tj3d-project-loaded-p tjp))))
+    (when tjp
+      (or (taskjuggler--tj3d-project-loaded-p tjp)
+          (gethash (expand-file-name tjp)
+                   taskjuggler--tj3d-diag-files-by-project)))))
 
 (defun taskjuggler-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
