@@ -2650,11 +2650,18 @@ Uses `tj3client add' with the .tjp file for the current buffer."
   (let ((tjp (taskjuggler--find-tjp-file)))
     (unless tjp
       (user-error "No .tjp file found for the current buffer"))
-    (let ((cmd (taskjuggler--tj3-executable "tj3client")))
+    (let* ((cmd (taskjuggler--tj3-executable "tj3client"))
+           (buf (get-buffer-create "*tj3client*"))
+           ;; Mark where this run's output begins so we parse only new
+           ;; lines: *tj3client* is cumulative across runs, and without
+           ;; this the sentinel would re-pick-up errors from previous
+           ;; runs even after the user fixed them.
+           (run-start (with-current-buffer buf
+                        (copy-marker (point-max) nil))))
       (message "Adding %s to tj3d..." (file-name-nondirectory tjp))
       (make-process
        :name "tj3client-add"
-       :buffer (get-buffer-create "*tj3client*")
+       :buffer buf
        :command (list cmd "--no-color" "add" tjp)
        :noquery t
        :filter #'taskjuggler--tj3-process-filter
@@ -2662,7 +2669,10 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                    (when (memq (process-status proc) '(exit signal))
                      (let ((old-files (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
                        (with-current-buffer (process-buffer proc)
-                         (taskjuggler--tj3d-parse-diagnostics tjp))
+                         (save-restriction
+                           (narrow-to-region run-start (point-max))
+                           (taskjuggler--tj3d-parse-diagnostics tjp)))
+                       (set-marker run-start nil)
                        (let ((new-files (gethash (expand-file-name tjp)
                                                  taskjuggler--tj3d-diag-files-by-project)))
                          (taskjuggler--tj3d-refresh-flymake-for-files
