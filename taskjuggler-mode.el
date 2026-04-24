@@ -1839,17 +1839,32 @@ and the text immediately before it ends with a keyword from
 (defvar-local taskjuggler--flymake-proc nil
   "The currently running flymake process for this buffer.")
 
+(defun taskjuggler--tj3d-owns-current-buffer-p ()
+  "Return non-nil when tj3d has the current buffer's project loaded.
+Resolves .tji files to their sibling .tjp.  Used to make the two
+Flymake backends mutually exclusive: while the daemon is authoritative
+for a project, running `tj3' directly on the same file would duplicate
+work and produce conflicting diagnostics."
+  (let ((tjp (taskjuggler--find-tjp-file)))
+    (and tjp (taskjuggler--tj3d-project-loaded-p tjp))))
+
 (defun taskjuggler-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
-Runs tj3 on the current file and reports errors via REPORT-FN."
+Runs tj3 on the current file and reports errors via REPORT-FN.
+Yields to `taskjuggler-tj3d-flymake-backend' whenever the project is
+loaded in tj3d, to avoid duplicate work and conflicting diagnostics."
   (unless (executable-find (taskjuggler--tj3-executable "tj3"))
     (error "Cannot find tj3 executable: %s" (taskjuggler--tj3-executable "tj3")))
   (when (process-live-p taskjuggler--flymake-proc)
     (kill-process taskjuggler--flymake-proc))
   (let* ((source (current-buffer))
          (file   (buffer-file-name)))
-    (if (not file)
-        (funcall report-fn nil)
+    (cond
+     ((not file)
+      (funcall report-fn nil))
+     ((taskjuggler--tj3d-owns-current-buffer-p)
+      (funcall report-fn nil))
+     (t
       (setq taskjuggler--flymake-proc
             (make-process
              :name "taskjuggler-flymake"
@@ -1895,7 +1910,7 @@ Runs tj3 on the current file and reports errors via REPORT-FN."
                                        diags)))
                              (funcall report-fn (nreverse diags))))
                        (flymake-log :debug "Canceling obsolete check %s" proc))
-                   (kill-buffer (process-buffer proc))))))))))
+                   (kill-buffer (process-buffer proc)))))))))))
 
 (defvar taskjuggler--tj3d-diagnostics (make-hash-table :test 'equal)
   "Hash table of tj3d-reported diagnostics keyed by absolute file path.
@@ -2004,22 +2019,24 @@ that references that file's basename."
 
 (defun taskjuggler-tj3d-flymake-backend (report-fn &rest _args)
   "Flymake backend reporting diagnostics cached from `tj3client add'.
-Synchronous: no subprocess.  Looks up
-`taskjuggler--tj3d-diagnostics' for `buffer-file-name' and reports any
-entries through REPORT-FN."
-  (let* ((source (current-buffer))
-         (file (and buffer-file-name (expand-file-name buffer-file-name)))
-         (entries (and file (gethash file taskjuggler--tj3d-diagnostics)))
-         diags)
-    (dolist (entry entries)
-      (let* ((line (nth 0 entry))
-             (type (nth 1 entry))
-             (msg  (nth 2 entry))
-             (reg  (flymake-diag-region source line)))
-        (when reg
-          (push (flymake-make-diagnostic source (car reg) (cdr reg) type msg)
-                diags))))
-    (funcall report-fn diags)))
+Synchronous: no subprocess.  Reports only when the current buffer's
+project is loaded in tj3d; otherwise yields to
+`taskjuggler-flymake-backend' so the two are mutually exclusive."
+  (if (not (taskjuggler--tj3d-owns-current-buffer-p))
+      (funcall report-fn nil)
+    (let* ((source (current-buffer))
+           (file (and buffer-file-name (expand-file-name buffer-file-name)))
+           (entries (and file (gethash file taskjuggler--tj3d-diagnostics)))
+           diags)
+      (dolist (entry entries)
+        (let* ((line (nth 0 entry))
+               (type (nth 1 entry))
+               (msg  (nth 2 entry))
+               (reg  (flymake-diag-region source line)))
+          (when reg
+            (push (flymake-make-diagnostic source (car reg) (cdr reg) type msg)
+                  diags))))
+      (funcall report-fn diags))))
 
 ;;; tj3man
 
@@ -2669,8 +2686,12 @@ Uses `tj3client add' with the .tjp file for the current buffer."
                          (taskjuggler--tj3d-parse-diagnostics tjp))
                        (let ((new-files (gethash (expand-file-name tjp)
                                                  taskjuggler--tj3d-diag-files-by-project)))
+                         ;; Always refresh the .tjp itself so the tj3 direct
+                         ;; backend clears any stale errors now that tj3d
+                         ;; owns the project.
                          (taskjuggler--tj3d-refresh-flymake-for-files
-                          (delete-dups (append old-files new-files)))))
+                          (delete-dups (cons (expand-file-name tjp)
+                                             (append old-files new-files))))))
                      (if (zerop (process-exit-status proc))
                          (message "Project added to tj3d: %s"
                                   (file-name-nondirectory tjp))
