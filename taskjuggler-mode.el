@@ -2706,29 +2706,36 @@ Marks TJP as tracked and, on completion, drains the refresh queue."
      :sentinel
      (lambda (proc _event)
        (when (memq (process-status proc) '(exit signal))
-         (let ((old-files (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
-           (with-current-buffer (process-buffer proc)
-             (taskjuggler--tj3d-parse-diagnostics tjp))
-           (let ((new-files (gethash (expand-file-name tjp)
-                                     taskjuggler--tj3d-diag-files-by-project)))
-             ;; Always refresh the .tjp itself so the tj3 direct backend
-             ;; clears any stale errors now that tj3d owns the project.
-             (taskjuggler--tj3d-refresh-flymake-for-files
-              (delete-dups (cons (expand-file-name tjp)
-                                 (append old-files new-files))))))
-         (if (zerop (process-exit-status proc))
-             (unless quiet
-               (message "Project added to tj3d: %s"
-                        (file-name-nondirectory tjp)))
-           (message "tj3client add failed (exit %d); see *tj3client*"
-                    (process-exit-status proc)))
-         (setq taskjuggler--tj3d-refresh-in-flight nil)
-         (when taskjuggler--tj3d-refresh-queue
-           (let* ((next (pop taskjuggler--tj3d-refresh-queue))
-                  (next-abs (car next))
-                  (next-quiet (cdr next)))
-             (setq taskjuggler--tj3d-refresh-in-flight next-abs)
-             (taskjuggler--tj3d-add-project-run next-abs next-quiet))))))))
+         ;; Always release the in-flight lock and drain the queue, even if
+         ;; parsing or Flymake refresh errors out — otherwise schedule
+         ;; requests for this path silently coalesce away forever.
+         (unwind-protect
+             (let ((old-files
+                    (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
+               (when (buffer-live-p (process-buffer proc))
+                 (with-current-buffer (process-buffer proc)
+                   (taskjuggler--tj3d-parse-diagnostics tjp)))
+               (let ((new-files
+                      (gethash (expand-file-name tjp)
+                               taskjuggler--tj3d-diag-files-by-project)))
+                 ;; Always refresh the .tjp itself so the tj3 direct backend
+                 ;; clears any stale errors now that tj3d owns the project.
+                 (taskjuggler--tj3d-refresh-flymake-for-files
+                  (delete-dups (cons (expand-file-name tjp)
+                                     (append old-files new-files)))))
+               (if (zerop (process-exit-status proc))
+                   (unless quiet
+                     (message "Project added to tj3d: %s"
+                              (file-name-nondirectory tjp)))
+                 (message "tj3client add failed (exit %d); see *tj3client*"
+                          (process-exit-status proc))))
+           (setq taskjuggler--tj3d-refresh-in-flight nil)
+           (when taskjuggler--tj3d-refresh-queue
+             (let* ((next (pop taskjuggler--tj3d-refresh-queue))
+                    (next-abs (car next))
+                    (next-quiet (cdr next)))
+               (setq taskjuggler--tj3d-refresh-in-flight next-abs)
+               (taskjuggler--tj3d-add-project-run next-abs next-quiet)))))))))
 
 (defun taskjuggler--tj3d-schedule-refresh (tjp quiet)
   "Queue a `tj3client add' refresh for TJP, or start one if idle.
