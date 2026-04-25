@@ -2750,13 +2750,27 @@ Marks TJP as tracked and, on completion, drains the refresh queue."
                               (file-name-nondirectory tjp)))
                  (message "tj3client add failed (exit %d); see *tj3client*"
                           (process-exit-status proc))))
-           (setq taskjuggler--tj3d-refresh-in-flight nil)
-           (when taskjuggler--tj3d-refresh-queue
-             (let* ((next (pop taskjuggler--tj3d-refresh-queue))
-                    (next-abs (car next))
-                    (next-quiet (cdr next)))
-               (setq taskjuggler--tj3d-refresh-in-flight next-abs)
-               (taskjuggler--tj3d-add-project-run next-abs next-quiet)))))))))
+           (taskjuggler--tj3d-drain-refresh-queue)))))))
+
+(defun taskjuggler--tj3d-drain-refresh-queue ()
+  "Pop the next entry off the refresh queue and launch it, or clear in-flight.
+Called from the `tj3client-add' sentinel after a run completes.  If the
+launched run errors before its sentinel can run (e.g. `tj3client'
+vanished from PATH, fork failed), this resets in-flight so subsequent
+schedules can recover instead of coalescing away forever."
+  (setq taskjuggler--tj3d-refresh-in-flight nil)
+  (when taskjuggler--tj3d-refresh-queue
+    (let* ((next (pop taskjuggler--tj3d-refresh-queue))
+           (next-abs (car next))
+           (next-quiet (cdr next)))
+      (setq taskjuggler--tj3d-refresh-in-flight next-abs)
+      (condition-case err
+          (taskjuggler--tj3d-add-project-run next-abs next-quiet)
+        (error
+         (setq taskjuggler--tj3d-refresh-in-flight nil)
+         (message "tj3client add launch failed for %s: %s"
+                  (file-name-nondirectory next-abs)
+                  (error-message-string err)))))))
 
 (defun taskjuggler--tj3d-schedule-refresh (tjp quiet)
   "Queue a `tj3client add' refresh for TJP, or start one if idle.

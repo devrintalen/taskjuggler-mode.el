@@ -3345,6 +3345,40 @@ status doesn't list the project."
      (taskjuggler--tj3d-schedule-refresh "/tmp/b.tjp" nil)
      (should (= 1 (length taskjuggler--tj3d-refresh-queue))))))
 
+(ert-deftest taskjuggler-tj3d-drain-refresh-queue--launches-next ()
+  "Drain pops the next queued entry, sets it in-flight, and launches it."
+  (with-clean-tj3d-state
+   (let (calls)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+                (lambda (tjp quiet) (push (cons tjp quiet) calls))))
+       (setq taskjuggler--tj3d-refresh-queue
+             (list (cons "/tmp/next.tjp" t)))
+       (taskjuggler--tj3d-drain-refresh-queue)
+       (should (equal calls (list (cons "/tmp/next.tjp" t))))
+       (should (equal "/tmp/next.tjp" taskjuggler--tj3d-refresh-in-flight))
+       (should (null taskjuggler--tj3d-refresh-queue))))))
+
+(ert-deftest taskjuggler-tj3d-drain-refresh-queue--clears-when-empty ()
+  "With an empty queue, drain just clears in-flight."
+  (with-clean-tj3d-state
+   (setq taskjuggler--tj3d-refresh-in-flight "/tmp/whatever.tjp")
+   (taskjuggler--tj3d-drain-refresh-queue)
+   (should (null taskjuggler--tj3d-refresh-in-flight))))
+
+(ert-deftest taskjuggler-tj3d-drain-refresh-queue--resets-on-launch-failure ()
+  "If the next launch errors, in-flight is reset so the queue can recover.
+Without this guard, every subsequent schedule for that path would
+coalesce against the stuck in-flight value forever."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+              (lambda (&rest _) (error "fork failed")))
+             ((symbol-function 'message) (lambda (&rest _) nil)))
+     (setq taskjuggler--tj3d-refresh-queue
+           (list (cons "/tmp/doomed.tjp" t)))
+     (taskjuggler--tj3d-drain-refresh-queue)
+     (should (null taskjuggler--tj3d-refresh-in-flight))
+     (should (null taskjuggler--tj3d-refresh-queue)))))
+
 ;; taskjuggler-tj3d-add-project / taskjuggler--tj3d-refresh-on-save
 
 (ert-deftest taskjuggler-tj3d-add-project--errors-when-tj3d-not-running ()
