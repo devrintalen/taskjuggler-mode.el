@@ -3522,6 +3522,18 @@ helper treats the same as a stale entry."
              (lambda (_) "/no/such/pidfile")))
     (should-not (taskjuggler--tj3webd-pidfile-pid 18082))))
 
+(ert-deftest taskjuggler-tj3webd-pidfile--returns-fully-expanded-path ()
+  "Pidfile path must be `/'-rooted with no literal `~' segment.
+Regression: `locate-user-emacs-file' abbreviates HOME back to `~',
+which tj3webd's daemon then treats as a relative path and prepends
+its cwd to."
+  (let ((user-emacs-directory "~/.emacs.d/"))
+    (let ((path (taskjuggler--tj3webd-pidfile 8080)))
+      (should (file-name-absolute-p path))
+      (should (string-prefix-p "/" path))
+      (should-not (string-match-p "/~/" path))
+      (should-not (string-match-p "/~$" path)))))
+
 
 ;;; Runner
 

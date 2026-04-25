@@ -2862,8 +2862,14 @@ skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
 (defun taskjuggler--tj3webd-pidfile (port)
   "Return the absolute path of the pidfile we ask tj3webd to write for PORT.
 Lives under `user-emacs-directory' so it's user-owned (avoiding the
-spoofing surface a world-writable /tmp pidfile would have)."
-  (locate-user-emacs-file (format "taskjuggler-tj3webd-%d.pid" port)))
+spoofing surface a world-writable /tmp pidfile would have).
+Uses `expand-file-name' rather than `locate-user-emacs-file' because the
+latter abbreviates `$HOME' back to `~' for display, and tj3webd's Ruby
+daemon treats any path not starting with `/' as relative to its working
+directory — handing it `~/.emacs.d/...' would silently write the pidfile
+under the project tree instead."
+  (expand-file-name (format "taskjuggler-tj3webd-%d.pid" port)
+                    user-emacs-directory))
 
 (defun taskjuggler--tj3webd-pidfile-pid (port)
   "Return the live PID recorded in the pidfile for PORT, or nil.
