@@ -2973,6 +2973,501 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
       (should (string-match-p "󰙬" taskjuggler--daemon-modeline))
       (should (string-match-p "󰒍" taskjuggler--daemon-modeline)))))
 
+;;; Tests: tj3d diagnostics, scheduling, and Flymake integration
+
+(require 'flymake)
+
+(defmacro with-clean-tj3d-state (&rest body)
+  "Run BODY with tj3d diagnostics, queue, and tracked state freshly bound.
+Each invocation gets isolated hash tables and queue variables so tests
+don't leak state into one another."
+  (declare (indent 0))
+  `(let ((taskjuggler--tj3d-diagnostics (make-hash-table :test 'equal))
+         (taskjuggler--tj3d-diag-files-by-project (make-hash-table :test 'equal))
+         (taskjuggler--tj3d-tracked-projects (make-hash-table :test 'equal))
+         (taskjuggler--tj3d-refresh-queue nil)
+         (taskjuggler--tj3d-refresh-in-flight nil))
+     ,@body))
+
+;; taskjuggler--tj3-project-id
+
+(ert-deftest taskjuggler-tj3-project-id--from-buffer ()
+  "Reads the project ID from a buffer visiting TJP."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (tjp (expand-file-name "p.tjp" dir)))
+    (unwind-protect
+        (let ((buf (find-file-noselect tjp)))
+          (unwind-protect
+              (with-current-buffer buf
+                (insert "project myproj \"My Project\" 2024-01-01 +1y {\n}\n")
+                (should (equal "myproj" (taskjuggler--tj3-project-id tjp))))
+            (with-current-buffer buf (set-buffer-modified-p nil))
+            (kill-buffer buf)))
+      (delete-directory dir t))))
+
+(ert-deftest taskjuggler-tj3-project-id--from-file ()
+  "Reads the project ID from disk when no buffer is visiting TJP."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (tjp (expand-file-name "p.tjp" dir)))
+    (unwind-protect
+        (progn
+          (write-region "project xy.zz \"X\" 2024-01-01 +1y {\n}\n" nil tjp)
+          (should (equal "xy.zz" (taskjuggler--tj3-project-id tjp))))
+      (delete-directory dir t))))
+
+(ert-deftest taskjuggler-tj3-project-id--no-project ()
+  "Returns nil when the file has no project declaration."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (tjp (expand-file-name "p.tjp" dir)))
+    (unwind-protect
+        (progn
+          (write-region "task t \"T\" {\n}\n" nil tjp)
+          (should-not (taskjuggler--tj3-project-id tjp)))
+      (delete-directory dir t))))
+
+(ert-deftest taskjuggler-tj3-project-id--nil-for-missing-file ()
+  "Returns nil when TJP cannot be read."
+  (should-not (taskjuggler--tj3-project-id "/no/such/file.tjp")))
+
+;; taskjuggler--tj3d-record-diagnostic / clear-diagnostics-for-project
+
+(ert-deftest taskjuggler-tj3d-record-diagnostic--basic ()
+  "Records a diagnostic and tracks the file under the project."
+  (with-clean-tj3d-state
+   (taskjuggler--tj3d-record-diagnostic "/tmp/p.tjp" 7 :error "msg" "/tmp/p.tjp")
+   (should (equal (list (list 7 :error "msg"))
+                  (gethash "/tmp/p.tjp" taskjuggler--tj3d-diagnostics)))
+   (should (equal (list "/tmp/p.tjp")
+                  (gethash "/tmp/p.tjp"
+                           taskjuggler--tj3d-diag-files-by-project)))))
+
+(ert-deftest taskjuggler-tj3d-record-diagnostic--relative-resolves-to-tjp-dir ()
+  "Relative file paths are expanded against the directory of TJP."
+  (with-clean-tj3d-state
+   (taskjuggler--tj3d-record-diagnostic "tasks.tji" 3 :warning "warn"
+                                        "/tmp/proj/p.tjp")
+   (should (gethash "/tmp/proj/tasks.tji" taskjuggler--tj3d-diagnostics))))
+
+(ert-deftest taskjuggler-tj3d-record-diagnostic--dedups-files-list ()
+  "Recording two diagnostics on the same file lists it once."
+  (with-clean-tj3d-state
+   (taskjuggler--tj3d-record-diagnostic "/tmp/p.tjp" 7 :error "a" "/tmp/p.tjp")
+   (taskjuggler--tj3d-record-diagnostic "/tmp/p.tjp" 8 :error "b" "/tmp/p.tjp")
+   (should (equal (list "/tmp/p.tjp")
+                  (gethash "/tmp/p.tjp"
+                           taskjuggler--tj3d-diag-files-by-project)))
+   (should (= 2 (length (gethash "/tmp/p.tjp"
+                                 taskjuggler--tj3d-diagnostics))))))
+
+(ert-deftest taskjuggler-tj3d-clear-diagnostics-for-project--isolates-other-projects ()
+  "Clearing TJP-A removes only its files, returns them, and leaves TJP-B intact."
+  (with-clean-tj3d-state
+   (taskjuggler--tj3d-record-diagnostic "/tmp/a.tjp" 1 :error "x" "/tmp/a.tjp")
+   (taskjuggler--tj3d-record-diagnostic "/tmp/inc.tji" 2 :error "y"
+                                        "/tmp/a.tjp")
+   (taskjuggler--tj3d-record-diagnostic "/tmp/b.tjp" 1 :error "z" "/tmp/b.tjp")
+   (let ((cleared (taskjuggler--tj3d-clear-diagnostics-for-project
+                   "/tmp/a.tjp")))
+     (should (equal (sort (copy-sequence cleared) #'string<)
+                    '("/tmp/a.tjp" "/tmp/inc.tji")))
+     (should-not (gethash "/tmp/a.tjp" taskjuggler--tj3d-diagnostics))
+     (should-not (gethash "/tmp/inc.tji" taskjuggler--tj3d-diagnostics))
+     (should-not (gethash "/tmp/a.tjp"
+                          taskjuggler--tj3d-diag-files-by-project))
+     (should (gethash "/tmp/b.tjp" taskjuggler--tj3d-diagnostics)))))
+
+(ert-deftest taskjuggler-tj3d-clear-diagnostics-for-project--unknown-project ()
+  "Returns nil and is harmless when TJP has no recorded diagnostics."
+  (with-clean-tj3d-state
+   (should-not
+    (taskjuggler--tj3d-clear-diagnostics-for-project "/tmp/none.tjp"))))
+
+;; taskjuggler--tj3d-scan-include-lines
+
+(ert-deftest taskjuggler-tj3d-scan-include-lines--from-buffer ()
+  "Returns line numbers of include statements matching BASENAME."
+  (with-temp-buffer
+    (insert "project p \"P\" 2024-01-01 +1y {\n}\n"
+            "include \"tasks.tji\"\n"
+            "include \"sub/tasks.tji\"\n"
+            "include \"resources.tji\"\n")
+    (should (equal '(3 4)
+                   (taskjuggler--tj3d-scan-include-lines
+                    (current-buffer) "tasks.tji")))))
+
+(ert-deftest taskjuggler-tj3d-scan-include-lines--from-file ()
+  "Reads the file from disk when SOURCE is a path, not a buffer."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (file (expand-file-name "p.tjp" dir)))
+    (unwind-protect
+        (progn
+          (write-region "include \"a.tji\"\ninclude \"b.tji\"\n" nil file)
+          (should (equal '(2)
+                         (taskjuggler--tj3d-scan-include-lines file "b.tji"))))
+      (delete-directory dir t))))
+
+(ert-deftest taskjuggler-tj3d-scan-include-lines--unreadable-returns-nil ()
+  "Unreadable file paths yield nil rather than an error."
+  (should-not (taskjuggler--tj3d-scan-include-lines "/no/such/file.tjp"
+                                                    "x.tji")))
+
+(ert-deftest taskjuggler-tj3d-scan-include-lines--no-matches ()
+  "Returns nil when no include statement names BASENAME."
+  (with-temp-buffer
+    (insert "include \"other.tji\"\n")
+    (should-not (taskjuggler--tj3d-scan-include-lines
+                 (current-buffer) "missing.tji"))))
+
+;; taskjuggler--tj3d-propagate-to-includers
+
+(ert-deftest taskjuggler-tj3d-propagate-to-includers--records-on-include-line ()
+  "Diagnostic on an included file shows up on the include line in TJP."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (tjp (expand-file-name "proj.tjp" dir))
+          (tji (expand-file-name "tasks.tji" dir)))
+     (unwind-protect
+         (progn
+           (write-region (concat "project p \"P\" 2024-01-01 +1y {\n}\n"
+                                 "include \"tasks.tji\"\n")
+                         nil tjp)
+           (write-region "" nil tji)
+           (taskjuggler--tj3d-propagate-to-includers tji :error "boom" tjp)
+           (let ((entries (gethash tjp taskjuggler--tj3d-diagnostics)))
+             (should (= 1 (length entries)))
+             (let ((e (car entries)))
+               (should (= 3 (nth 0 e)))
+               (should (eq :error (nth 1 e)))
+               (should (string-match-p "tasks.tji" (nth 2 e)))
+               (should (string-match-p "boom" (nth 2 e))))))
+       (delete-directory dir t)))))
+
+(ert-deftest taskjuggler-tj3d-propagate-to-includers--skips-self ()
+  "Does nothing when CHILD-FILE equals TJP itself."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (tjp (expand-file-name "p.tjp" dir)))
+     (unwind-protect
+         (progn
+           (write-region "include \"p.tjp\"\n" nil tjp)
+           (taskjuggler--tj3d-propagate-to-includers tjp :error "x" tjp)
+           (should-not (gethash tjp taskjuggler--tj3d-diagnostics)))
+       (delete-directory dir t)))))
+
+;; taskjuggler--tj3d-parse-diagnostics
+
+(ert-deftest taskjuggler-tj3d-parse-diagnostics--records-error-and-warning ()
+  "Parses both Error and Warning lines into the diagnostics hash."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (tjp (expand-file-name "proj.tjp" dir)))
+     (unwind-protect
+         (progn
+           (write-region "project p \"P\" 2024-01-01 +1y {\n}\n" nil tjp)
+           (with-temp-buffer
+             (insert (format "%s:5: Error: bad syntax\n" tjp))
+             (insert (format "%s:9: Warning: smelly\n" tjp))
+             (taskjuggler--tj3d-parse-diagnostics tjp))
+           (let ((entries (gethash tjp taskjuggler--tj3d-diagnostics)))
+             (should (member (list 5 :error "bad syntax") entries))
+             (should (member (list 9 :warning "smelly") entries))))
+       (delete-directory dir t)))))
+
+(ert-deftest taskjuggler-tj3d-parse-diagnostics--propagates-include-errors ()
+  "Errors in an included .tji also annotate the include line in TJP."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (tjp (expand-file-name "proj.tjp" dir))
+          (tji (expand-file-name "tasks.tji" dir)))
+     (unwind-protect
+         (progn
+           (write-region (concat "project p \"P\" 2024-01-01 +1y {\n}\n"
+                                 "include \"tasks.tji\"\n")
+                         nil tjp)
+           (write-region "" nil tji)
+           (with-temp-buffer
+             (insert (format "%s:1: Error: child broke\n" tji))
+             (taskjuggler--tj3d-parse-diagnostics tjp))
+           (should (gethash tji taskjuggler--tj3d-diagnostics))
+           (let ((tjp-entries (gethash tjp taskjuggler--tj3d-diagnostics)))
+             (should (= 1 (length tjp-entries)))
+             (should (= 3 (nth 0 (car tjp-entries))))
+             (should (string-match-p "tasks.tji" (nth 2 (car tjp-entries))))))
+       (delete-directory dir t)))))
+
+;; taskjuggler--tj3d-owns-current-buffer-p
+
+(ert-deftest taskjuggler-tj3d-owns-current-buffer-p--true-when-loaded ()
+  "Returns non-nil when the daemon reports the project as loaded."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-project-loaded-p)
+              (lambda (_) t)))
+     (with-temp-buffer
+       (setq buffer-file-name (expand-file-name "x.tjp"
+                                                temporary-file-directory))
+       (should (taskjuggler--tj3d-owns-current-buffer-p))))))
+
+(ert-deftest taskjuggler-tj3d-owns-current-buffer-p--true-when-cached-diags ()
+  "Returns non-nil when diagnostics were recorded even if not loaded.
+This covers the failed-add case where the daemon produced errors but
+status doesn't list the project."
+  (with-clean-tj3d-state
+   (let ((tjp (expand-file-name "x.tjp" temporary-file-directory)))
+     (puthash tjp '("dummy") taskjuggler--tj3d-diag-files-by-project)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-project-loaded-p)
+                (lambda (_) nil)))
+       (with-temp-buffer
+         (setq buffer-file-name tjp)
+         (should (taskjuggler--tj3d-owns-current-buffer-p)))))))
+
+(ert-deftest taskjuggler-tj3d-owns-current-buffer-p--false-when-neither ()
+  "Returns nil when the project is neither loaded nor has cached diags."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-project-loaded-p)
+              (lambda (_) nil)))
+     (with-temp-buffer
+       (setq buffer-file-name (expand-file-name "x.tjp"
+                                                temporary-file-directory))
+       (should-not (taskjuggler--tj3d-owns-current-buffer-p))))))
+
+;; taskjuggler-tj3d-flymake-backend / taskjuggler-flymake-backend
+
+(ert-deftest taskjuggler-tj3d-flymake-backend--yields-when-not-owned ()
+  "Reports nil without inspecting the cache when tj3d does not own the buffer."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-owns-current-buffer-p)
+              (lambda () nil)))
+     (let (called reported)
+       (taskjuggler-tj3d-flymake-backend
+        (lambda (diags) (setq called t reported diags)))
+       (should called)
+       (should (null reported))))))
+
+(ert-deftest taskjuggler-tj3d-flymake-backend--reports-cached-entries ()
+  "Cached entries are converted to Flymake diagnostics on the source buffer."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (file (expand-file-name "proj.tjp" dir)))
+     (unwind-protect
+         (progn
+           (write-region "line 1\nline 2\nline 3\n" nil file)
+           (puthash (expand-file-name file)
+                    (list (list 2 :error "boom"))
+                    taskjuggler--tj3d-diagnostics)
+           (cl-letf (((symbol-function 'taskjuggler--tj3d-owns-current-buffer-p)
+                      (lambda () t)))
+             (with-temp-buffer
+               (setq buffer-file-name file)
+               (insert-file-contents file)
+               (let (reported)
+                 (taskjuggler-tj3d-flymake-backend
+                  (lambda (diags) (setq reported diags)))
+                 (should (= 1 (length reported)))
+                 (let ((d (car reported)))
+                   (should (eq :error (flymake-diagnostic-type d)))
+                   (should (equal "boom" (flymake-diagnostic-text d))))))))
+       (delete-directory dir t)))))
+
+(ert-deftest taskjuggler-flymake-backend--reports-nil-without-file ()
+  "Backend reports nil without spawning a process when buffer has no file."
+  (cl-letf (((symbol-function 'executable-find) (lambda (_) "/usr/bin/tj3"))
+            ((symbol-function 'make-process)
+             (lambda (&rest _) (error "should not spawn"))))
+    (with-temp-buffer
+      (let (called reported)
+        (taskjuggler-flymake-backend
+         (lambda (diags) (setq called t reported diags)))
+        (should called)
+        (should (null reported))))))
+
+(ert-deftest taskjuggler-flymake-backend--yields-when-tj3d-owns-buffer ()
+  "Backend reports nil and skips the subprocess when tj3d owns the buffer."
+  (cl-letf (((symbol-function 'executable-find) (lambda (_) "/usr/bin/tj3"))
+            ((symbol-function 'make-process)
+             (lambda (&rest _) (error "should not spawn")))
+            ((symbol-function 'taskjuggler--tj3d-owns-current-buffer-p)
+             (lambda () t)))
+    (with-temp-buffer
+      (setq buffer-file-name (expand-file-name "x.tjp"
+                                               temporary-file-directory))
+      (let (called reported)
+        (taskjuggler-flymake-backend
+         (lambda (diags) (setq called t reported diags)))
+        (should called)
+        (should (null reported))))))
+
+;; taskjuggler--tj3d-schedule-refresh
+
+(ert-deftest taskjuggler-tj3d-schedule-refresh--starts-immediately-when-idle ()
+  "When nothing is in flight, scheduling kicks off the run synchronously."
+  (with-clean-tj3d-state
+   (let (calls)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+                (lambda (tjp quiet) (push (cons tjp quiet) calls))))
+       (taskjuggler--tj3d-schedule-refresh "/tmp/proj.tjp" nil)
+       (should (equal (expand-file-name "/tmp/proj.tjp")
+                      taskjuggler--tj3d-refresh-in-flight))
+       (should (equal calls (list (cons (expand-file-name "/tmp/proj.tjp")
+                                        nil))))))))
+
+(ert-deftest taskjuggler-tj3d-schedule-refresh--queues-when-other-in-flight ()
+  "When a different path is running, the new request goes to the queue."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+              (lambda (&rest _) nil)))
+     (setq taskjuggler--tj3d-refresh-in-flight
+           (expand-file-name "/tmp/a.tjp"))
+     (taskjuggler--tj3d-schedule-refresh "/tmp/b.tjp" t)
+     (should (equal taskjuggler--tj3d-refresh-queue
+                    (list (cons (expand-file-name "/tmp/b.tjp") t)))))))
+
+(ert-deftest taskjuggler-tj3d-schedule-refresh--drops-when-same-in-flight ()
+  "Re-scheduling the path that's already running is a no-op."
+  (with-clean-tj3d-state
+   (let (calls)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+                (lambda (&rest _) (push 'called calls))))
+       (setq taskjuggler--tj3d-refresh-in-flight
+             (expand-file-name "/tmp/a.tjp"))
+       (taskjuggler--tj3d-schedule-refresh "/tmp/a.tjp" t)
+       (should (null calls))
+       (should (null taskjuggler--tj3d-refresh-queue))))))
+
+(ert-deftest taskjuggler-tj3d-schedule-refresh--drops-when-already-queued ()
+  "Re-scheduling a path already in the queue is a no-op."
+  (with-clean-tj3d-state
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-add-project-run)
+              (lambda (&rest _) nil)))
+     (setq taskjuggler--tj3d-refresh-in-flight
+           (expand-file-name "/tmp/a.tjp"))
+     (setq taskjuggler--tj3d-refresh-queue
+           (list (cons (expand-file-name "/tmp/b.tjp") t)))
+     (taskjuggler--tj3d-schedule-refresh "/tmp/b.tjp" nil)
+     (should (= 1 (length taskjuggler--tj3d-refresh-queue))))))
+
+;; taskjuggler-tj3d-add-project / taskjuggler--tj3d-refresh-on-save
+
+(ert-deftest taskjuggler-tj3d-add-project--errors-when-tj3d-not-running ()
+  "Interactive add raises a user-error when the daemon is down."
+  (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () nil)))
+    (with-temp-buffer
+      (should-error (taskjuggler-tj3d-add-project) :type 'user-error))))
+
+(ert-deftest taskjuggler-tj3d-add-project--schedules-refresh ()
+  "Interactive add delegates to schedule-refresh non-quietly."
+  (with-clean-tj3d-state
+   (let* ((dir (make-temp-file "tj-test-" t))
+          (tjp (expand-file-name "p.tjp" dir))
+          calls)
+     (unwind-protect
+         (progn
+           (write-region "" nil tjp)
+           (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p)
+                      (lambda () t))
+                     ((symbol-function 'taskjuggler--tj3d-schedule-refresh)
+                      (lambda (p q) (push (list p q) calls))))
+             (with-temp-buffer
+               (setq buffer-file-name tjp)
+               (taskjuggler-tj3d-add-project))
+             (should (equal calls (list (list tjp nil))))))
+       (delete-directory dir t)))))
+
+(ert-deftest taskjuggler-tj3d-refresh-on-save--schedules-when-tracked ()
+  "Save hook schedules a quiet refresh when the project is tracked."
+  (with-clean-tj3d-state
+   (let* ((tjp (expand-file-name "test.tjp" temporary-file-directory))
+          calls)
+     (puthash tjp t taskjuggler--tj3d-tracked-projects)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-schedule-refresh)
+                (lambda (p q) (push (list p q) calls))))
+       (with-temp-buffer
+         (setq buffer-file-name tjp)
+         (taskjuggler--tj3d-refresh-on-save))
+       (should (equal calls (list (list tjp t))))))))
+
+(ert-deftest taskjuggler-tj3d-refresh-on-save--noop-when-not-tracked ()
+  "Save hook does nothing when the project was never added."
+  (with-clean-tj3d-state
+   (let* ((tjp (expand-file-name "untracked.tjp" temporary-file-directory))
+          calls)
+     (cl-letf (((symbol-function 'taskjuggler--tj3d-schedule-refresh)
+                (lambda (p q) (push (list p q) calls))))
+       (with-temp-buffer
+         (setq buffer-file-name tjp)
+         (taskjuggler--tj3d-refresh-on-save))
+       (should (null calls))))))
+
+;; taskjuggler--tj3-process-filter
+
+(ert-deftest taskjuggler-tj3-process-filter--carriage-return-overwrites ()
+  "Lone CR collapses progress text down to the final line."
+  (skip-unless (executable-find "cat"))
+  (let* ((buf (generate-new-buffer " *tj-filter-test*"))
+         (proc (make-process :name "tj-filter-cat" :buffer buf
+                             :command '("cat") :noquery t
+                             :connection-type 'pipe)))
+    (unwind-protect
+        (progn
+          (taskjuggler--tj3-process-filter
+           proc "progress 10%\rprogress 50%\rprogress 100%\n")
+          (with-current-buffer buf
+            (let ((s (buffer-string)))
+              (should (string-match-p "progress 100%" s))
+              (should-not (string-match-p "progress 10%" s))
+              (should-not (string-match-p "progress 50%" s)))))
+      (when (process-live-p proc) (delete-process proc))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest taskjuggler-tj3-process-filter--ansi-escapes-removed ()
+  "ANSI SGR escapes are stripped (converted to text properties)."
+  (skip-unless (executable-find "cat"))
+  (let* ((buf (generate-new-buffer " *tj-filter-test*"))
+         (proc (make-process :name "tj-filter-cat" :buffer buf
+                             :command '("cat") :noquery t
+                             :connection-type 'pipe)))
+    (unwind-protect
+        (progn
+          (taskjuggler--tj3-process-filter proc "\e[31mred\e[0m text\n")
+          (with-current-buffer buf
+            (let ((s (buffer-string)))
+              (should-not (string-match-p "\e\\[" s))
+              (should (string-match-p "red text" s)))))
+      (when (process-live-p proc) (delete-process proc))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+;; taskjuggler-tj3d-stop / taskjuggler-tj3webd-stop
+
+(ert-deftest taskjuggler-tj3d-stop--errors-when-not-running ()
+  "Stop command signals a user-error if tj3d isn't running."
+  (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () nil)))
+    (should-error (taskjuggler-tj3d-stop) :type 'user-error)))
+
+(ert-deftest taskjuggler-tj3d-stop--clears-tracked-and-queue ()
+  "Stop terminates the daemon and clears tracked-projects + queue."
+  (with-clean-tj3d-state
+   (puthash "/tmp/x.tjp" t taskjuggler--tj3d-tracked-projects)
+   (setq taskjuggler--tj3d-refresh-queue (list (cons "/tmp/y.tjp" nil)))
+   (cl-letf (((symbol-function 'taskjuggler--tj3d-alive-p) (lambda () t))
+             ((symbol-function 'call-process) (lambda (&rest _) 0))
+             ((symbol-function 'taskjuggler--daemon-update-modeline)
+              (lambda () nil)))
+     (taskjuggler-tj3d-stop)
+     (should (zerop (hash-table-count taskjuggler--tj3d-tracked-projects)))
+     (should (null taskjuggler--tj3d-refresh-queue)))))
+
+(ert-deftest taskjuggler-tj3webd-stop--errors-when-not-running ()
+  "Stop command signals a user-error if tj3webd isn't running."
+  (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () nil)))
+    (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
+
+(ert-deftest taskjuggler-tj3webd-stop--errors-when-listener-not-found ()
+  "Stop command errors when lsof finds no listening pid on the port."
+  (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t))
+            ((symbol-function 'shell-command-to-string) (lambda (_) "\n"))
+            ((symbol-function 'taskjuggler--daemon-update-modeline)
+             (lambda () nil)))
+    (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
+
 
 ;;; Runner
 
