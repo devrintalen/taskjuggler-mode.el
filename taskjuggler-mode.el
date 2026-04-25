@@ -1839,25 +1839,27 @@ and the text immediately before it ends with a keyword from
 (defvar-local taskjuggler--flymake-proc nil
   "The currently running flymake process for this buffer.")
 
-;; Forward declaration so the byte-compiler doesn't warn about
-;; `taskjuggler--tj3d-owns-current-buffer-p'; the real defvar with
-;; initial value lives next to the daemon-diagnostic plumbing below.
+;; Forward declarations; real defvars live next to the daemon-diagnostic
+;; plumbing below.
 (defvar taskjuggler--tj3d-diag-files-by-project)
+(defvar taskjuggler--tj3d-tracked-projects)
 
 (defun taskjuggler--tj3d-owns-current-buffer-p ()
   "Return non-nil when tj3d is authoritative for the current buffer's project.
-Authoritative when either the daemon reports the project is loaded OR
-a recent add attempt recorded diagnostics for it.  The second case
-matters when an add fails: the project isn't in `tj3client status',
-but the daemon produced the only error messages we have, so routing
-to the tj3-direct backend would drop them on the floor.  Resolves
-.tji files to their sibling .tjp.  Used to make the two Flymake
-backends mutually exclusive."
+Authoritative when we tracked an add for it this session, when an add
+recorded diagnostics for it (covers the failed-add case where the
+daemon produced errors but `tj3client status' doesn't list the
+project), or — as a last resort — when `tj3client status' itself
+reports it loaded (covers projects added externally before this Emacs
+session).  Cheap hash lookups run before the subprocess query so the
+common case stays off the Flymake hot path.  Resolves .tji files to
+their sibling .tjp."
   (let ((tjp (taskjuggler--find-tjp-file)))
     (when tjp
-      (or (taskjuggler--tj3d-project-loaded-p tjp)
-          (gethash (expand-file-name tjp)
-                   taskjuggler--tj3d-diag-files-by-project)))))
+      (let ((abs (expand-file-name tjp)))
+        (or (gethash abs taskjuggler--tj3d-tracked-projects)
+            (gethash abs taskjuggler--tj3d-diag-files-by-project)
+            (taskjuggler--tj3d-project-loaded-p tjp))))))
 
 (defun taskjuggler-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
@@ -1934,6 +1936,33 @@ Each value is a list of (LINE TYPE MSG) entries where TYPE is :error or
 Used to clear the right subset on re-add so diagnostics from other
 projects loaded in the same daemon are preserved.")
 
+(defmacro taskjuggler--with-source-buffer (source &rest body)
+  "Run BODY with point at the start of SOURCE's content.
+SOURCE is either a live buffer (preserved + widened + position saved)
+or a readable file path (loaded into a temp buffer).  When SOURCE is a
+path that can't be read, BODY is not run and the form returns nil."
+  (declare (indent 1))
+  `(let ((source--src ,source))
+     (cond
+      ((bufferp source--src)
+       (with-current-buffer source--src
+         (save-excursion
+           (save-restriction
+             (widen)
+             (goto-char (point-min))
+             ,@body))))
+      ((and (stringp source--src) (file-readable-p source--src))
+       (with-temp-buffer
+         (insert-file-contents source--src)
+         (goto-char (point-min))
+         ,@body)))))
+
+(defun taskjuggler--tj3d-resolve-path (file tjp)
+  "Resolve FILE to an absolute path, treating relative paths as TJP-relative."
+  (if (file-name-absolute-p file)
+      (expand-file-name file)
+    (expand-file-name file (file-name-directory tjp))))
+
 (defun taskjuggler--tj3d-clear-diagnostics-for-project (tjp)
   "Drop diagnostics previously recorded under project TJP.
 Returns the list of file paths that had diagnostics cleared so callers
@@ -1947,10 +1976,8 @@ can refresh Flymake in their buffers."
 
 (defun taskjuggler--tj3d-record-diagnostic (file line type msg tjp)
   "Record a daemon diagnostic on FILE:LINE of TYPE and MSG under project TJP."
-  (let* ((abs (if (file-name-absolute-p file)
-                  (expand-file-name file)
-                (expand-file-name file (file-name-directory tjp))))
-         (tjp-abs (expand-file-name tjp)))
+  (let ((abs (taskjuggler--tj3d-resolve-path file tjp))
+        (tjp-abs (expand-file-name tjp)))
     (push (list line type msg) (gethash abs taskjuggler--tj3d-diagnostics))
     (let ((files (gethash tjp-abs taskjuggler--tj3d-diag-files-by-project)))
       (unless (member abs files)
@@ -1964,21 +1991,9 @@ can't be read yields nil."
   (let ((pattern (concat "^[ \t]*include[ \t]+\"[^\"]*"
                          (regexp-quote basename) "\""))
         lines)
-    (cond
-     ((bufferp source)
-      (with-current-buffer source
-        (save-excursion
-          (save-restriction
-            (widen)
-            (goto-char (point-min))
-            (while (re-search-forward pattern nil t)
-              (push (line-number-at-pos (match-beginning 0)) lines))))))
-     ((and (stringp source) (file-readable-p source))
-      (with-temp-buffer
-        (insert-file-contents source)
-        (goto-char (point-min))
-        (while (re-search-forward pattern nil t)
-          (push (line-number-at-pos (match-beginning 0)) lines)))))
+    (taskjuggler--with-source-buffer source
+      (while (re-search-forward pattern nil t)
+        (push (line-number-at-pos (match-beginning 0)) lines)))
     (nreverse lines)))
 
 (defun taskjuggler--tj3d-propagate-to-includers (child-file type msg tjp)
@@ -2003,21 +2018,20 @@ not flagged.  Reads TJP from disk if no buffer is visiting it."
 Matches `FILE:LINE: Error|Warning: MSG' lines.  Errors whose FILE
 differs from TJP are also propagated to the `include' line in TJP
 that references that file's basename."
-  (save-excursion
-    (goto-char (point-min))
-    (while (re-search-forward
-            "^\\(.+?\\):\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)$"
-            nil t)
-      (let* ((file (match-string-no-properties 1))
-             (line (string-to-number (match-string 2)))
-             (type (if (equal (match-string 3) "Error") :error :warning))
-             (msg  (match-string-no-properties 4))
-             (abs  (if (file-name-absolute-p file)
-                       (expand-file-name file)
-                     (expand-file-name file (file-name-directory tjp)))))
-        (taskjuggler--tj3d-record-diagnostic file line type msg tjp)
-        (unless (equal abs (expand-file-name tjp))
-          (taskjuggler--tj3d-propagate-to-includers abs type msg tjp))))))
+  (let ((tjp-abs (expand-file-name tjp)))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward
+              "^\\(.+?\\):\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)$"
+              nil t)
+        (let* ((file (match-string-no-properties 1))
+               (line (string-to-number (match-string 2)))
+               (type (if (equal (match-string 3) "Error") :error :warning))
+               (msg  (match-string-no-properties 4))
+               (abs  (taskjuggler--tj3d-resolve-path file tjp)))
+          (taskjuggler--tj3d-record-diagnostic file line type msg tjp)
+          (unless (equal abs tjp-abs)
+            (taskjuggler--tj3d-propagate-to-includers abs type msg tjp)))))))
 
 (defun taskjuggler--tj3d-refresh-flymake-for-files (files)
   "Re-run Flymake in any taskjuggler-mode buffer visiting one of FILES."
@@ -2577,6 +2591,13 @@ after a compile that started tj3webd."
 ;; so liveness is checked via `tj3client status' / TCP probe rather than
 ;; process objects.
 
+(defconst taskjuggler--tj3-no-color "--no-color"
+  "Argument that suppresses ANSI escapes from `tj3'/`tj3d'/`tj3client'.
+Passed to every invocation we make so subprocess output reads cleanly
+in `*compilation*'/`*tj3client*'/captured-string contexts.  The flag
+silences tj3client's own output but tj3d still forwards ANSI from the
+daemon side, which `taskjuggler--tj3-process-filter' cleans up.")
+
 (defvar taskjuggler--daemon-status-timer nil
   "Timer that polls daemon status for modeline updates.")
 
@@ -2639,7 +2660,7 @@ Respects `taskjuggler-tj3-bin-dir' for executable resolution."
            (default-directory (if tjp (file-name-directory tjp)
                                 default-directory))
            (cmd (taskjuggler--tj3-executable "tj3d")))
-      (call-process cmd nil nil nil "--no-color" "--auto-update")
+      (call-process cmd nil nil nil taskjuggler--tj3-no-color "--auto-update")
       (taskjuggler--daemon-ensure-status-timer)
       (taskjuggler--daemon-update-modeline)
       (message "tj3d started"))))
@@ -2689,9 +2710,9 @@ shared `*tj3client*' buffer.")
 When QUIET, suppress the progress messages (failures still report).
 Marks TJP as tracked and, on completion, drains the refresh queue."
   (let* ((cmd (taskjuggler--tj3-executable "tj3client"))
-         (buf (get-buffer-create "*tj3client*")))
-    (puthash (expand-file-name tjp) t
-             taskjuggler--tj3d-tracked-projects)
+         (buf (get-buffer-create "*tj3client*"))
+         (tjp-abs (expand-file-name tjp)))
+    (puthash tjp-abs t taskjuggler--tj3d-tracked-projects)
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)))
@@ -2700,7 +2721,7 @@ Marks TJP as tracked and, on completion, drains the refresh queue."
     (make-process
      :name "tj3client-add"
      :buffer buf
-     :command (list cmd "--no-color" "add" tjp)
+     :command (list cmd taskjuggler--tj3-no-color "add" tjp)
      :noquery t
      :filter #'taskjuggler--tj3-process-filter
      :sentinel
@@ -2716,12 +2737,12 @@ Marks TJP as tracked and, on completion, drains the refresh queue."
                  (with-current-buffer (process-buffer proc)
                    (taskjuggler--tj3d-parse-diagnostics tjp)))
                (let ((new-files
-                      (gethash (expand-file-name tjp)
+                      (gethash tjp-abs
                                taskjuggler--tj3d-diag-files-by-project)))
                  ;; Always refresh the .tjp itself so the tj3 direct backend
                  ;; clears any stale errors now that tj3d owns the project.
                  (taskjuggler--tj3d-refresh-flymake-for-files
-                  (delete-dups (cons (expand-file-name tjp)
+                  (delete-dups (cons tjp-abs
                                      (append old-files new-files)))))
                (if (zerop (process-exit-status proc))
                    (unless quiet
@@ -2783,23 +2804,12 @@ so rapid saves don't pile up redundant `tj3client add' runs."
   "Return the project ID declared in TJP, or nil if none found.
 Reads from a buffer visiting TJP when available; otherwise reads the
 file from disk.  Matches the first toplevel `project <id>' statement."
-  (let ((buf (and (stringp tjp) (find-buffer-visiting tjp)))
-        (pattern "^[ \t]*project[ \t]+\\([A-Za-z_][A-Za-z0-9_.-]*\\)"))
-    (cond
-     (buf
-      (with-current-buffer buf
-        (save-excursion
-          (save-restriction
-            (widen)
-            (goto-char (point-min))
-            (when (re-search-forward pattern nil t)
-              (match-string-no-properties 1))))))
-     ((and (stringp tjp) (file-readable-p tjp))
-      (with-temp-buffer
-        (insert-file-contents tjp)
-        (goto-char (point-min))
+  (when (stringp tjp)
+    (let ((source (or (find-buffer-visiting tjp) tjp))
+          (pattern "^[ \t]*project[ \t]+\\([A-Za-z_][A-Za-z0-9_.-]*\\)"))
+      (taskjuggler--with-source-buffer source
         (when (re-search-forward pattern nil t)
-          (match-string-no-properties 1)))))))
+          (match-string-no-properties 1))))))
 
 (defun taskjuggler--tj3d-project-loaded-p (tjp)
   "Return non-nil if TJP is already loaded in the running tj3d daemon.
@@ -2813,7 +2823,7 @@ ID column of the status table."
             (with-temp-buffer
               (when (zerop (call-process
                             (taskjuggler--tj3-executable "tj3client")
-                            nil t nil "--no-color" "status"))
+                            nil t nil taskjuggler--tj3-no-color "status"))
                 (goto-char (point-min))
                 (re-search-forward
                  (concat "^[ \t]*[0-9]+[ \t]*|[ \t]*"
@@ -2939,7 +2949,7 @@ daemon to write its PID to `taskjuggler--tj3webd-pidfile' so
     (make-process
      :name "tj3client-status"
      :buffer buf
-     :command (list cmd "--no-color" "status")
+     :command (list cmd taskjuggler--tj3-no-color "status")
      :noquery t
      :filter #'taskjuggler--tj3-process-filter
      :sentinel (lambda (proc _event)
@@ -2963,7 +2973,7 @@ since neither is meaningful after the daemon goes away."
   (unless (taskjuggler--tj3d-alive-p)
     (user-error "Process tj3d is not running"))
   (call-process (taskjuggler--tj3-executable "tj3client")
-                nil nil nil "--no-color" "terminate")
+                nil nil nil taskjuggler--tj3-no-color "terminate")
   (clrhash taskjuggler--tj3d-tracked-projects)
   (setq taskjuggler--tj3d-refresh-queue nil)
   (taskjuggler--daemon-update-modeline)
@@ -3170,9 +3180,6 @@ See URL `https://taskjuggler.org' for more information.
   ;; Flymake
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
   (add-hook 'flymake-diagnostic-functions #'taskjuggler-tj3d-flymake-backend nil t)
-  ;; Refresh tj3d diagnostics on save; the tj3d backend is synchronous and
-  ;; only reads cached output from `tj3client add', so without this the
-  ;; cache never updates after the initial add.
   (add-hook 'after-save-hook #'taskjuggler--tj3d-refresh-on-save nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.
   (when (featurep 'compile)
