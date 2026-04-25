@@ -2859,10 +2859,36 @@ Guards against duplicate attempts via `taskjuggler--auto-add-pending'."
                      (message "tj3d not ready after %d attempts; \
 skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
 
+(defun taskjuggler--tj3webd-pidfile (port)
+  "Return the absolute path of the pidfile we ask tj3webd to write for PORT.
+Lives under `user-emacs-directory' so it's user-owned (avoiding the
+spoofing surface a world-writable /tmp pidfile would have)."
+  (locate-user-emacs-file (format "taskjuggler-tj3webd-%d.pid" port)))
+
+(defun taskjuggler--tj3webd-pidfile-pid (port)
+  "Return the live PID recorded in the pidfile for PORT, or nil.
+Deletes a stale pidfile (file present but PID no longer running) and
+returns nil so callers don't signal a stranger that recycled the PID."
+  (let ((file (taskjuggler--tj3webd-pidfile port)))
+    (when (file-readable-p file)
+      (let ((pid (with-temp-buffer
+                   (insert-file-contents file)
+                   (string-to-number (string-trim (buffer-string))))))
+        (cond
+         ((<= pid 0)
+          (delete-file file) nil)
+         ((condition-case nil
+              (progn (signal-process pid 0) t)
+            (error nil))
+          pid)
+         (t (delete-file file) nil))))))
+
 (defun taskjuggler-tj3webd-start ()
   "Start the tj3webd web daemon from the current project directory.
 The daemon forks into the background automatically.
-Uses `taskjuggler-tj3webd-port' for the port number."
+Uses `taskjuggler-tj3webd-port' for the port number, and asks the
+daemon to write its PID to `taskjuggler--tj3webd-pidfile' so
+`taskjuggler-tj3webd-stop' can find it without scanning ports."
   (interactive)
   (if (taskjuggler--tj3webd-alive-p)
       (message "tj3webd is already running on port %d"
@@ -2870,10 +2896,13 @@ Uses `taskjuggler-tj3webd-port' for the port number."
     (let* ((tjp (taskjuggler--find-tjp-file))
            (default-directory (if tjp (file-name-directory tjp)
                                  default-directory))
-           (cmd (taskjuggler--tj3-executable "tj3webd")))
+           (cmd (taskjuggler--tj3-executable "tj3webd"))
+           (pidfile (taskjuggler--tj3webd-pidfile
+                     taskjuggler-tj3webd-port)))
       (call-process cmd nil nil nil
                     "--webserver-port"
-                    (number-to-string taskjuggler-tj3webd-port))
+                    (number-to-string taskjuggler-tj3webd-port)
+                    "--pidfile" pidfile)
       (taskjuggler--daemon-ensure-status-timer)
       (taskjuggler--daemon-update-modeline)
       (message "tj3webd started on port %d" taskjuggler-tj3webd-port)
@@ -2934,53 +2963,24 @@ since neither is meaningful after the daemon goes away."
   (taskjuggler--daemon-update-modeline)
   (message "tj3d stopped"))
 
-(defun taskjuggler--tj3webd-listener-pids (port)
-  "Return PIDs of processes listening on PORT, deduplicated.
-Prefers `ss' (iproute2, present on most Linux systems) and falls back
-to `lsof' (macOS, BSD, older Linux).  Restricts to LISTEN sockets so
-connected clients (Firefox, Emacs, ...) are never returned.  Signals a
-`user-error' when neither tool is available so callers don't mistake a
-missing tool for an absent listener."
-  (let ((ss (executable-find "ss"))
-        (lsof (executable-find "lsof"))
-        pids)
-    (cond
-     (ss
-      (dolist (line (split-string
-                     (shell-command-to-string
-                      (format "ss -H -ltnp 'sport = :%d' 2>/dev/null" port))
-                     "\n" t))
-        (when (string-match "pid=\\([0-9]+\\)" line)
-          (push (string-to-number (match-string 1 line)) pids))))
-     (lsof
-      (dolist (pid (split-string
-                    (string-trim
-                     (shell-command-to-string
-                      (format "lsof -ti tcp:%d -sTCP:LISTEN 2>/dev/null"
-                              port)))
-                    "\n" t))
-        (push (string-to-number pid) pids)))
-     (t
-      (user-error
-       "Need `ss' or `lsof' to find tj3webd's PID; neither is installed")))
-    (delete-dups (nreverse pids))))
-
 (defun taskjuggler-tj3webd-stop ()
-  "Stop the running tj3webd daemon.
-tj3webd has no quit command, so this finds the process listening on
-`taskjuggler-tj3webd-port' (via `ss' or `lsof') and sends it SIGTERM.
-Only LISTEN sockets are matched so connected clients (Firefox, Emacs,
-...) are never signalled."
+  "Stop the running tj3webd daemon by sending SIGTERM to its recorded PID.
+SIGTERM is the daemon's documented graceful-shutdown path: tj3webd's
+`WebServer' installs a TERM handler that closes SSE pipes and shuts
+WEBrick down cleanly.  The PID is read from the pidfile we asked
+tj3webd to write at start time (see `taskjuggler-tj3webd-start');
+when the pidfile is missing or stale, tj3webd was started outside
+this Emacs session and the user must stop it manually."
   (interactive)
   (unless (taskjuggler--tj3webd-alive-p)
     (user-error "Process tj3webd is not running"))
-  (let ((pids (taskjuggler--tj3webd-listener-pids
-               taskjuggler-tj3webd-port)))
-    (unless pids
-      (user-error "Could not find tj3webd listener on port %d"
-                  taskjuggler-tj3webd-port))
-    (dolist (pid pids)
-      (signal-process pid 'SIGTERM)))
+  (let ((pid (taskjuggler--tj3webd-pidfile-pid
+              taskjuggler-tj3webd-port)))
+    (unless pid
+      (user-error
+       "No tj3webd pidfile for port %d; was it started outside Emacs?"
+       taskjuggler-tj3webd-port))
+    (signal-process pid 'SIGTERM))
   (taskjuggler--daemon-update-modeline)
   (message "tj3webd stopped"))
 

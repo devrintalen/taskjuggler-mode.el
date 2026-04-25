@@ -3460,41 +3460,67 @@ status doesn't list the project."
   (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () nil)))
     (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
 
-(ert-deftest taskjuggler-tj3webd-stop--errors-when-listener-not-found ()
-  "Stop command errors when port discovery returns no PIDs."
+(ert-deftest taskjuggler-tj3webd-stop--errors-when-pidfile-missing ()
+  "Stop command errors when no pidfile is recorded for the port."
   (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t))
-            ((symbol-function 'taskjuggler--tj3webd-listener-pids)
+            ((symbol-function 'taskjuggler--tj3webd-pidfile-pid)
              (lambda (_) nil))
             ((symbol-function 'taskjuggler--daemon-update-modeline)
              (lambda () nil)))
     (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
 
-(ert-deftest taskjuggler-tj3webd-listener-pids--errors-when-no-tool ()
-  "Helper signals user-error when neither `ss' nor `lsof' is installed."
-  (cl-letf (((symbol-function 'executable-find) (lambda (_) nil)))
-    (should-error (taskjuggler--tj3webd-listener-pids 8080) :type 'user-error)))
+(ert-deftest taskjuggler-tj3webd-stop--signals-recorded-pid ()
+  "Stop reads the pidfile and sends SIGTERM to that PID."
+  (let (signalled)
+    (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t))
+              ((symbol-function 'taskjuggler--tj3webd-pidfile-pid)
+               (lambda (_) 4242))
+              ((symbol-function 'signal-process)
+               (lambda (pid sig) (push (cons pid sig) signalled)))
+              ((symbol-function 'taskjuggler--daemon-update-modeline)
+               (lambda () nil)))
+      (taskjuggler-tj3webd-stop)
+      (should (equal signalled (list (cons 4242 'SIGTERM)))))))
 
-(ert-deftest taskjuggler-tj3webd-listener-pids--parses-ss-output ()
-  "Helper extracts and dedupes pids from `ss -H -ltnp' output."
-  (cl-letf (((symbol-function 'executable-find)
-             (lambda (tool) (and (equal tool "ss") "/usr/bin/ss")))
-            ((symbol-function 'shell-command-to-string)
-             (lambda (_)
-               (concat "LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* "
-                       "users:((\"ruby\",pid=12345,fd=5))\n"
-                       "LISTEN 0 4096 [::]:8080 [::]:* "
-                       "users:((\"ruby\",pid=12345,fd=6))\n"))))
-    (should (equal '(12345)
-                   (taskjuggler--tj3webd-listener-pids 8080)))))
+(ert-deftest taskjuggler-tj3webd-pidfile-pid--returns-live-pid ()
+  "Helper returns the PID when it's a live process."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (port 18080)
+         (file (expand-file-name (format "taskjuggler-tj3webd-%d.pid" port)
+                                 dir))
+         (live-pid (emacs-pid)))
+    (unwind-protect
+        (progn
+          (write-region (number-to-string live-pid) nil file)
+          (cl-letf (((symbol-function 'taskjuggler--tj3webd-pidfile)
+                     (lambda (_) file)))
+            (should (equal live-pid
+                           (taskjuggler--tj3webd-pidfile-pid port))))
+          (should (file-exists-p file)))
+      (delete-directory dir t))))
 
-(ert-deftest taskjuggler-tj3webd-listener-pids--parses-lsof-output ()
-  "Helper falls back to `lsof' when `ss' is unavailable."
-  (cl-letf (((symbol-function 'executable-find)
-             (lambda (tool) (and (equal tool "lsof") "/usr/bin/lsof")))
-            ((symbol-function 'shell-command-to-string)
-             (lambda (_) "12345\n12346\n")))
-    (should (equal '(12345 12346)
-                   (taskjuggler--tj3webd-listener-pids 8080)))))
+(ert-deftest taskjuggler-tj3webd-pidfile-pid--cleans-stale-pidfile ()
+  "Helper deletes a stale pidfile (PID not running) and returns nil.
+Uses PID 0 — `signal-process' rejects it as out-of-range, which the
+helper treats the same as a stale entry."
+  (let* ((dir (make-temp-file "tj-test-" t))
+         (port 18081)
+         (file (expand-file-name (format "taskjuggler-tj3webd-%d.pid" port)
+                                 dir)))
+    (unwind-protect
+        (progn
+          (write-region "0\n" nil file)
+          (cl-letf (((symbol-function 'taskjuggler--tj3webd-pidfile)
+                     (lambda (_) file)))
+            (should-not (taskjuggler--tj3webd-pidfile-pid port)))
+          (should-not (file-exists-p file)))
+      (when (file-exists-p dir) (delete-directory dir t)))))
+
+(ert-deftest taskjuggler-tj3webd-pidfile-pid--missing-file-returns-nil ()
+  "Helper returns nil with no side effects when the pidfile doesn't exist."
+  (cl-letf (((symbol-function 'taskjuggler--tj3webd-pidfile)
+             (lambda (_) "/no/such/pidfile")))
+    (should-not (taskjuggler--tj3webd-pidfile-pid 18082))))
 
 
 ;;; Runner
