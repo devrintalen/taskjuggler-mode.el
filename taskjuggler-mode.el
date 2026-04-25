@@ -1958,7 +1958,8 @@ path that can't be read, BODY is not run and the form returns nil."
          ,@body)))))
 
 (defun taskjuggler--tj3d-resolve-path (file tjp)
-  "Resolve FILE to an absolute path, treating relative paths as TJP-relative."
+  "Resolve FILE to an absolute path.
+A relative FILE is expanded against the directory of TJP."
   (if (file-name-absolute-p file)
       (expand-file-name file)
     (expand-file-name file (file-name-directory tjp))))
@@ -1997,11 +1998,12 @@ can't be read yields nil."
     (nreverse lines)))
 
 (defun taskjuggler--tj3d-propagate-to-includers (child-file type msg tjp)
-  "Record a diagnostic on every `include' of CHILD-FILE's basename in TJP.
-Scans only the .tjp passed to `tj3client add' (the project root whose
-add produced the diagnostic) — not arbitrary open buffers — so an
-unrelated buffer whose include happens to share the same basename is
-not flagged.  Reads TJP from disk if no buffer is visiting it."
+  "Record a diagnostic of TYPE and MSG on every `include' of CHILD-FILE in TJP.
+Matches by CHILD-FILE's basename only.  Scans only the .tjp passed to
+`tj3client add' (the project root whose add produced the diagnostic) —
+not arbitrary open buffers — so an unrelated buffer whose include
+happens to share the same basename is not flagged.  Reads TJP from
+disk if no buffer is visiting it."
   (let ((tjp-abs (expand-file-name tjp)))
     (unless (equal tjp-abs child-file)
       (let* ((basename (file-name-nondirectory child-file))
@@ -2044,9 +2046,10 @@ that references that file's basename."
 
 (defun taskjuggler-tj3d-flymake-backend (report-fn &rest _args)
   "Flymake backend reporting diagnostics cached from `tj3client add'.
-Synchronous: no subprocess.  Reports only when the current buffer's
-project is loaded in tj3d; otherwise yields to
-`taskjuggler-flymake-backend' so the two are mutually exclusive."
+Reports diagnostics for the current buffer to REPORT-FN.  Synchronous:
+no subprocess.  Reports only when the current buffer's project is
+loaded in tj3d; otherwise yields to `taskjuggler-flymake-backend' so
+the two are mutually exclusive."
   (if (not (taskjuggler--tj3d-owns-current-buffer-p))
       (funcall report-fn nil)
     (let* ((source (current-buffer))
@@ -2828,7 +2831,7 @@ file from disk.  Matches the first toplevel `project <id>' statement."
 (defun taskjuggler--tj3d-project-loaded-p (tjp)
   "Return non-nil if TJP is already loaded in the running tj3d daemon.
 `tj3client status' lists projects by the ID declared inside the .tjp
-(not by filename), so we extract the ID and look for it in the Project
+\(not by filename), so we extract the ID and look for it in the Project
 ID column of the status table."
   (when (and tjp (taskjuggler--tj3d-alive-p))
     (let ((pid (taskjuggler--tj3-project-id tjp)))
@@ -2888,10 +2891,10 @@ skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
 Lives under `user-emacs-directory' so it's user-owned (avoiding the
 spoofing surface a world-writable /tmp pidfile would have).
 Uses `expand-file-name' rather than `locate-user-emacs-file' because the
-latter abbreviates `$HOME' back to `~' for display, and tj3webd's Ruby
+latter abbreviates HOME back to a tilde for display, and tj3webd's Ruby
 daemon treats any path not starting with `/' as relative to its working
-directory — handing it `~/.emacs.d/...' would silently write the pidfile
-under the project tree instead."
+directory — handing it the unexpanded form would silently write the
+pidfile under the project tree instead."
   (expand-file-name (format "taskjuggler-tj3webd-%d.pid" port)
                     user-emacs-directory))
 
