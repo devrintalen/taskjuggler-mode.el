@@ -6,6 +6,14 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'man)
+
+;; Add the repo root to `load-path' so `require' finds split sub-files
+;; (taskjuggler-mode-cal.el etc.) without needing them already installed.
+(add-to-list 'load-path
+             (expand-file-name ".."
+                               (file-name-directory
+                                (or load-file-name buffer-file-name))))
+
 (load (expand-file-name "../taskjuggler-mode.el"
                         (file-name-directory (or load-file-name buffer-file-name))))
 
