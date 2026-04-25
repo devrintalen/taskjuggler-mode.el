@@ -3461,12 +3461,40 @@ status doesn't list the project."
     (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
 
 (ert-deftest taskjuggler-tj3webd-stop--errors-when-listener-not-found ()
-  "Stop command errors when lsof finds no listening pid on the port."
+  "Stop command errors when port discovery returns no PIDs."
   (cl-letf (((symbol-function 'taskjuggler--tj3webd-alive-p) (lambda () t))
-            ((symbol-function 'shell-command-to-string) (lambda (_) "\n"))
+            ((symbol-function 'taskjuggler--tj3webd-listener-pids)
+             (lambda (_) nil))
             ((symbol-function 'taskjuggler--daemon-update-modeline)
              (lambda () nil)))
     (should-error (taskjuggler-tj3webd-stop) :type 'user-error)))
+
+(ert-deftest taskjuggler-tj3webd-listener-pids--errors-when-no-tool ()
+  "Helper signals user-error when neither `ss' nor `lsof' is installed."
+  (cl-letf (((symbol-function 'executable-find) (lambda (_) nil)))
+    (should-error (taskjuggler--tj3webd-listener-pids 8080) :type 'user-error)))
+
+(ert-deftest taskjuggler-tj3webd-listener-pids--parses-ss-output ()
+  "Helper extracts and dedupes pids from `ss -H -ltnp' output."
+  (cl-letf (((symbol-function 'executable-find)
+             (lambda (tool) (and (equal tool "ss") "/usr/bin/ss")))
+            ((symbol-function 'shell-command-to-string)
+             (lambda (_)
+               (concat "LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* "
+                       "users:((\"ruby\",pid=12345,fd=5))\n"
+                       "LISTEN 0 4096 [::]:8080 [::]:* "
+                       "users:((\"ruby\",pid=12345,fd=6))\n"))))
+    (should (equal '(12345)
+                   (taskjuggler--tj3webd-listener-pids 8080)))))
+
+(ert-deftest taskjuggler-tj3webd-listener-pids--parses-lsof-output ()
+  "Helper falls back to `lsof' when `ss' is unavailable."
+  (cl-letf (((symbol-function 'executable-find)
+             (lambda (tool) (and (equal tool "lsof") "/usr/bin/lsof")))
+            ((symbol-function 'shell-command-to-string)
+             (lambda (_) "12345\n12346\n")))
+    (should (equal '(12345 12346)
+                   (taskjuggler--tj3webd-listener-pids 8080)))))
 
 
 ;;; Runner

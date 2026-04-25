@@ -2934,26 +2934,53 @@ since neither is meaningful after the daemon goes away."
   (taskjuggler--daemon-update-modeline)
   (message "tj3d stopped"))
 
+(defun taskjuggler--tj3webd-listener-pids (port)
+  "Return PIDs of processes listening on PORT, deduplicated.
+Prefers `ss' (iproute2, present on most Linux systems) and falls back
+to `lsof' (macOS, BSD, older Linux).  Restricts to LISTEN sockets so
+connected clients (Firefox, Emacs, ...) are never returned.  Signals a
+`user-error' when neither tool is available so callers don't mistake a
+missing tool for an absent listener."
+  (let ((ss (executable-find "ss"))
+        (lsof (executable-find "lsof"))
+        pids)
+    (cond
+     (ss
+      (dolist (line (split-string
+                     (shell-command-to-string
+                      (format "ss -H -ltnp 'sport = :%d' 2>/dev/null" port))
+                     "\n" t))
+        (when (string-match "pid=\\([0-9]+\\)" line)
+          (push (string-to-number (match-string 1 line)) pids))))
+     (lsof
+      (dolist (pid (split-string
+                    (string-trim
+                     (shell-command-to-string
+                      (format "lsof -ti tcp:%d -sTCP:LISTEN 2>/dev/null"
+                              port)))
+                    "\n" t))
+        (push (string-to-number pid) pids)))
+     (t
+      (user-error
+       "Need `ss' or `lsof' to find tj3webd's PID; neither is installed")))
+    (delete-dups (nreverse pids))))
+
 (defun taskjuggler-tj3webd-stop ()
   "Stop the running tj3webd daemon.
 tj3webd has no quit command, so this finds the process listening on
-`taskjuggler-tj3webd-port' via lsof and sends it SIGTERM.
-The -sTCP:LISTEN filter restricts to the server socket so connected
-clients (Firefox, Emacs, ...) are never signalled."
+`taskjuggler-tj3webd-port' (via `ss' or `lsof') and sends it SIGTERM.
+Only LISTEN sockets are matched so connected clients (Firefox, Emacs,
+...) are never signalled."
   (interactive)
   (unless (taskjuggler--tj3webd-alive-p)
     (user-error "Process tj3webd is not running"))
-  (let ((pids (split-string
-               (string-trim
-                (shell-command-to-string
-                 (format "lsof -ti tcp:%d -sTCP:LISTEN 2>/dev/null"
-                         taskjuggler-tj3webd-port)))
-               "\n" t)))
+  (let ((pids (taskjuggler--tj3webd-listener-pids
+               taskjuggler-tj3webd-port)))
     (unless pids
       (user-error "Could not find tj3webd listener on port %d"
                   taskjuggler-tj3webd-port))
     (dolist (pid pids)
-      (signal-process (string-to-number pid) 'SIGTERM)))
+      (signal-process pid 'SIGTERM)))
   (taskjuggler--daemon-update-modeline)
   (message "tj3webd stopped"))
 
