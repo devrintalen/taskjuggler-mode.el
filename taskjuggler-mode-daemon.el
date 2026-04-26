@@ -87,7 +87,7 @@ A relative FILE is expanded against the directory of TJP."
 
 (defun taskjuggler-mode--tj3d-clear-diagnostics-for-project (tjp)
   "Drop diagnostics previously recorded under project TJP.
-Returns the list of file paths that had diagnostics cleared so callers
+Return the list of file paths that had diagnostics cleared so callers
 can refresh Flymake in their buffers."
   (let* ((tjp-abs (expand-file-name tjp))
          (files (gethash tjp-abs taskjuggler-mode--tj3d-diag-files-by-project)))
@@ -224,7 +224,7 @@ Probes the port via TCP."
 (defun taskjuggler-mode--find-tjp-file ()
   "Return the .tjp file for the current buffer.
 If visiting a .tjp file, return it directly.  If visiting a .tji file,
-search `default-directory' for a .tjp file.  Returns nil if none found."
+search `default-directory' for a .tjp file.  Return nil if none found."
   (let ((file (buffer-file-name)))
     (cond
      ((and file (string-suffix-p ".tjp" file)) file)
@@ -266,7 +266,7 @@ Respects `taskjuggler-mode-tj3-bin-dir' for executable resolution."
       (message "tj3d started"))))
 
 (defun taskjuggler-mode--tj3-process-filter (proc string)
-  "Insert STRING from PROC, handling carriage returns and ANSI colors.
+  "Insert STRING from PROC, applying CR motion and ANSI colors.
 TaskJuggler writes progress bars using lone `\\r' to overwrite the
 current line, and tj3d forwards ANSI SGR escapes for progress/error text
 over the tj3client socket even when tj3client/tj3d are invoked with

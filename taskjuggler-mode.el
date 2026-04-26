@@ -107,7 +107,8 @@ Set to nil to disable cursor tracking entirely."
   "When non-nil, open the calendar popup after typing a date keyword.
 Keywords that expect a date value (such as `start' and `end') trigger
 the inline calendar picker when the user types a space or tab after them.
-See `taskjuggler-mode--date-keyword-list' for the full list of triggering keywords."
+See `taskjuggler-mode--date-keyword-list' for the full list of triggering
+keywords."
   :type 'boolean
   :group 'taskjuggler-mode)
 
@@ -429,7 +430,7 @@ When the previous non-blank line ends with a comma, this line is treated
 as a continuation of a multi-line argument list.  Walk back to the first
 line of the comma-terminated sequence and return the column of its first
 argument (the token immediately after the leading keyword word).
-Returns nil when the current line is not a continuation."
+Return nil when the current line is not a continuation."
   (save-excursion
     (beginning-of-line)
     (forward-line -1)
@@ -584,7 +585,7 @@ lines between them and the header are considered part of the block."
 
 (defun taskjuggler-mode--prev-sibling-bounds (header-pos)
   "Return (start header end) for the previous sibling of the block at HEADER-POS.
-A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+A sibling is a moveable block at the same `syntax-ppss' depth.  Return nil
 if there is no previous sibling."
   (save-excursion
     (let* ((depth     (car (syntax-ppss header-pos)))
@@ -631,7 +632,7 @@ if there is no previous sibling."
 
 (defun taskjuggler-mode--next-sibling-bounds (header-pos)
   "Return (start header end) for the next sibling of the block at HEADER-POS.
-A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+A sibling is a moveable block at the same `syntax-ppss' depth.  Return nil
 if there is no next sibling."
   (save-excursion
     (let ((depth   (car (syntax-ppss header-pos)))
@@ -749,7 +750,7 @@ the beginning of that line.  Signals an error at the top level."
 (defun taskjuggler-mode--child-block-headers (header-pos)
   "Return a list of positions of direct child block headers inside HEADER-POS.
 Children are moveable-keyword lines at exactly one brace-nesting level deeper
-than HEADER-POS.  Returns nil when the block has no brace body or no children."
+than HEADER-POS.  Return nil when the block has no brace body or no children."
   (let* ((depth     (car (syntax-ppss header-pos)))
          (block-end (taskjuggler-mode--block-end header-pos))
          children)

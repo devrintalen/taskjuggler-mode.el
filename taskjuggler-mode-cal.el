@@ -171,8 +171,8 @@ Return a (YEAR MONTH DAY) list."
 
 (defconst taskjuggler-mode--cal-width 22
   "Base width of the calendar popup in characters (without week-number labels).
-When `taskjuggler-mode-cal-show-week-numbers' is non-nil, 5 additional characters
-are prepended for the \"WW15 \" label.")
+When `taskjuggler-mode-cal-show-week-numbers' is non-nil, 5 additional
+characters are prepended for the \"WW15 \" label.")
 
 (defvar-local taskjuggler-mode--cal-today nil
   "Today's date as (YEAR MONTH DAY), cached once per edit session.")
@@ -360,7 +360,7 @@ OLD is the original buffer line, NEW is the calendar row to insert.
 Tab characters in OLD are expanded to spaces before slicing so that
 COL is a visual column, not a character offset.  Text properties on
 OLD (including font-lock faces) are preserved in the returned string.
-Returns the combined string."
+Return the combined string."
   (let* ((old-exp (taskjuggler-mode--cal-expand-tabs-with-props old))
          (old-len (length old-exp))
          (new-len (length new))
@@ -377,7 +377,7 @@ Returns the combined string."
   "Build the multi-line display string for the calendar popup.
 CAL-LINES is a list of calendar row strings.  OLD-LINES is a list
 of original buffer line strings.  COL is the column offset.
-Returns a single string with embedded newlines."
+Return a single string with embedded newlines."
   (let ((result '()))
     (while cal-lines
       (let* ((cal-line (pop cal-lines))
@@ -425,7 +425,7 @@ and only update its `before-string'."
 
 (defun taskjuggler-mode--cal-collect-lines (n)
   "Collect N buffer lines starting from point, preserving text properties.
-Advances point past the collected lines.  Returns a list of strings."
+Advance point past the collected lines.  Return a list of strings."
   (let ((lines '())
         (i 0))
     (while (and (< i n) (not (eobp)))
@@ -861,14 +861,15 @@ The existing date pre-fills the calendar."
 (defconst taskjuggler-mode--date-keyword-list
   '("start" "end" "maxend" "maxstart" "minend" "minstart" "now")
   "Property keywords that expect a date literal to immediately follow them.
-Used by `taskjuggler-mode--maybe-launch-calendar' to trigger the inline calendar
-picker automatically when `taskjuggler-mode-auto-cal-on-date-keyword' is non-nil.")
+Used by `taskjuggler-mode--maybe-launch-calendar' to trigger the inline
+calendar picker automatically when
+`taskjuggler-mode-auto-cal-on-date-keyword' is non-nil.")
 
 (defconst taskjuggler-mode--date-keyword-regexp
   (concat (regexp-opt taskjuggler-mode--date-keyword-list 'words) "[ \t]")
   "Regexp matching a date keyword followed by a space or tab.
-Pre-computed so `taskjuggler-mode--maybe-launch-calendar' avoids rebuilding it on
-every keystroke.")
+Pre-computed so `taskjuggler-mode--maybe-launch-calendar' avoids rebuilding
+it on every keystroke.")
 
 (defun taskjuggler-mode--maybe-launch-calendar ()
   "Auto-launch the calendar picker after typing a date keyword and a space.

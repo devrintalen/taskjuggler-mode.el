@@ -88,7 +88,7 @@ Non-nil means the /cursor endpoint was reachable when tracking started.")
 
 (defun taskjuggler-mode--block-header-task-id (header-pos)
   "If the line at HEADER-POS is a `task' declaration, return its ID string.
-Returns nil for any other keyword (resource, project, macro, etc.)."
+Return nil for any other keyword (resource, project, macro, etc.)."
   (save-excursion
     (goto-char header-pos)
     (when (looking-at "[ \t]*task[ \t]+\\([[:alnum:]_][[:alnum:]_-]*\\)")
@@ -98,7 +98,7 @@ Returns nil for any other keyword (resource, project, macro, etc.)."
   "Return the full dotted TaskJuggler task ID enclosing point, or nil.
 Walks up the brace-nesting hierarchy from the innermost block at point,
 collecting the IDs of every ancestor `task' block, and joins them with `.'.
-Returns nil when point is not inside any `task' block."
+Return nil when point is not inside any `task' block."
   (save-excursion
     (when-let ((header (taskjuggler-mode--current-block-header)))
       (goto-char header)
@@ -116,9 +116,9 @@ Returns nil when point is not inside any `task' block."
 
 (defun taskjuggler-mode--goto-task-id (dotted-id)
   "Move point to the `task' declaration for DOTTED-ID.
-Searches for lines beginning with `task <leaf-id>' and verifies the full
-dotted hierarchy via `taskjuggler-mode--full-task-id-at-point'.  Returns t on
-success, nil when no matching declaration is found."
+Search for lines beginning with `task <leaf-id>' and verify the full
+dotted hierarchy via `taskjuggler-mode--full-task-id-at-point'.  Return t
+on success, nil when no matching declaration is found."
   (let* ((leaf (car (last (split-string dotted-id "\\."))))
          (re (concat "^[ \t]*task[ \t]+" (regexp-quote leaf) "\\b"))
          target)
@@ -158,7 +158,7 @@ success, nil when no matching declaration is found."
 
 (defun taskjuggler-mode--cursor-api-probe ()
   "Probe whether the tj3webd cursor API is reachable.
-Returns the base URL string (e.g. \"http://127.0.0.1:8080\") on success,
+Return the base URL string (e.g. \"http://127.0.0.1:8080\") on success,
 or nil when the endpoint is not available."
   (let ((url (format "http://127.0.0.1:%d/cursor/state"
                      taskjuggler-mode-tj3webd-port)))
@@ -177,7 +177,7 @@ or nil when the endpoint is not available."
 (defun taskjuggler-mode--cursor-post-api (task-id)
   "POST TASK-ID to the tj3webd /cursor endpoint.
 TASK-ID may be a string or nil (clears the cursor).
-Returns non-nil on success."
+Return non-nil on success."
   (when taskjuggler-mode--cursor-api-url
     (let ((url (concat taskjuggler-mode--cursor-api-url "/cursor"))
           (url-request-method "POST")
@@ -196,7 +196,7 @@ Returns non-nil on success."
 
 (defun taskjuggler-mode--cursor-poll-api ()
   "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
-Returns nil on error or when the last event was from the editor."
+Return nil on error or when the last event was from the editor."
   (when taskjuggler-mode--cursor-api-url
     (let ((url (concat taskjuggler-mode--cursor-api-url "/cursor/state"))
           (url-request-method "GET")
@@ -238,8 +238,8 @@ Used as the file-based fallback when the cursor API is unavailable."
 
 (defun taskjuggler-mode--cursor-parse-field (content name)
   "Return the value assigned to window.NAME in tj-cursor.js CONTENT.
-Handles quoted string values and bare integer values.  Returns a string
-in both cases, or nil when NAME is not present in CONTENT."
+Handle quoted string values and bare integer values.  Return a string in
+both cases, or nil when NAME is not present in CONTENT."
   (cond
    ((string-match (concat "window\\." (regexp-quote name)
                           "\\s-*=\\s-*\"\\([^\"]*\\)\"")
@@ -317,7 +317,8 @@ silently skipped.
 Uses an idle timer for the editor→browser cursor write (so we only write
 when the user stops moving) and a regular repeating timer for the
 browser→editor click poll (so clicks are noticed even when Emacs does not
-have input focus).  Does nothing when `taskjuggler-mode-cursor-idle-delay' is nil."
+have input focus).  Does nothing when `taskjuggler-mode-cursor-idle-delay'
+is nil."
   (when taskjuggler-mode-cursor-idle-delay
     ;; Cancel any existing timers first so re-initialization (e.g. via
     ;; revert-buffer or M-x taskjuggler-mode) does not orphan them.

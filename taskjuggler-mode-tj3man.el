@@ -38,7 +38,7 @@
 Populated the first time `taskjuggler-mode' starts with a working tj3man.")
 
 (defun taskjuggler-mode--populate-tj3man-keywords ()
-  "Populate `taskjuggler-mode--tj3man-keywords' by calling tj3man with no arguments.
+  "Populate `taskjuggler-mode--tj3man-keywords' by calling tj3man.
 Does nothing if the cache is already filled or tj3man cannot be found.
 Only lines that look like TJ3 identifiers (lowercase, may contain
 dots and hyphens) are kept; the copyright header is discarded."
