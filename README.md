@@ -326,8 +326,8 @@ git clone https://github.com/devrintalen/taskjuggler-mode.el ~/.emacs.d/taskjugg
 
 ## Configuration
 
-All options belong to the `taskjuggler-mode` customization group (`M-x customize-group
-RET taskjuggler-mode RET`). The table below lists every option with its default value.
+All options belong to the `taskjuggler` customization group (`M-x customize-group
+RET taskjuggler RET`). The table below lists every option with its default value.
 
 | Option                                          | Default | Description                                                                      |
 |-------------------------------------------------|---------|----------------------------------------------------------------------------------|

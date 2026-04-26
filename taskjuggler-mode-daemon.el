@@ -43,8 +43,10 @@
 (declare-function taskjuggler-mode--start-cursor-tracking
                   "taskjuggler-mode-cursor" ())
 
-;;; Diagnostic cache (shared by daemon's tj3client-add sentinel and the
-;;; tj3d Flymake backend)
+;;; Diagnostic cache
+;;
+;; Shared by the daemon's tj3client-add sentinel and the tj3d Flymake
+;; backend.
 
 (defvar taskjuggler-mode--tj3d-diagnostics (make-hash-table :test 'equal)
   "Hash table of tj3d-reported diagnostics keyed by absolute file path.

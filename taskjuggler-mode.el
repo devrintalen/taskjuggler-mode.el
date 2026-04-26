@@ -64,7 +64,7 @@
 (declare-function org-read-date "org" (&optional with-time to-time from-string prompt default-time default-input inactive))
 (declare-function yas--load-snippet-dirs "yasnippet" ())
 
-(defgroup taskjuggler-mode nil
+(defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
   :group 'languages
   :prefix "taskjuggler-mode-")
@@ -72,7 +72,7 @@
 (defcustom taskjuggler-mode-indent-level 2
   "Number of spaces per indentation level in TaskJuggler files."
   :type 'integer
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-tj3-bin-dir nil
   "Directory containing the tj3 executables (tj3, tj3man), or nil to use PATH.
@@ -80,7 +80,7 @@ When non-nil, both `tj3' and `tj3man' are resolved relative to this directory.
 Example: (setq taskjuggler-mode-tj3-bin-dir \"/opt/tj3/bin\")"
   :type '(choice (const :tag "Use PATH" nil)
                  (directory :tag "Directory"))
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-tj3-extra-args nil
   "List of additional command-line arguments passed to tj3 by the Flymake backend.
@@ -89,19 +89,19 @@ Use this to supply flags your project requires, such as:
 The arguments are inserted between the `tj3' executable and the file name."
   :type '(repeat string)
   :safe #'listp
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-cursor-idle-delay 0.3
   "Seconds of Emacs idle time before syncing the cursor position.
 Set to nil to disable cursor tracking entirely."
   :type '(choice (number :tag "Idle delay in seconds")
                  (const :tag "Disabled" nil))
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-cal-show-week-numbers nil
   "When non-nil, display ISO week-number labels (e.g. WW15) in the calendar popup."
   :type 'boolean
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-auto-cal-on-date-keyword nil
   "When non-nil, open the calendar popup after typing a date keyword.
@@ -110,26 +110,26 @@ the inline calendar picker when the user types a space or tab after them.
 See `taskjuggler-mode--date-keyword-list' for the full list of triggering
 keywords."
   :type 'boolean
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-auto-start-tj3d-tj3webd nil
   "When non-nil, start tj3d and tj3webd when `taskjuggler-mode' activates.
 Daemons are only started if they are not already running."
   :type 'boolean
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-auto-add-project-tj3d nil
   "When non-nil, add the current project to tj3d when visiting a TJ3 file.
 Uses `taskjuggler-mode--find-tjp-file' to locate the .tjp file and adds it
 via `taskjuggler-mode-tj3d-add-project' if it is not already loaded."
   :type 'boolean
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defcustom taskjuggler-mode-tj3webd-port 8080
   "Port for the tj3webd web server.
 Passed via --port to tj3webd and used to construct the browse URL."
   :type 'integer
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 ;;; Helpers
 
@@ -146,17 +146,17 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
 (defface taskjuggler-mode-date-face
   '((t :inherit font-lock-constant-face))
   "Face for TaskJuggler date literals (e.g. 2023-01-15)."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-duration-face
   '((t :inherit font-lock-constant-face))
   "Face for TaskJuggler duration literals (e.g. 5d, 2.5h)."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-macro-face
   '((t :inherit font-lock-preprocessor-face))
   "Face for TaskJuggler macro and environment variable references."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 ;; Calendar popup faces
 
@@ -198,44 +198,44 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
 (defface taskjuggler-mode-cal-face
   '((t :inherit tooltip))
   "Base face for the calendar popup background and day cells."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-header-face
   '((t :inherit header-line :weight bold))
   "Face for the calendar month title and day-of-week header."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-selected-face
   '((t :inherit highlight))
   "Face for the currently selected day in the calendar."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-today-face
   '((t :inherit warning :weight bold))
   "Face for today's date when visible but not selected."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-inactive-face
   '((t :inherit (shadow tooltip)))
   "Face for days from the previous or next month."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-pending-face
   '((t :inherit secondary-selection))
   "Face for the pre-filled date in the buffer during calendar editing.
 This face indicates the date that will be committed on RET."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-typing-face
   '((t :inherit isearch :weight bold))
   "Face for the user-typed portion of the date during calendar editing.
 Distinguishes characters the user has typed from the pre-filled suffix."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 (defface taskjuggler-mode-cal-week-face
   '((t :inherit taskjuggler-mode-cal-header-face))
   "Face for ISO week-number labels (e.g. WW15) in the calendar popup."
-  :group 'taskjuggler-mode)
+  :group 'taskjuggler)
 
 ;;; Keyword lists
 
@@ -1028,7 +1028,7 @@ Installed as `forward-sexp-function' in `taskjuggler-mode'."
 
 (defcustom taskjuggler-mode-keymap-prefix (kbd "C-c C-t")
   "Prefix key for variable `taskjuggler-mode-command-map'."
-  :group 'taskjuggler-mode
+  :group 'taskjuggler
   :type 'key-sequence)
 
 (defvar taskjuggler-mode-command-map
