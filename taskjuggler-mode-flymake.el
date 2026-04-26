@@ -25,14 +25,14 @@
 ;;
 ;; Two mutually-exclusive Flymake backends:
 ;;
-;; - `taskjuggler-flymake-backend' runs `tj3' on the current file when no
+;; - `taskjuggler-mode-flymake-backend' runs `tj3' on the current file when no
 ;;   running tj3d daemon owns the project.
 ;;
-;; - `taskjuggler-tj3d-flymake-backend' synchronously reports diagnostics
+;; - `taskjuggler-mode-tj3d-flymake-backend' synchronously reports diagnostics
 ;;   cached by the daemon's `tj3client add' sentinel when the daemon does
 ;;   own the project.
 ;;
-;; Ownership is decided by `taskjuggler--tj3d-owns-current-buffer-p'
+;; Ownership is decided by `taskjuggler-mode--tj3d-owns-current-buffer-p'
 ;; (defined in `taskjuggler-mode-daemon').
 
 ;;; Code:
@@ -41,42 +41,42 @@
 (require 'taskjuggler-mode-daemon)
 
 ;; Defined in `taskjuggler-mode' proper.
-(defvar taskjuggler-tj3-extra-args)
-(declare-function taskjuggler--tj3-executable "taskjuggler-mode" (program))
+(defvar taskjuggler-mode-tj3-extra-args)
+(declare-function taskjuggler-mode--tj3-executable "taskjuggler-mode" (program))
 
-(defvar-local taskjuggler--flymake-proc nil
+(defvar-local taskjuggler-mode--flymake-proc nil
   "The currently running flymake process for this buffer.")
 
-(defun taskjuggler-flymake-backend (report-fn &rest _args)
+(defun taskjuggler-mode-flymake-backend (report-fn &rest _args)
   "Flymake backend for `taskjuggler-mode'.
 Runs tj3 on the current file and reports errors via REPORT-FN.
-Yields to `taskjuggler-tj3d-flymake-backend' whenever the project is
+Yields to `taskjuggler-mode-tj3d-flymake-backend' whenever the project is
 loaded in tj3d, to avoid duplicate work and conflicting diagnostics."
-  (unless (executable-find (taskjuggler--tj3-executable "tj3"))
-    (error "Cannot find tj3 executable: %s" (taskjuggler--tj3-executable "tj3")))
-  (when (process-live-p taskjuggler--flymake-proc)
-    (kill-process taskjuggler--flymake-proc))
+  (unless (executable-find (taskjuggler-mode--tj3-executable "tj3"))
+    (error "Cannot find tj3 executable: %s" (taskjuggler-mode--tj3-executable "tj3")))
+  (when (process-live-p taskjuggler-mode--flymake-proc)
+    (kill-process taskjuggler-mode--flymake-proc))
   (let* ((source (current-buffer))
          (file   (buffer-file-name)))
     (cond
      ((not file)
       (funcall report-fn nil))
-     ((taskjuggler--tj3d-owns-current-buffer-p)
+     ((taskjuggler-mode--tj3d-owns-current-buffer-p)
       (funcall report-fn nil))
      (t
-      (setq taskjuggler--flymake-proc
+      (setq taskjuggler-mode--flymake-proc
             (make-process
-             :name "taskjuggler-flymake"
+             :name "taskjuggler-mode-flymake"
              :noquery t
              :connection-type 'pipe
-             :buffer (generate-new-buffer " *taskjuggler-flymake*")
-             :command (append (list (taskjuggler--tj3-executable "tj3"))
-                              taskjuggler-tj3-extra-args (list file))
+             :buffer (generate-new-buffer " *taskjuggler-mode-flymake*")
+             :command (append (list (taskjuggler-mode--tj3-executable "tj3"))
+                              taskjuggler-mode-tj3-extra-args (list file))
              :sentinel
              (lambda (proc _event)
                (when (memq (process-status proc) '(exit signal))
                  (unwind-protect
-                     (if (eq proc (buffer-local-value 'taskjuggler--flymake-proc source))
+                     (if (eq proc (buffer-local-value 'taskjuggler-mode--flymake-proc source))
                          (with-current-buffer (process-buffer proc)
                            ;; Strip ANSI escape codes before parsing.
                            (goto-char (point-min))
@@ -111,17 +111,17 @@ loaded in tj3d, to avoid duplicate work and conflicting diagnostics."
                        (flymake-log :debug "Canceling obsolete check %s" proc))
                    (kill-buffer (process-buffer proc)))))))))))
 
-(defun taskjuggler-tj3d-flymake-backend (report-fn &rest _args)
+(defun taskjuggler-mode-tj3d-flymake-backend (report-fn &rest _args)
   "Flymake backend reporting diagnostics cached from `tj3client add'.
 Reports diagnostics for the current buffer to REPORT-FN.  Synchronous:
 no subprocess.  Reports only when the current buffer's project is
-loaded in tj3d; otherwise yields to `taskjuggler-flymake-backend' so
+loaded in tj3d; otherwise yields to `taskjuggler-mode-flymake-backend' so
 the two are mutually exclusive."
-  (if (not (taskjuggler--tj3d-owns-current-buffer-p))
+  (if (not (taskjuggler-mode--tj3d-owns-current-buffer-p))
       (funcall report-fn nil)
     (let* ((source (current-buffer))
            (file (and buffer-file-name (expand-file-name buffer-file-name)))
-           (entries (and file (gethash file taskjuggler--tj3d-diagnostics)))
+           (entries (and file (gethash file taskjuggler-mode--tj3d-diagnostics)))
            diags)
       (dolist (entry entries)
         (let* ((line (nth 0 entry))
