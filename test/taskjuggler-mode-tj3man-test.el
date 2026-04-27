@@ -230,6 +230,58 @@ Attributes:  allocate[sc:ip], depends[sc:ip], duration[sc],
      (re-search-forward "properties")
      (should (get-text-property (match-beginning 0) 'button)))))
 
+;;; Integration tests
+;;
+;; These run the real `tj3man' binary and assert against its actual
+;; output.  Skipped via `ert-skip' unless TASKJUGGLER_BIN_DIR is set.
+
+(ert-deftest taskjuggler-mode-tj3man-integration--keyword-cache-populated ()
+  "Calling populate against real tj3man fills the keyword cache."
+  (taskjuggler-mode-test--with-tj3 ("tj3man")
+    (let ((taskjuggler-mode--tj3man-keywords nil))
+      (taskjuggler-mode--populate-tj3man-keywords)
+      (should taskjuggler-mode--tj3man-keywords)
+      (should (> (length taskjuggler-mode--tj3man-keywords) 50)))))
+
+(ert-deftest taskjuggler-mode-tj3man-integration--cache-includes-known-keywords ()
+  "The populated cache contains the canonical TJ3 declaration keywords."
+  (taskjuggler-mode-test--with-tj3 ("tj3man")
+    (let ((taskjuggler-mode--tj3man-keywords nil))
+      (taskjuggler-mode--populate-tj3man-keywords)
+      (dolist (kw '("task" "project" "resource" "depends" "allocate"))
+        (should (member kw taskjuggler-mode--tj3man-keywords))))))
+
+(ert-deftest taskjuggler-mode-tj3man-integration--cache-rejects-copyright-noise ()
+  "Header lines from tj3man are filtered out of the cache."
+  (taskjuggler-mode-test--with-tj3 ("tj3man")
+    (let ((taskjuggler-mode--tj3man-keywords nil))
+      (taskjuggler-mode--populate-tj3man-keywords)
+      ;; Spaces, capitalised words, version strings, copyright glyphs:
+      ;; all rejected by the lowercase-identifier filter.
+      (dolist (kw taskjuggler-mode--tj3man-keywords)
+        (should (string-match-p "\\`[a-z][a-z0-9._-]*\\'" kw))))))
+
+(ert-deftest taskjuggler-mode-tj3man-integration--cache-is-idempotent ()
+  "A second populate call after the cache is filled does not reinvoke tj3man."
+  (taskjuggler-mode-test--with-tj3 ("tj3man")
+    (let ((taskjuggler-mode--tj3man-keywords '("only-one")))
+      (taskjuggler-mode--populate-tj3man-keywords)
+      (should (equal '("only-one") taskjuggler-mode--tj3man-keywords)))))
+
+(ert-deftest taskjuggler-mode-tj3man-integration--man-renders-real-keyword ()
+  "`taskjuggler-mode-man' invokes tj3man and produces the expected sections."
+  (taskjuggler-mode-test--with-tj3 ("tj3man")
+    (unwind-protect
+        (progn
+          (taskjuggler-mode-man "task")
+          (with-current-buffer "*tj3man*"
+            (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+              (should (string-match-p "^Keyword:[ \t]+task" text))
+              (should (string-match-p "^Purpose:" text))
+              (should (string-match-p "^Syntax:" text))
+              (should (string-match-p "^Attributes:" text)))))
+      (when (get-buffer "*tj3man*") (kill-buffer "*tj3man*")))))
+
 (provide 'taskjuggler-mode-tj3man-test)
 
 ;;; taskjuggler-mode-tj3man-test.el ends here

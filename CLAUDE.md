@@ -33,6 +33,14 @@ emacs --batch -l test/taskjuggler-mode-cal-test.el -f ert-run-tests-batch-and-ex
 ```
 Shared fixtures live in `test/taskjuggler-mode-test-helpers.el`.
 
+Some tests exercise the real `tj3`, `tj3d`, `tj3webd`, and `tj3man`
+binaries. They are opt-in via the `TASKJUGGLER_BIN_DIR` environment
+variable and skip themselves (`ert-skip`) when it is unset:
+```
+TASKJUGGLER_BIN_DIR=~/repos/TaskJuggler/bin \
+  emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
+```
+
 Open a test fixture to exercise the mode:
 ```
 emacs test/tutorial.tjp

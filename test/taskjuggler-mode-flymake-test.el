@@ -100,6 +100,84 @@ status doesn't list the project."
         (should called)
         (should (null reported))))))
 
+;;; Integration tests
+;;
+;; Run the real `tj3' against fixture files in a throwaway temp dir.
+;; Skipped via `ert-skip' unless TASKJUGGLER_BIN_DIR is set.
+
+(defmacro taskjuggler-mode-test--with-tjp-fixture (varname content &rest body)
+  "Bind VARNAME to a fresh .tjp file containing CONTENT and run BODY.
+Creates a temp dir, writes CONTENT to <dir>/p.tjp, sets `default-directory'
+to the temp dir so tj3 report output stays sandboxed, and deletes the
+dir on exit."
+  (declare (indent 2))
+  `(let* ((dir (make-temp-file "tj-flymake-" t))
+          (,varname (expand-file-name "p.tjp" dir)))
+     (unwind-protect
+         (progn
+           (with-temp-file ,varname (insert ,content))
+           (let ((default-directory (file-name-as-directory dir)))
+             ,@body))
+       (delete-directory dir t))))
+
+(defun taskjuggler-mode-test--run-flymake-sync (file)
+  "Run `taskjuggler-mode-flymake-backend' on FILE and return its diagnostics.
+Spins the event loop until the backend's REPORT-FN fires, with a 30s
+timeout to avoid hanging the suite if tj3 wedges."
+  (let ((buf (find-file-noselect file))
+        got reported)
+    (unwind-protect
+        (progn
+          (with-current-buffer buf
+            (taskjuggler-mode-flymake-backend
+             (lambda (diags) (setq reported diags got t))))
+          (with-timeout (30 (error "flymake backend did not report within 30s"))
+            (while (not got) (accept-process-output nil 0.1)))
+          reported)
+      (kill-buffer buf))))
+
+(ert-deftest taskjuggler-mode-flymake-integration--valid-tjp-no-diagnostics ()
+  "A well-formed project with a report produces no diagnostics."
+  (taskjuggler-mode-test--with-tj3 ("tj3")
+    (taskjuggler-mode-test--with-tjp-fixture file
+        (concat "project p \"P\" 2024-01-01 +1y {\n}\n"
+                "task t \"T\" {\n  duration 1d\n}\n"
+                "taskreport r \"r\" {\n  formats html\n}\n")
+      (let ((diags (taskjuggler-mode-test--run-flymake-sync file)))
+        (should (null diags))))))
+
+(ert-deftest taskjuggler-mode-flymake-integration--malformed-tjp-reports-error ()
+  "A syntax error produces an :error diagnostic on the offending line."
+  (taskjuggler-mode-test--with-tj3 ("tj3")
+    ;; Line 4 has a stray `-' where a string is expected, mirroring the
+    ;; tj3 grammar: `task <id> <name> ...' wants a quoted name.
+    (taskjuggler-mode-test--with-tjp-fixture file
+        "project bad \"Bad\" 2024-01-01 +1y {\n}\n\ntask missing-name\n"
+      (let ((diags (taskjuggler-mode-test--run-flymake-sync file)))
+        (should diags)
+        (should (cl-some
+                 (lambda (d) (eq :error (flymake-diagnostic-type d)))
+                 diags))))))
+
+(ert-deftest taskjuggler-mode-flymake-integration--diagnostic-anchored-to-source ()
+  "The reported diagnostic's buffer is the source buffer for FILE."
+  (taskjuggler-mode-test--with-tj3 ("tj3")
+    (taskjuggler-mode-test--with-tjp-fixture file
+        "project bad \"Bad\" 2024-01-01 +1y {\n}\n\ntask missing-name\n"
+      (let* ((buf (find-file-noselect file))
+             got reported)
+        (unwind-protect
+            (progn
+              (with-current-buffer buf
+                (taskjuggler-mode-flymake-backend
+                 (lambda (diags) (setq reported diags got t))))
+              (with-timeout (30 (error "flymake backend timeout"))
+                (while (not got) (accept-process-output nil 0.1)))
+              (should reported)
+              (dolist (d reported)
+                (should (eq buf (flymake-diagnostic-buffer d)))))
+          (kill-buffer buf))))))
+
 (provide 'taskjuggler-mode-flymake-test)
 
 ;;; taskjuggler-mode-flymake-test.el ends here

@@ -23,3 +23,8 @@ dist/
 /test/icons/
 /test/js/
 /test/scripts/
+
+# tj3d/tj3webd run-time output (left behind if a test crashes before
+# its cleanup runs)
+tj3d.log
+tj3webd.log
