@@ -4,7 +4,7 @@
 
 ;; Author: Devrin Talen <devrin@fastmail.com>
 ;; Keywords: languages, project-management
-;; Package-Version: 0.5.2
+;; Package-Version: 0.6.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; URL: https://github.com/devrintalen/taskjuggler-mode.el
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -67,64 +67,65 @@
 (defgroup taskjuggler nil
   "Major mode for editing TaskJuggler project files."
   :group 'languages
-  :prefix "taskjuggler-")
+  :prefix "taskjuggler-mode-")
 
-(defcustom taskjuggler-indent-level 2
+(defcustom taskjuggler-mode-indent-level 2
   "Number of spaces per indentation level in TaskJuggler files."
   :type 'integer
   :group 'taskjuggler)
 
-(defcustom taskjuggler-tj3-bin-dir nil
+(defcustom taskjuggler-mode-tj3-bin-dir nil
   "Directory containing the tj3 executables (tj3, tj3man), or nil to use PATH.
 When non-nil, both `tj3' and `tj3man' are resolved relative to this directory.
-Example: (setq taskjuggler-tj3-bin-dir \"/opt/tj3/bin\")"
+Example: (setq taskjuggler-mode-tj3-bin-dir \"/opt/tj3/bin\")"
   :type '(choice (const :tag "Use PATH" nil)
                  (directory :tag "Directory"))
   :group 'taskjuggler)
 
-(defcustom taskjuggler-tj3-extra-args nil
+(defcustom taskjuggler-mode-tj3-extra-args nil
   "List of additional command-line arguments passed to tj3 by the Flymake backend.
 Use this to supply flags your project requires, such as:
-  (setq-local taskjuggler-tj3-extra-args \\='(\"--prefix\" \"/opt/tj3\"))
+  (setq-local taskjuggler-mode-tj3-extra-args \\='(\"--prefix\" \"/opt/tj3\"))
 The arguments are inserted between the `tj3' executable and the file name."
   :type '(repeat string)
   :safe #'listp
   :group 'taskjuggler)
 
-(defcustom taskjuggler-cursor-idle-delay 0.3
+(defcustom taskjuggler-mode-cursor-idle-delay 0.3
   "Seconds of Emacs idle time before syncing the cursor position.
 Set to nil to disable cursor tracking entirely."
   :type '(choice (number :tag "Idle delay in seconds")
                  (const :tag "Disabled" nil))
   :group 'taskjuggler)
 
-(defcustom taskjuggler-cal-show-week-numbers nil
+(defcustom taskjuggler-mode-cal-show-week-numbers nil
   "When non-nil, display ISO week-number labels (e.g. WW15) in the calendar popup."
   :type 'boolean
   :group 'taskjuggler)
 
-(defcustom taskjuggler-auto-cal-on-date-keyword nil
+(defcustom taskjuggler-mode-auto-cal-on-date-keyword nil
   "When non-nil, open the calendar popup after typing a date keyword.
 Keywords that expect a date value (such as `start' and `end') trigger
 the inline calendar picker when the user types a space or tab after them.
-See `taskjuggler--date-keyword-list' for the full list of triggering keywords."
+See `taskjuggler-mode--date-keyword-list' for the full list of triggering
+keywords."
   :type 'boolean
   :group 'taskjuggler)
 
-(defcustom taskjuggler-auto-start-tj3d-tj3webd nil
+(defcustom taskjuggler-mode-auto-start-tj3d-tj3webd nil
   "When non-nil, start tj3d and tj3webd when `taskjuggler-mode' activates.
 Daemons are only started if they are not already running."
   :type 'boolean
   :group 'taskjuggler)
 
-(defcustom taskjuggler-auto-add-project-tj3d nil
+(defcustom taskjuggler-mode-auto-add-project-tj3d nil
   "When non-nil, add the current project to tj3d when visiting a TJ3 file.
-Uses `taskjuggler--find-tjp-file' to locate the .tjp file and adds it
-via `taskjuggler-tj3d-add-project' if it is not already loaded."
+Uses `taskjuggler-mode--find-tjp-file' to locate the .tjp file and adds it
+via `taskjuggler-mode-tj3d-add-project' if it is not already loaded."
   :type 'boolean
   :group 'taskjuggler)
 
-(defcustom taskjuggler-tj3webd-port 8080
+(defcustom taskjuggler-mode-tj3webd-port 8080
   "Port for the tj3webd web server.
 Passed via --port to tj3webd and used to construct the browse URL."
   :type 'integer
@@ -132,27 +133,27 @@ Passed via --port to tj3webd and used to construct the browse URL."
 
 ;;; Helpers
 
-(defun taskjuggler--tj3-executable (name)
+(defun taskjuggler-mode--tj3-executable (name)
   "Return the path to the tj3 executable NAME.
-When `taskjuggler-tj3-bin-dir' is non-nil, NAME is resolved relative to
+When `taskjuggler-mode-tj3-bin-dir' is non-nil, NAME is resolved relative to
 that directory.  Otherwise NAME is returned as-is for PATH lookup."
-  (if taskjuggler-tj3-bin-dir
-      (expand-file-name name taskjuggler-tj3-bin-dir)
+  (if taskjuggler-mode-tj3-bin-dir
+      (expand-file-name name taskjuggler-mode-tj3-bin-dir)
     name))
 
 ;;; Faces
 
-(defface taskjuggler-date-face
+(defface taskjuggler-mode-date-face
   '((t :inherit font-lock-constant-face))
   "Face for TaskJuggler date literals (e.g. 2023-01-15)."
   :group 'taskjuggler)
 
-(defface taskjuggler-duration-face
+(defface taskjuggler-mode-duration-face
   '((t :inherit font-lock-constant-face))
   "Face for TaskJuggler duration literals (e.g. 5d, 2.5h)."
   :group 'taskjuggler)
 
-(defface taskjuggler-macro-face
+(defface taskjuggler-mode-macro-face
   '((t :inherit font-lock-preprocessor-face))
   "Face for TaskJuggler macro and environment variable references."
   :group 'taskjuggler)
@@ -168,87 +169,87 @@ that directory.  Otherwise NAME is returned as-is for PATH lookup."
 ;;         ╔════╗╔══════╗
 ;;         ║2026║║-04-15║
 ;;         ╚════╝╚══════╝
-;;            │      └── taskjuggler-cal-pending-face
-;;            └───────── taskjuggler-cal-typing-face
+;;            │      └── taskjuggler-mode-cal-pending-face
+;;            └───────── taskjuggler-mode-cal-typing-face
 ;;           (typed-len=4 here)
 
 ;;   Overlay (popup below current line)
 ;;   ────────────────────────────────────────────
 ;;   ╔══════════════════════╗
-;;   ║     April 2026       ║  taskjuggler-cal-header-face
-;;   ║  Su Mo Tu We Th Fr Sa║  taskjuggler-cal-header-face
+;;   ║     April 2026       ║  taskjuggler-mode-cal-header-face
+;;   ║  Su Mo Tu We Th Fr Sa║  taskjuggler-mode-cal-header-face
 ;;   ║ 29 30 31  1 [2] 3  4 ║  ┐
 ;;   ║  5  6  7  8  9 10 11 ║  │  space separators between
-;;   ║ 12 13 14[15]16 17 18 ║  │  cells: taskjuggler-cal-face
+;;   ║ 12 13 14[15]16 17 18 ║  │  cells: taskjuggler-mode-cal-face
 ;;   ║ 19 20 21 22 23 24 25 ║  │
 ;;   ║ 26 27 28 29 30  1  2 ║  ┘
 ;;   ╚══════════════════════╝
 
-;;   Cell faces (2-char cells only; spaces use taskjuggler-cal-face):
-;;     29 30 31          → taskjuggler-cal-inactive-face  (prev month)
-;;      1  3  4 ...      → taskjuggler-cal-face           (regular days)
-;;     [2]               → taskjuggler-cal-today-face     (today, not selected)
-;;    [15]               → taskjuggler-cal-selected-face  (selected day)
-;;      1  2  (last row) → taskjuggler-cal-inactive-face  (next month)
+;;   Cell faces (2-char cells only; spaces use taskjuggler-mode-cal-face):
+;;     29 30 31          → taskjuggler-mode-cal-inactive-face  (prev month)
+;;      1  3  4 ...      → taskjuggler-mode-cal-face           (regular days)
+;;     [2]               → taskjuggler-mode-cal-today-face     (today, not selected)
+;;    [15]               → taskjuggler-mode-cal-selected-face  (selected day)
+;;      1  2  (last row) → taskjuggler-mode-cal-inactive-face  (next month)
 ;; ```
 
 ;; The box borders are not rendered — they're just here for clarity. The face backgrounds provide the visual container.
 
-(defface taskjuggler-cal-face
+(defface taskjuggler-mode-cal-face
   '((t :inherit tooltip))
   "Base face for the calendar popup background and day cells."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-header-face
+(defface taskjuggler-mode-cal-header-face
   '((t :inherit header-line :weight bold))
   "Face for the calendar month title and day-of-week header."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-selected-face
+(defface taskjuggler-mode-cal-selected-face
   '((t :inherit highlight))
   "Face for the currently selected day in the calendar."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-today-face
+(defface taskjuggler-mode-cal-today-face
   '((t :inherit warning :weight bold))
   "Face for today's date when visible but not selected."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-inactive-face
+(defface taskjuggler-mode-cal-inactive-face
   '((t :inherit (shadow tooltip)))
   "Face for days from the previous or next month."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-pending-face
+(defface taskjuggler-mode-cal-pending-face
   '((t :inherit secondary-selection))
   "Face for the pre-filled date in the buffer during calendar editing.
 This face indicates the date that will be committed on RET."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-typing-face
+(defface taskjuggler-mode-cal-typing-face
   '((t :inherit isearch :weight bold))
   "Face for the user-typed portion of the date during calendar editing.
 Distinguishes characters the user has typed from the pre-filled suffix."
   :group 'taskjuggler)
 
-(defface taskjuggler-cal-week-face
-  '((t :inherit taskjuggler-cal-header-face))
+(defface taskjuggler-mode-cal-week-face
+  '((t :inherit taskjuggler-mode-cal-header-face))
   "Face for ISO week-number labels (e.g. WW15) in the calendar popup."
   :group 'taskjuggler)
 
 ;;; Keyword lists
 
-(defconst taskjuggler-top-level-keywords
+(defconst taskjuggler-mode-top-level-keywords
   '("project" "task" "resource" "account" "scenario"
     "extend" "macro" "include" "flags" "shift")
   "TaskJuggler top-level declaration keywords.")
 
-(defconst taskjuggler-report-keywords
+(defconst taskjuggler-mode-report-keywords
   '("taskreport" "resourcereport" "accountreport" "textreport"
     "tracereport" "icalreport" "timesheetreport" "statussheetreport")
   "TaskJuggler report type keywords.")
 
-(defconst taskjuggler-property-keywords
+(defconst taskjuggler-mode-property-keywords
   '(;; Task properties
     "allocate" "booking" "charge" "chargeset" "complete"
     "depends" "duration" "effort" "end" "journalentry"
@@ -275,7 +276,7 @@ Distinguishes characters the user has typed from the pre-filled suffix."
     "yearlyworkingdays")
   "TaskJuggler property keywords.")
 
-(defconst taskjuggler-value-keywords
+(defconst taskjuggler-mode-value-keywords
   '("yes" "no" "true" "false" "off" "on"
     "asap" "alap"
     "annual" "special" "sick" "unpaid" "holiday"
@@ -291,52 +292,52 @@ Distinguishes characters the user has typed from the pre-filled suffix."
 
 ;;; Font-lock patterns
 
-(defconst taskjuggler--date-re
+(defconst taskjuggler-mode--date-re
   (concat "[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}"
           "\\(?:-[0-9]\\{2\\}:[0-9]\\{2\\}"
           "\\(?::[0-9]\\{2\\}\\)?"
           "\\(?:[+-][0-9]\\{4\\}\\)?\\)?")
   "Regexp matching TaskJuggler date literals (YYYY-MM-DD[-hh:mm[:ss]]).")
 
-(defconst taskjuggler--duration-re
+(defconst taskjuggler-mode--duration-re
   "\\<[0-9]+\\(?:\\.[0-9]+\\)?\\(?:min\\|[hdwmy]\\)\\>"
   "Regexp matching TaskJuggler duration literals (e.g. 5d, 2.5h, 3w).")
 
-(defconst taskjuggler--macro-ref-re
+(defconst taskjuggler-mode--macro-ref-re
   "\\${[^}\n]+}\\|\\$([A-Z_][A-Z0-9_]*)"
   "Regexp matching TaskJuggler macro (${...}) and env-var ($(VAR)) references.")
 
-(defconst taskjuggler--named-declaration-re
+(defconst taskjuggler-mode--named-declaration-re
   (concat (regexp-opt '("task" "resource" "account" "scenario"
                         "shift" "macro" "supplement")
                       'words)
           "[ \t]+\\([[:alnum:]_][[:alnum:]_-]*\\)")
   "Regexp matching a declaration keyword followed by its identifier.")
 
-(defvar taskjuggler-font-lock-keywords
+(defvar taskjuggler-mode-font-lock-keywords
   `(;; Named declarations: highlight the identifier after the keyword.
     ;; regexp-opt with 'words wraps in a capturing group, making the keyword
     ;; group 1 and the identifier group 2.
-    (,taskjuggler--named-declaration-re
+    (,taskjuggler-mode--named-declaration-re
      (2 font-lock-variable-name-face))
     ;; Top-level structural keywords
-    (,(regexp-opt taskjuggler-top-level-keywords 'words)
+    (,(regexp-opt taskjuggler-mode-top-level-keywords 'words)
      . font-lock-keyword-face)
     ;; Report type keywords
-    (,(regexp-opt taskjuggler-report-keywords 'words)
+    (,(regexp-opt taskjuggler-mode-report-keywords 'words)
      . font-lock-function-name-face)
     ;; Property keywords
-    (,(regexp-opt taskjuggler-property-keywords 'words)
+    (,(regexp-opt taskjuggler-mode-property-keywords 'words)
      . font-lock-function-name-face)
     ;; Value and constant keywords
-    (,(regexp-opt taskjuggler-value-keywords 'words)
+    (,(regexp-opt taskjuggler-mode-value-keywords 'words)
      . font-lock-variable-name-face)
     ;; Date literals
-    (,taskjuggler--date-re . 'taskjuggler-date-face)
+    (,taskjuggler-mode--date-re . 'taskjuggler-mode-date-face)
     ;; Duration literals
-    (,taskjuggler--duration-re . 'taskjuggler-duration-face)
+    (,taskjuggler-mode--duration-re . 'taskjuggler-mode-duration-face)
     ;; Macro and environment variable references
-    (,taskjuggler--macro-ref-re . 'taskjuggler-macro-face))
+    (,taskjuggler-mode--macro-ref-re . 'taskjuggler-mode-macro-face))
   "Font-lock keywords for `taskjuggler-mode'.")
 
 ;;; Syntax table
@@ -368,10 +369,10 @@ Distinguishes characters the user has typed from the pre-filled suffix."
 
 ;;; Syntax propertize (for # line comments and scissor strings)
 
-(defconst taskjuggler--syntax-comment-start (string-to-syntax "< b"))
-(defconst taskjuggler--syntax-string-fence  (string-to-syntax "|"))
+(defconst taskjuggler-mode--syntax-comment-start (string-to-syntax "< b"))
+(defconst taskjuggler-mode--syntax-string-fence  (string-to-syntax "|"))
 
-(defun taskjuggler--syntax-propertize-extend-region (start end)
+(defun taskjuggler-mode--syntax-propertize-extend-region (start end)
   "Extend propertize region backward to cover any enclosing scissors string.
 If START falls inside an open -8<- … ->8- scissors string whose opener
 precedes START, extend START back to include the opener so the propertize
@@ -389,7 +390,7 @@ so `syntax-ppss' is safe to call here and returns the correct state."
         (when (< new-start start)
           (cons new-start end))))))
 
-(defun taskjuggler--syntax-propertize (start end)
+(defun taskjuggler-mode--syntax-propertize (start end)
   "Propertize region START..END for `taskjuggler-mode'.
 Handles # as a line comment and -8<- … ->8- as string delimiters.
 
@@ -410,26 +411,26 @@ latter as inside a comment."
           (cond
            ((match-beginning 1)
             (put-text-property (match-beginning 1) (match-end 1)
-                               'syntax-table taskjuggler--syntax-comment-start))
+                               'syntax-table taskjuggler-mode--syntax-comment-start))
            ((match-beginning 2)
             (put-text-property (match-beginning 2) (match-end 2)
-                               'syntax-table taskjuggler--syntax-string-fence)
+                               'syntax-table taskjuggler-mode--syntax-string-fence)
             (save-excursion
               (goto-char (match-end 0))
               (when (re-search-forward "->8\\(-\\)" nil t)
                 (put-text-property (match-beginning 1) (match-end 1)
-                                   'syntax-table taskjuggler--syntax-string-fence))))))))))
+                                   'syntax-table taskjuggler-mode--syntax-string-fence))))))))))
 
 
 ;;; Indentation
 
-(defun taskjuggler--continuation-indent ()
+(defun taskjuggler-mode--continuation-indent ()
   "Return the column for a keyword-argument continuation line, or nil.
 When the previous non-blank line ends with a comma, this line is treated
 as a continuation of a multi-line argument list.  Walk back to the first
 line of the comma-terminated sequence and return the column of its first
 argument (the token immediately after the leading keyword word).
-Returns nil when the current line is not a continuation."
+Return nil when the current line is not a continuation."
   (save-excursion
     (beginning-of-line)
     (forward-line -1)
@@ -461,7 +462,7 @@ Returns nil when the current line is not a continuation."
       (unless (eolp)
         (current-column)))))
 
-(defun taskjuggler--calculate-indent ()
+(defun taskjuggler-mode--calculate-indent ()
   "Return the target indentation column for the current line.
 Indentation is based on the brace/bracket nesting depth at the start
 of the line, as computed by `syntax-ppss'.  A line opening with `}'
@@ -470,24 +471,24 @@ If the previous non-blank line ends with a comma, the line is treated
 as a continuation and aligned with the first argument on the keyword line."
   (save-excursion
     (beginning-of-line)
-    (or (taskjuggler--continuation-indent)
+    (or (taskjuggler-mode--continuation-indent)
         (let* ((depth (car (syntax-ppss)))
-               (indent (* depth taskjuggler-indent-level)))
+               (indent (* depth taskjuggler-mode-indent-level)))
           ;; A closing delimiter starts a new (outer) scope.
           (when (looking-at "[ \t]*[]}]")
-            (setq indent (max 0 (- indent taskjuggler-indent-level))))
+            (setq indent (max 0 (- indent taskjuggler-mode-indent-level))))
           indent))))
 
-(defun taskjuggler-indent-line ()
+(defun taskjuggler-mode-indent-line ()
   "Indent the current line of TaskJuggler code."
   (interactive)
   (let ((pos (- (point-max) (point))))
-    (indent-line-to (taskjuggler--calculate-indent))
+    (indent-line-to (taskjuggler-mode--calculate-indent))
     ;; Restore point position if it was beyond the indentation.
     (when (> (- (point-max) pos) (point))
       (goto-char (- (point-max) pos)))))
 
-(defun taskjuggler-indent-region (beg end)
+(defun taskjuggler-mode-indent-region (beg end)
   "Indent each line in the region from BEG to END."
   (interactive "r")
   (let ((end-marker (copy-marker end)))
@@ -496,7 +497,7 @@ as a continuation and aligned with the first argument on the keyword line."
       (beginning-of-line)
       (while (< (point) end-marker)
         (unless (looking-at "[ \t]*$")
-          (taskjuggler-indent-line))
+          (taskjuggler-mode-indent-line))
         (forward-line 1)))
     (set-marker end-marker nil)))
 
@@ -510,14 +511,14 @@ as a continuation and aligned with the first argument on the keyword line."
 ;; a block header (with no intervening blank lines) are treated as belonging
 ;; to that block and travel with it.
 
-(defconst taskjuggler--moveable-block-re
+(defconst taskjuggler-mode--moveable-block-re
   (concat "[ \t]*"
-          (regexp-opt (append taskjuggler-top-level-keywords
-                              taskjuggler-report-keywords)
+          (regexp-opt (append taskjuggler-mode-top-level-keywords
+                              taskjuggler-mode-report-keywords)
                       'words))
   "Regexp matching a line that starts a moveable TaskJuggler block.")
 
-(defun taskjuggler--current-block-header ()
+(defun taskjuggler-mode--current-block-header ()
   "Return position of the block header line at or enclosing point.
 If point is on a moveable keyword line, return that line's position.
 If point is inside a brace block whose opening line is a moveable keyword,
@@ -528,16 +529,16 @@ than `up-list'/`scan-lists' so that # comment lines containing { are
 never mistaken for block openers in un-propertized buffer regions."
   (save-excursion
     (beginning-of-line)
-    (if (looking-at taskjuggler--moveable-block-re)
+    (if (looking-at taskjuggler-mode--moveable-block-re)
         (point)
       (let ((parent-open (nth 1 (syntax-ppss))))
         (when parent-open
           (goto-char parent-open)
           (beginning-of-line)
-          (when (looking-at taskjuggler--moveable-block-re)
+          (when (looking-at taskjuggler-mode--moveable-block-re)
             (point)))))))
 
-(defun taskjuggler--block-end (header-pos)
+(defun taskjuggler-mode--block-end (header-pos)
   "Return the position of the line start immediately after the block at HEADER-POS.
 If the header line contains a `{', skips to the matching `}' and returns
 the line after that.  Otherwise returns the line after the header itself
@@ -562,7 +563,7 @@ the line after that.  Otherwise returns the line after the header itself
         (forward-line 1)
         (point)))))
 
-(defun taskjuggler--block-with-comments-start (header-pos)
+(defun taskjuggler-mode--block-with-comments-start (header-pos)
   "Return the start of the block at HEADER-POS, including preceding comments.
 Immediately preceding comment lines (# //, or /* */ blocks) with no blank
 lines between them and the header are considered part of the block."
@@ -582,13 +583,13 @@ lines between them and the header are considered part of the block."
         (setq start (point)))
       start)))
 
-(defun taskjuggler--prev-sibling-bounds (header-pos)
+(defun taskjuggler-mode--prev-sibling-bounds (header-pos)
   "Return (start header end) for the previous sibling of the block at HEADER-POS.
-A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+A sibling is a moveable block at the same `syntax-ppss' depth.  Return nil
 if there is no previous sibling."
   (save-excursion
     (let* ((depth     (car (syntax-ppss header-pos)))
-           (our-start (taskjuggler--block-with-comments-start header-pos)))
+           (our-start (taskjuggler-mode--block-with-comments-start header-pos)))
       (goto-char our-start)
       ;; Skip backward over blank lines and comment lines.
       (while (and (not (bobp))
@@ -604,7 +605,7 @@ if there is no previous sibling."
         (let ((prev-header
                (cond
                 ;; The previous block is a single-line keyword (or its header).
-                ((looking-at taskjuggler--moveable-block-re)
+                ((looking-at taskjuggler-mode--moveable-block-re)
                  (point))
                 ;; The last line ends with } — walk back to the opening {.
                 ((looking-at ".*}[ \t]*$")
@@ -615,7 +616,7 @@ if there is no previous sibling."
                        (progn
                          (let ((forward-sexp-function nil)) (forward-sexp -1)) ; } → matching {
                          (beginning-of-line)
-                         (when (looking-at taskjuggler--moveable-block-re)
+                         (when (looking-at taskjuggler-mode--moveable-block-re)
                            (point)))
                      (error nil))))
                 (t nil))))
@@ -625,17 +626,17 @@ if there is no previous sibling."
                      ;; never moves backward, leaving us on header-pos itself.
                      (/= prev-header header-pos)
                      (= (car (syntax-ppss prev-header)) depth))
-            (list (taskjuggler--block-with-comments-start prev-header)
+            (list (taskjuggler-mode--block-with-comments-start prev-header)
                   prev-header
-                  (taskjuggler--block-end prev-header))))))))
+                  (taskjuggler-mode--block-end prev-header))))))))
 
-(defun taskjuggler--next-sibling-bounds (header-pos)
+(defun taskjuggler-mode--next-sibling-bounds (header-pos)
   "Return (start header end) for the next sibling of the block at HEADER-POS.
-A sibling is a moveable block at the same `syntax-ppss' depth.  Returns nil
+A sibling is a moveable block at the same `syntax-ppss' depth.  Return nil
 if there is no next sibling."
   (save-excursion
     (let ((depth   (car (syntax-ppss header-pos)))
-          (our-end (taskjuggler--block-end header-pos)))
+          (our-end (taskjuggler-mode--block-end header-pos)))
       (goto-char our-end)
       ;; Skip blank lines and comment lines (including /* */ blocks) to reach
       ;; the next keyword.
@@ -648,25 +649,25 @@ if there is no next sibling."
                    (unless (eobp) (forward-line 1)))
           (forward-line 1)))
       (when (and (not (eobp))
-                 (looking-at taskjuggler--moveable-block-re)
+                 (looking-at taskjuggler-mode--moveable-block-re)
                  (= (car (syntax-ppss)) depth))
         (let* ((next-header (point))
-               (next-start  (taskjuggler--block-with-comments-start next-header))
-               (next-end    (taskjuggler--block-end next-header)))
+               (next-start  (taskjuggler-mode--block-with-comments-start next-header))
+               (next-end    (taskjuggler-mode--block-end next-header)))
           (list next-start next-header next-end))))))
 
-(defun taskjuggler--move-block (direction)
+(defun taskjuggler-mode--move-block (direction)
   "Move the block at point one sibling in DIRECTION (`up' or `down').
 The blank-line separator between blocks is preserved and the block header's
 comment lines travel with whichever block they precede."
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not on a moveable TaskJuggler block"))
-    (let* ((cur-start (taskjuggler--block-with-comments-start header))
-           (cur-end   (taskjuggler--block-end header))
+    (let* ((cur-start (taskjuggler-mode--block-with-comments-start header))
+           (cur-end   (taskjuggler-mode--block-end header))
            (sibling   (if (eq direction 'up)
-                          (taskjuggler--prev-sibling-bounds header)
-                        (taskjuggler--next-sibling-bounds header))))
+                          (taskjuggler-mode--prev-sibling-bounds header)
+                        (taskjuggler-mode--next-sibling-bounds header))))
       (unless sibling
         (user-error "No %s sibling block to move past" direction))
       (let* ((sib-start     (nth 0 sibling))
@@ -688,52 +689,52 @@ comment lines travel with whichever block they precede."
             (insert sib-text sep-text cur-text)
             (goto-char (+ cur-start (length sib-text) (length sep-text) header-offset))))))))
 
-(defun taskjuggler-move-block-up ()
+(defun taskjuggler-mode-move-block-up ()
   "Move the block at point before its previous sibling block.
 The block is identified by the moveable keyword line at or enclosing point.
 Any comment lines immediately preceding the block travel with it.
 The blank-line separator between the two blocks is preserved."
   (interactive)
-  (taskjuggler--move-block 'up))
+  (taskjuggler-mode--move-block 'up))
 
-(defun taskjuggler-move-block-down ()
+(defun taskjuggler-mode-move-block-down ()
   "Move the block at point after its next sibling block.
 The block is identified by the moveable keyword line at or enclosing point.
 Any comment lines immediately preceding the next block travel with it.
 The blank-line separator between the two blocks is preserved."
   (interactive)
-  (taskjuggler--move-block 'down))
+  (taskjuggler-mode--move-block 'down))
 
 ;;; Block navigation
 
-(defun taskjuggler--navigate-sibling (direction)
+(defun taskjuggler-mode--navigate-sibling (direction)
   "Move point to the sibling block in DIRECTION (`next' or `prev').
 Signals an error if there is no enclosing moveable block or no sibling."
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not on a moveable TaskJuggler block"))
     (let ((bounds (if (eq direction 'next)
-                      (taskjuggler--next-sibling-bounds header)
-                    (taskjuggler--prev-sibling-bounds header))))
+                      (taskjuggler-mode--next-sibling-bounds header)
+                    (taskjuggler-mode--prev-sibling-bounds header))))
       (if bounds
           (goto-char (nth 1 bounds))
         (user-error "No %s sibling block" direction)))))
 
-(defun taskjuggler-next-block ()
+(defun taskjuggler-mode-next-block ()
   "Move point to the next sibling block at the same depth.
 Finds the block at or enclosing point and jumps to the header of the
 next sibling.  Signals an error if there is no next sibling."
   (interactive)
-  (taskjuggler--navigate-sibling 'next))
+  (taskjuggler-mode--navigate-sibling 'next))
 
-(defun taskjuggler-prev-block ()
+(defun taskjuggler-mode-prev-block ()
   "Move point to the previous sibling block at the same depth.
 Finds the block at or enclosing point and jumps to the header of the
 previous sibling.  Signals an error if there is no previous sibling."
   (interactive)
-  (taskjuggler--navigate-sibling 'prev))
+  (taskjuggler-mode--navigate-sibling 'prev))
 
-(defun taskjuggler-goto-parent ()
+(defun taskjuggler-mode-goto-parent ()
   "Move point to the keyword line of the enclosing block.
 Uses `up-list' to find the opening brace one level up, then moves to
 the beginning of that line.  Signals an error at the top level."
@@ -746,91 +747,91 @@ the beginning of that line.  Signals an error at the top level."
           (beginning-of-line))
       (error (user-error "No enclosing block found")))))
 
-(defun taskjuggler--child-block-headers (header-pos)
+(defun taskjuggler-mode--child-block-headers (header-pos)
   "Return a list of positions of direct child block headers inside HEADER-POS.
 Children are moveable-keyword lines at exactly one brace-nesting level deeper
-than HEADER-POS.  Returns nil when the block has no brace body or no children."
+than HEADER-POS.  Return nil when the block has no brace body or no children."
   (let* ((depth     (car (syntax-ppss header-pos)))
-         (block-end (taskjuggler--block-end header-pos))
+         (block-end (taskjuggler-mode--block-end header-pos))
          children)
     (save-excursion
       (goto-char header-pos)
       (forward-line 1)
       (while (< (point) block-end)
-        (when (and (looking-at taskjuggler--moveable-block-re)
+        (when (and (looking-at taskjuggler-mode--moveable-block-re)
                    (= (car (syntax-ppss)) (1+ depth)))
           (push (point) children))
         (forward-line 1)))
     (nreverse children)))
 
-(defun taskjuggler--goto-child (which)
+(defun taskjuggler-mode--goto-child (which)
   "Move point to the WHICH child block of the block at point.
 WHICH is `first' or `last'.  Signals an error if there is no enclosing
 moveable block or the block has no children."
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not on a moveable TaskJuggler block"))
-    (let ((children (taskjuggler--child-block-headers header)))
+    (let ((children (taskjuggler-mode--child-block-headers header)))
       (if children
           (goto-char (if (eq which 'first) (car children) (car (last children))))
         (user-error "No child block found")))))
 
-(defun taskjuggler-goto-first-child ()
+(defun taskjuggler-mode-goto-first-child ()
   "Move point to the first direct child block inside the current block.
 Signals an error if point is not on a moveable block header or if the
-block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
+block contains no child blocks.  Complement to `taskjuggler-mode-goto-parent'."
   (interactive)
-  (taskjuggler--goto-child 'first))
+  (taskjuggler-mode--goto-child 'first))
 
-(defun taskjuggler-goto-last-child ()
+(defun taskjuggler-mode-goto-last-child ()
   "Move point to the last direct child block inside the current block.
 Signals an error if point is not on a moveable block header or if the
-block contains no child blocks.  Complement to `taskjuggler-goto-parent'."
+block contains no child blocks.  Complement to `taskjuggler-mode-goto-parent'."
   (interactive)
-  (taskjuggler--goto-child 'last))
+  (taskjuggler-mode--goto-child 'last))
 
-(defun taskjuggler-forward-block (&optional arg)
+(defun taskjuggler-mode-forward-block (&optional arg)
   "Move point to the next moveable block header at any nesting depth.
-Unlike `taskjuggler-next-block', this is a linear file scan that crosses
+Unlike `taskjuggler-mode-next-block', this is a linear file scan that crosses
 nesting boundaries.  With numeric ARG, repeat that many times."
   (interactive "p")
   (dotimes (_ (or arg 1))
     (end-of-line)
-    (if (re-search-forward taskjuggler--moveable-block-re nil t)
+    (if (re-search-forward taskjuggler-mode--moveable-block-re nil t)
         (beginning-of-line)
       (user-error "No next block"))))
 
-(defun taskjuggler-backward-block (&optional arg)
+(defun taskjuggler-mode-backward-block (&optional arg)
   "Move point to the previous moveable block header at any nesting depth.
-Unlike `taskjuggler-prev-block', this is a linear file scan that crosses
+Unlike `taskjuggler-mode-prev-block', this is a linear file scan that crosses
 nesting boundaries.  With numeric ARG, repeat that many times."
   (interactive "p")
   (dotimes (_ (or arg 1))
     (beginning-of-line)
-    (if (re-search-backward taskjuggler--moveable-block-re nil t)
+    (if (re-search-backward taskjuggler-mode--moveable-block-re nil t)
         (beginning-of-line)
       (user-error "No previous block"))))
 
 ;;; beginning-of-defun / end-of-defun integration
 
-(defun taskjuggler--beginning-of-defun (&optional arg)
+(defun taskjuggler-mode--beginning-of-defun (&optional arg)
   "Move to the beginning of the current or ARGth enclosing/preceding block.
 With ARG (default 1) positive, jump to the header of the block containing
 point.  If already at a block header, that counts as step one; subsequent
 steps search backward for preceding block headers.  With ARG negative,
-delegate to `taskjuggler--end-of-defun'.
+delegate to `taskjuggler-mode--end-of-defun'.
 Implements `beginning-of-defun-function' for `taskjuggler-mode'."
   (let ((count (or arg 1)))
     (cond
      ((> count 0)
-      (let ((header (taskjuggler--current-block-header)))
+      (let ((header (taskjuggler-mode--current-block-header)))
         (if (and header (/= header (line-beginning-position)))
             ;; Inside a block body (not already at its header): jump to the
             ;; header, then do (count-1) additional backward searches.
             (progn
               (goto-char header)
               (dotimes (_ (1- count))
-                (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
+                (when (re-search-backward taskjuggler-mode--moveable-block-re nil 'move)
                   (beginning-of-line))))
           ;; Already at a block header, or not inside any block: search
           ;; backward COUNT times (standard beginning-of-defun behaviour).
@@ -839,47 +840,47 @@ Implements `beginning-of-defun-function' for `taskjuggler-mode'."
           (when (and header (not (bobp)))
             (forward-char -1))
           (dotimes (_ count)
-            (when (re-search-backward taskjuggler--moveable-block-re nil 'move)
+            (when (re-search-backward taskjuggler-mode--moveable-block-re nil 'move)
               (beginning-of-line))))))
      ((< count 0)
-      (taskjuggler--end-of-defun (- count))))))
+      (taskjuggler-mode--end-of-defun (- count))))))
 
-(defun taskjuggler--end-of-defun (&optional arg)
+(defun taskjuggler-mode--end-of-defun (&optional arg)
   "Move to the end of the current or ARGth following block.
 With ARG (default 1) positive, jump past the closing `}' of the block
 containing point.  With ARG negative, delegate to
-`taskjuggler--beginning-of-defun'.
+`taskjuggler-mode--beginning-of-defun'.
 Implements `end-of-defun-function' for `taskjuggler-mode'."
   (let ((count (or arg 1)))
     (cond
      ((> count 0)
       (dotimes (_ count)
-        (let* ((header (taskjuggler--current-block-header))
-               (end    (and header (taskjuggler--block-end header))))
+        (let* ((header (taskjuggler-mode--current-block-header))
+               (end    (and header (taskjuggler-mode--block-end header))))
           (if (and end (> end (point)))
               ;; Current block ends ahead of point: jump to it.
               (goto-char end)
             ;; Not in a block, or already at/past the block end: find the
             ;; next block and skip past it.
-            (when (re-search-forward taskjuggler--moveable-block-re nil 'move)
+            (when (re-search-forward taskjuggler-mode--moveable-block-re nil 'move)
               (beginning-of-line)
-              (goto-char (taskjuggler--block-end (point))))))))
+              (goto-char (taskjuggler-mode--block-end (point))))))))
      ((< count 0)
-      (taskjuggler--beginning-of-defun (- count))))))
+      (taskjuggler-mode--beginning-of-defun (- count))))))
 
 ;;; Block editing
 
-(defun taskjuggler-clone-block ()
+(defun taskjuggler-mode-clone-block ()
   "Duplicate the current block immediately after itself.
 A blank line separates the original from the clone.  The clone includes any
 comment lines immediately preceding the block header.
 Point is left on the clone's header line."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not inside a TaskJuggler block"))
-    (let* ((start      (taskjuggler--block-with-comments-start header))
-           (end        (taskjuggler--block-end header))
+    (let* ((start      (taskjuggler-mode--block-with-comments-start header))
+           (end        (taskjuggler-mode--block-end header))
            (block-text (buffer-substring start end))
            (header-offset (- header start)))
       ;; end is the position of the first line after the block; insert there.
@@ -888,32 +889,32 @@ Point is left on the clone's header line."
       ;; Move point to the clone's header line.
       (goto-char (+ end 1 header-offset)))))
 
-(defun taskjuggler-narrow-to-block ()
+(defun taskjuggler-mode-narrow-to-block ()
   "Narrow the buffer to the current block (header through closing `}').
 Signals an error if point is not inside a moveable block."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not inside a TaskJuggler block"))
-    (narrow-to-region header (taskjuggler--block-end header))))
+    (narrow-to-region header (taskjuggler-mode--block-end header))))
 
-(defun taskjuggler-mark-block ()
+(defun taskjuggler-mode-mark-block ()
   "Mark the current block as the active region, including preceding comments.
 Point is placed at the start of any immediately preceding comment lines;
 mark is placed at the end of the closing `}' line (or the header line for
 brace-less blocks).  Signals an error if point is not inside a block."
   (interactive)
-  (let ((header (taskjuggler--current-block-header)))
+  (let ((header (taskjuggler-mode--current-block-header)))
     (unless header
       (user-error "Not inside a TaskJuggler block"))
-    (let ((start (taskjuggler--block-with-comments-start header))
-          (end   (taskjuggler--block-end header)))
+    (let ((start (taskjuggler-mode--block-with-comments-start header))
+          (end   (taskjuggler-mode--block-end header)))
       (goto-char start)
       (push-mark end nil t))))
 
 ;;; Sexp movement
 
-(defun taskjuggler--forward-sexp-1 ()
+(defun taskjuggler-mode--forward-sexp-1 ()
   "Move forward past one sexp.
 When point is in the leading whitespace or at the keyword on a moveable
 block header line, the entire block (header + brace body) is treated as a
@@ -925,11 +926,11 @@ single sexp.  Otherwise falls back to the default sexp movement."
     (if (and (<= (point) indent-end)
              (save-excursion
                (goto-char indent-end)
-               (looking-at taskjuggler--moveable-block-re)))
-        (goto-char (taskjuggler--block-end indent-end))
+               (looking-at taskjuggler-mode--moveable-block-re)))
+        (goto-char (taskjuggler-mode--block-end indent-end))
       (let ((forward-sexp-function nil)) (forward-sexp 1)))))
 
-(defun taskjuggler--backward-sexp-1 ()
+(defun taskjuggler-mode--backward-sexp-1 ()
   "Move backward past one sexp.
 When the sexp immediately before point is a TJ3 block ending with `}',
 jumps back to the start of the block header line (including any preceding
@@ -945,887 +946,38 @@ reentrancy through `forward-sexp-function'."
               ;; char-before and jumps to the matching `{'.
               (let ((forward-sexp-function nil)) (forward-sexp -1)) ; `}' -> matching `{'
               (beginning-of-line)
-              (when (looking-at taskjuggler--moveable-block-re)
+              (when (looking-at taskjuggler-mode--moveable-block-re)
                 (setq block-start
-                      (taskjuggler--block-with-comments-start (point)))))
+                      (taskjuggler-mode--block-with-comments-start (point)))))
           (error nil))))
     (if block-start
         (goto-char block-start)
       (let ((forward-sexp-function nil)) (forward-sexp -1)))))
 
-(defun taskjuggler--forward-sexp (&optional arg)
+(defun taskjuggler-mode--forward-sexp (&optional arg)
   "Move forward by ARG sexps, treating TJ3 blocks as single units.
 Installed as `forward-sexp-function' in `taskjuggler-mode'."
   (let ((count (or arg 1)))
     (cond
-     ((> count 0) (dotimes (_ count) (taskjuggler--forward-sexp-1)))
-     ((< count 0) (dotimes (_ (- count)) (taskjuggler--backward-sexp-1))))))
+     ((> count 0) (dotimes (_ count) (taskjuggler-mode--forward-sexp-1)))
+     ((< count 0) (dotimes (_ (- count)) (taskjuggler-mode--backward-sexp-1))))))
 
-(defun taskjuggler-forward-block-sexp (&optional arg)
+(defun taskjuggler-mode-forward-block-sexp (&optional arg)
   "Move forward by ARG blocks, treating each TJ3 block as a single sexp."
   (interactive "p")
-  (taskjuggler--forward-sexp (or arg 1)))
+  (taskjuggler-mode--forward-sexp (or arg 1)))
 
-(defun taskjuggler-backward-block-sexp (&optional arg)
+(defun taskjuggler-mode-backward-block-sexp (&optional arg)
   "Move backward by ARG blocks, treating each TJ3 block as a single sexp."
   (interactive "p")
-  (taskjuggler--forward-sexp (- (or arg 1))))
-
-;;; Date insertion — inline calendar picker
-
-(defun taskjuggler--date-bounds-at-point ()
-  "Return (BEG . END) of the TJ3 date literal at point, or nil."
-  (save-excursion
-    (let ((pos (point))
-          (bol (line-beginning-position))
-          (eol (line-end-position)))
-      (goto-char bol)
-      (catch 'found
-        (while (re-search-forward taskjuggler--date-re eol t)
-          (when (and (<= (match-beginning 0) pos)
-                     (>= (match-end 0) pos))
-            (throw 'found (cons (match-beginning 0) (match-end 0)))))))))
-
-(defconst taskjuggler--partial-date-re
-  "[0-9]\\{1,4\\}\\(?:-[0-9]\\{0,2\\}\\(?:-[0-9]\\{0,2\\}\\)?\\)?"
-  "Regexp matching any prefix of YYYY-MM-DD.
-Matches 1-4 year digits optionally followed by a hyphen + 0-2 month
-digits + an optional hyphen + 0-2 day digits.")
-
-(defun taskjuggler--partial-date-bounds-at-point ()
-  "Return (BEG . END) of a partial date prefix at point, or nil.
-Matches any prefix of YYYY-MM-DD (1-9 characters) that contains point
-and is not a complete date.  Excludes numeric tokens followed by a digit,
-letter, or decimal point to avoid matching durations (e.g. \"5d\") or
-larger numbers."
-  (save-excursion
-    (let ((pos (point))
-          (bol (line-beginning-position))
-          (eol (line-end-position)))
-      (goto-char bol)
-      (catch 'found
-        (while (re-search-forward taskjuggler--partial-date-re eol t)
-          (let ((mbeg (match-beginning 0))
-                (mend (match-end 0))
-                (mstr (match-string 0)))
-            (when (and (<= mbeg pos) (>= mend pos))
-              (unless (string-match-p (concat "^" taskjuggler--date-re "$") mstr)
-                ;; The regexp can match bare digits (e.g. the "5" in "5d").
-                ;; The next-char guard below is what excludes those cases:
-                ;; a match immediately followed by a digit, letter, or "."
-                ;; is not a partial date.
-                (let ((next (and (< mend eol) (char-after mend))))
-                  (unless (and next (or (<= ?0 next ?9)
-                                        (<= ?a next ?z)
-                                        (<= ?A next ?Z)
-                                        (= next ?.)))
-                    (throw 'found (cons mbeg mend))))))))))))
-
-(defun taskjuggler--parse-partial-date (partial default-date)
-  "Parse PARTIAL date prefix string and return (YEAR MONTH DAY).
-PARTIAL is a prefix of YYYY-MM-DD; month and day components may be 1 or 2
-digits.  Uses DEFAULT-DATE (a (YEAR MONTH DAY) list) for any components not
-present in PARTIAL."
-  (let* ((year (nth 0 default-date))
-         (month (nth 1 default-date))
-         (day (nth 2 default-date))
-         (parts (split-string partial "-")))
-    ;; Year: must be exactly 4 digits.
-    (let ((y-str (nth 0 parts)))
-      (when (and y-str (= (length y-str) 4))
-        (let ((y (string-to-number y-str)))
-          (when (> y 0) (setq year y)))))
-    ;; Month: 1 or 2 digits, value 1-12.
-    (when-let ((m-str (nth 1 parts)))
-      (when (>= (length m-str) 1)
-        (let ((m (string-to-number m-str)))
-          (when (<= 1 m 12) (setq month m)))))
-    ;; Day: 1 or 2 digits, clamped to the parsed month.
-    (when-let ((d-str (nth 2 parts)))
-      (when (>= (length d-str) 1)
-        (let ((d (string-to-number d-str)))
-          (when (>= d 1)
-            (setq day (min d (calendar-last-day-of-month month year)))))))
-    (list year month (taskjuggler--cal-clamp-day year month day))))
-
-(defun taskjuggler--parse-tj-date (date-string)
-  "Parse TJ3 DATE-STRING into a (YEAR MONTH DAY) list.
-Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
-  (when (string-match "\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)"
-                      date-string)
-    (list (string-to-number (match-string 1 date-string))
-          (string-to-number (match-string 2 date-string))
-          (string-to-number (match-string 3 date-string)))))
-
-(defun taskjuggler--format-tj-date (year month day)
-  "Format YEAR, MONTH, DAY as a TJ3 date string YYYY-MM-DD."
-  (format "%04d-%02d-%02d" year month day))
-
-;; --- Calendar math ---
-;; `calendar-leap-year-p', `calendar-last-day-of-month', and
-;; `calendar-day-of-week' come from the built-in `calendar' library.
-
-(defun taskjuggler--cal-clamp-day (year month day)
-  "Clamp DAY to the valid range for MONTH of YEAR."
-  (min day (calendar-last-day-of-month month year)))
-
-(defun taskjuggler--cal-adjust-date (year month day delta unit)
-  "Adjust YEAR-MONTH-DAY by DELTA units (:day, :week, or :month).
-Return a (YEAR MONTH DAY) list."
-  (pcase unit
-    (:day
-     (let* ((time (encode-time 0 0 12 day month year))
-            (adjusted (time-add time (days-to-time delta)))
-            (decoded (decode-time adjusted)))
-       (list (nth 5 decoded) (nth 4 decoded) (nth 3 decoded))))
-    (:week
-     (taskjuggler--cal-adjust-date year month day (* delta 7) :day))
-    (:month
-     (let* ((new-month (+ month delta))
-            ;; Normalise month to 1-12, adjusting year.
-            (new-year (+ year (floor (1- new-month) 12)))
-            (new-month (1+ (mod (1- new-month) 12)))
-            (new-day (taskjuggler--cal-clamp-day new-year new-month day)))
-       (list new-year new-month new-day)))))
-
-;; --- Calendar rendering ---
-;;
-;; The calendar is rendered as a list of propertized strings (one per
-;; line).  Each cell carries the appropriate face: header, selected,
-;; today, inactive (prev/next month), or the base calendar face.
-;; No box border is drawn; the face background provides the visual
-;; container.
-
-(defconst taskjuggler--cal-month-names
-  ["January" "February" "March" "April" "May" "June"
-   "July" "August" "September" "October" "November" "December"]
-  "Month names for the calendar header.")
-
-(defconst taskjuggler--cal-day-header " Su Mo Tu We Th Fr Sa "
-  "Day-of-week header row for the calendar (22 chars, without week-number prefix).")
-
-(defconst taskjuggler--cal-width 22
-  "Base width of the calendar popup in characters (without week-number labels).
-When `taskjuggler-cal-show-week-numbers' is non-nil, 5 additional characters
-are prepended for the \"WW15 \" label.")
-
-(defvar-local taskjuggler--cal-today nil
-  "Today's date as (YEAR MONTH DAY), cached once per edit session.")
-
-(defun taskjuggler--cal-render (year month day)
-  "Render a calendar grid for MONTH of YEAR with DAY selected.
-Return a list of propertized strings, one per line."
-  (let* ((today (or taskjuggler--cal-today
-                    (let ((now (decode-time)))
-                      (list (nth 5 now) (nth 4 now) (nth 3 now)))))
-         (today-year (nth 0 today))
-         (today-month (nth 1 today))
-         (today-day (nth 2 today))
-         (title (taskjuggler--cal-pad-line
-                 (taskjuggler--cal-title-line year month)))
-         (day-hdr (if taskjuggler-cal-show-week-numbers
-                      (concat "    " taskjuggler--cal-day-header)
-                    taskjuggler--cal-day-header))
-         (weeks (taskjuggler--cal-week-lines year month day
-                                             today-year today-month today-day))
-         (headers (list (propertize title 'face 'taskjuggler-cal-header-face)
-                        (propertize day-hdr 'face 'taskjuggler-cal-header-face))))
-    (append headers weeks)))
-
-(defun taskjuggler--cal-title-line (year month)
-  "Return the centred title string for MONTH of YEAR."
-  (let ((name (aref taskjuggler--cal-month-names (1- month))))
-    (format "%s %d" name year)))
-
-(defun taskjuggler--cal-pad-line (text)
-  "Pad or centre TEXT to the effective calendar width."
-  (let* ((width (+ taskjuggler--cal-width
-                   (if taskjuggler-cal-show-week-numbers 4 0)))
-         (len (length text))
-         (pad-total (max 0 (- width len)))
-         (pad-left (/ pad-total 2))
-         (pad-right (- pad-total pad-left)))
-    (concat (make-string pad-left ?\s) text (make-string pad-right ?\s))))
-
-(defun taskjuggler--cal-week-lines (year month selected-day
-                                         today-year today-month today-day)
-  "Return a list of propertized week-row strings for MONTH of YEAR.
-SELECTED-DAY is highlighted.  TODAY-YEAR, TODAY-MONTH, TODAY-DAY
-identify today's date for the today face.  Leading and trailing
-cells are filled with days from adjacent months."
-  (let* ((days-in-month (calendar-last-day-of-month month year))
-         (start-dow (calendar-day-of-week (list month 1 year)))
-         (cells '()))
-    ;; Leading cells from the previous month.
-    (when (> start-dow 0)
-      (let* ((prev (taskjuggler--cal-adjust-date year month 1 -1 :month))
-             (prev-year (nth 0 prev))
-             (prev-month (nth 1 prev))
-             (prev-dim (calendar-last-day-of-month prev-month prev-year))
-             (first-prev (1+ (- prev-dim start-dow))))
-        (dotimes (i start-dow)
-          (push (taskjuggler--cal-make-cell
-                 (+ first-prev i) 'taskjuggler-cal-inactive-face)
-                cells))))
-    ;; Days of the current month.
-    (dotimes (i days-in-month)
-      (let* ((d (1+ i))
-             (face (cond
-                    ((= d selected-day) 'taskjuggler-cal-selected-face)
-                    ((and (= year today-year)
-                          (= month today-month)
-                          (= d today-day))
-                     'taskjuggler-cal-today-face)
-                    (t 'taskjuggler-cal-face))))
-        (push (taskjuggler--cal-make-cell d face) cells)))
-    ;; Trailing cells from the next month.
-    (let ((trailing (% (length cells) 7)))
-      (when (> trailing 0)
-        (let ((need (- 7 trailing)))
-          (dotimes (i need)
-            (push (taskjuggler--cal-make-cell
-                   (1+ i) 'taskjuggler-cal-inactive-face)
-                  cells)))))
-    ;; Group into weeks of 7 and format.
-    ;; For each row, compute the ISO week number from the Thursday of that row.
-    ;; Row i (0-indexed) starts on the Sunday at day (1 - start-dow + 7*i)
-    ;; relative to the 1st of the month.  Thursday is 4 days later.
-    (let ((all-cells (nreverse cells))
-          (weeks '())
-          (row '())
-          (row-idx 0))
-      (dolist (cell all-cells)
-        (push cell row)
-        (when (= (length row) 7)
-          (let* ((thursday-rel (+ 1 (- start-dow) (* row-idx 7) 4))
-                 (thu (taskjuggler--cal-adjust-date year month 1 (1- thursday-rel) :day))
-                 (week-num (car (calendar-iso-from-absolute
-                                (calendar-absolute-from-gregorian
-                                 (list (nth 1 thu) (nth 2 thu) (nth 0 thu)))))))
-            (push (taskjuggler--cal-format-week (nreverse row) week-num) weeks))
-          (setq row nil)
-          (setq row-idx (1+ row-idx))))
-      (nreverse weeks))))
-
-(defun taskjuggler--cal-make-cell (day face)
-  "Return a propertized 2-character string for DAY with FACE."
-  (propertize (format "%2d" day) 'face face))
-
-(defun taskjuggler--cal-format-week (cells week-num)
-  "Join a list of 7 propertized day CELLS into a single week-row string.
-WEEK-NUM is the ISO week number; it is prepended as a \"WW%02d\" label when
-`taskjuggler-cal-show-week-numbers' is non-nil.
-Each cell is separated by a space with the base calendar face."
-  (let* ((pad (propertize " " 'face 'taskjuggler-cal-face))
-         (body (mapconcat #'identity cells pad)))
-    (if taskjuggler-cal-show-week-numbers
-        (let ((label (propertize (format "WW%02d" week-num)
-                                 'face 'taskjuggler-cal-week-face)))
-          (concat label pad body pad))
-      (concat pad body pad))))
-
-;; --- Overlay management ---
-;;
-;; Uses the same technique as company-mode's pseudo-tooltip: a single
-;; overlay spans all lines the calendar covers.  The overlay's
-;; `display' is set to "" to hide the real text, and `before-string'
-;; carries the full popup as a single multi-line string where each
-;; calendar row is spliced into the corresponding buffer line,
-;; preserving characters to the left and right.
-
-(defvar-local taskjuggler--cal-overlay nil
-  "Overlay used by the inline calendar picker.")
-
-(defvar-local taskjuggler--cal-typing-ov nil
-  "Overlay for the user-typed portion of the date during calendar editing.")
-
-(defvar-local taskjuggler--cal-pending-ov nil
-  "Overlay for the pre-filled portion of the date during calendar editing.")
-
-(defvar-local taskjuggler--cal-column nil
-  "Column at which the calendar was first shown.
-Captured once so the calendar stays anchored when navigating.")
-
-;; --- Minor mode state ---
-;;
-;; These variables track the editing session while
-;; `taskjuggler-cal-active-mode' is enabled.
-
-(defvar-local taskjuggler--cal-date-beg nil
-  "Buffer position where the date string starts during editing.")
-
-(defvar-local taskjuggler--cal-was-inserted nil
-  "Non-nil if the date was freshly inserted (should be deleted on cancel).")
-
-(defvar-local taskjuggler--cal-orig-date nil
-  "Original (YEAR MONTH DAY) before editing began.")
-
-(defvar-local taskjuggler--cal-year nil
-  "Current year displayed by the calendar picker.")
-
-(defvar-local taskjuggler--cal-month nil
-  "Current month displayed by the calendar picker.")
-
-(defvar-local taskjuggler--cal-day nil
-  "Current day displayed by the calendar picker.")
-
-(defvar-local taskjuggler--cal-debounce-timer nil
-  "Idle timer used to debounce calendar overlay updates.")
-
-(defun taskjuggler--cal-expand-tabs-with-props (str)
-  "Expand tabs in STR to spaces using `tab-width', preserving text properties.
-Each space replacing a tab inherits the text properties of that tab character."
-  (let ((parts '())
-        (col 0))
-    (dotimes (i (length str))
-      (let ((ch (aref str i)))
-        (if (= ch ?\t)
-            (let* ((spaces (- tab-width (% col tab-width)))
-                   (props (text-properties-at i str))
-                   (pad (apply #'propertize (make-string spaces ?\s) props)))
-              (push pad parts)
-              (setq col (+ col spaces)))
-          (push (substring str i (1+ i)) parts)
-          (setq col (1+ col)))))
-    (apply #'concat (nreverse parts))))
-
-(defun taskjuggler--cal-splice-line (old new col)
-  "Splice NEW into OLD at column COL, preserving surrounding text.
-OLD is the original buffer line, NEW is the calendar row to insert.
-Tab characters in OLD are expanded to spaces before slicing so that
-COL is a visual column, not a character offset.  Text properties on
-OLD (including font-lock faces) are preserved in the returned string.
-Returns the combined string."
-  (let* ((old-exp (taskjuggler--cal-expand-tabs-with-props old))
-         (old-len (length old-exp))
-         (new-len (length new))
-         (left (if (<= col old-len)
-                   (substring old-exp 0 col)
-                 (concat old-exp (make-string (- col old-len) ?\s))))
-         (right-start (+ col new-len))
-         (right (if (< right-start old-len)
-                    (substring old-exp right-start)
-                  "")))
-    (concat left new right)))
-
-(defun taskjuggler--cal-build-display (cal-lines old-lines col)
-  "Build the multi-line display string for the calendar popup.
-CAL-LINES is a list of calendar row strings.  OLD-LINES is a list
-of original buffer line strings.  COL is the column offset.
-Returns a single string with embedded newlines."
-  (let ((result '()))
-    (while cal-lines
-      (let* ((cal-line (pop cal-lines))
-             (old-line (or (pop old-lines) ""))
-             (spliced (taskjuggler--cal-splice-line old-line cal-line col)))
-        (push spliced result)))
-    (mapconcat #'identity (nreverse result) "\n")))
-
-(defun taskjuggler--cal-show-overlay (year month day)
-  "Display or update the calendar overlay below the current line.
-The calendar is spliced into each line's display at the anchored
-column, preserving buffer text to the left and right.  Shows MONTH
-of YEAR with DAY highlighted.
-
-On the first call the overlay is created; subsequent calls reuse it
-and only update its `before-string'."
-  (unless taskjuggler--cal-column
-    (setq taskjuggler--cal-column (current-column)))
-  (let* ((cal-lines (taskjuggler--cal-render year month day))
-         (n-lines (length cal-lines))
-         (col taskjuggler--cal-column))
-    (save-excursion
-      (forward-line 1)
-      (let* ((beg (point))
-             (old-lines (taskjuggler--cal-collect-lines n-lines))
-             (end (point))
-             (display-str (taskjuggler--cal-build-display
-                           cal-lines old-lines col)))
-        (if taskjuggler--cal-overlay
-            ;; Reuse existing overlay — just update the display content.
-            ;; Move it if the region changed (e.g. different week count).
-            (progn
-              (move-overlay taskjuggler--cal-overlay beg end)
-              (overlay-put taskjuggler--cal-overlay
-                           'before-string (concat display-str "\n")))
-          ;; First call — create the overlay.
-          (let ((ov (make-overlay beg end nil t)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'before-string (concat display-str "\n"))
-            (overlay-put ov 'line-prefix "")
-            (overlay-put ov 'window (selected-window))
-            (overlay-put ov 'priority 111)
-            (overlay-put ov 'taskjuggler-calendar t)
-            (setq taskjuggler--cal-overlay ov)))))))
-
-(defun taskjuggler--cal-collect-lines (n)
-  "Collect N buffer lines starting from point, preserving text properties.
-Advances point past the collected lines.  Returns a list of strings."
-  (let ((lines '())
-        (i 0))
-    (while (and (< i n) (not (eobp)))
-      (push (buffer-substring (line-beginning-position) (line-end-position))
-            lines)
-      (forward-line 1)
-      (setq i (1+ i)))
-    (nreverse lines)))
-
-(defun taskjuggler--cal-remove-overlay ()
-  "Remove the calendar overlay if it exists."
-  (when taskjuggler--cal-overlay
-    (delete-overlay taskjuggler--cal-overlay)
-    (setq taskjuggler--cal-overlay nil)))
-
-;; --- In-buffer date editing ---
-;;
-;; The date text lives in the buffer during editing.  A "typed-len"
-;; counter tracks how many characters from the left the user has
-;; explicitly typed (shown with `taskjuggler-cal-typing-face'); the
-;; remainder uses `taskjuggler-cal-pending-face' to indicate the
-;; pre-filled value that RET will commit.
-
-(defconst taskjuggler--cal-date-len 10
-  "Length of a YYYY-MM-DD date string.")
-
-(defconst taskjuggler--cal-help-message
-  "S-arrows: day/week  S-PgUp/Dn: month  Type: YYYY-MM-DD  RET/TAB: confirm  C-g: cancel"
-  "Help text shown in the echo area during calendar editing.")
-
-(defun taskjuggler--cal-valid-char-at-p (ch pos)
-  "Return non-nil if CH is valid at position POS in a YYYY-MM-DD string."
-  (if (or (= pos 4) (= pos 7))
-      (= ch ?-)
-    (<= ?0 ch ?9)))
-
-(defun taskjuggler--cal-apply-faces (date-beg typed-len)
-  "Apply typing and pending face overlays to the date string at DATE-BEG.
-The first TYPED-LEN characters get the typing face; the rest get pending.
-Overlays are used so font-lock cannot override them.  Existing overlays
-are deleted and recreated on each call to avoid stale positions caused
-by intervening buffer modifications."
-  (let ((typed-end (+ date-beg typed-len))
-        (date-end (+ date-beg taskjuggler--cal-date-len)))
-    (when taskjuggler--cal-typing-ov
-      (delete-overlay taskjuggler--cal-typing-ov)
-      (setq taskjuggler--cal-typing-ov nil))
-    (when taskjuggler--cal-pending-ov
-      (delete-overlay taskjuggler--cal-pending-ov)
-      (setq taskjuggler--cal-pending-ov nil))
-    (when (> typed-len 0)
-      (let ((ov (make-overlay date-beg typed-end)))
-        (overlay-put ov 'face 'taskjuggler-cal-typing-face)
-        (overlay-put ov 'priority 110)
-        (setq taskjuggler--cal-typing-ov ov)))
-    (when (< typed-len taskjuggler--cal-date-len)
-      (let ((ov (make-overlay typed-end date-end)))
-        (overlay-put ov 'face 'taskjuggler-cal-pending-face)
-        (overlay-put ov 'priority 110)
-        (setq taskjuggler--cal-pending-ov ov)))))
-
-(defun taskjuggler--cal-remove-faces (_date-beg)
-  "Remove the typing/pending face overlays."
-  (when taskjuggler--cal-typing-ov
-    (delete-overlay taskjuggler--cal-typing-ov)
-    (setq taskjuggler--cal-typing-ov nil))
-  (when taskjuggler--cal-pending-ov
-    (delete-overlay taskjuggler--cal-pending-ov)
-    (setq taskjuggler--cal-pending-ov nil)))
-
-(defun taskjuggler--cal-update-prefill (date-beg typed-len year month day)
-  "Update the pre-filled suffix of the date at DATE-BEG.
-The first TYPED-LEN characters are left untouched.  The rest are
-filled with the date formatted from YEAR, MONTH, and DAY."
-  (let* ((full-date (taskjuggler--format-tj-date year month day))
-         (suffix (substring full-date typed-len)))
-    (save-excursion
-      (goto-char (+ date-beg typed-len))
-      (delete-char (length suffix))
-      (insert suffix))))
-
-(defun taskjuggler--cal-parse-typed-prefix (date-beg typed-len default-date)
-  "Parse the typed prefix at DATE-BEG and return (YEAR MONTH DAY).
-Uses DEFAULT-DATE (a (YEAR MONTH DAY) list) for components not yet
-typed.  TYPED-LEN is how many characters have been typed so far."
-  (let* ((year (nth 0 default-date))
-         (month (nth 1 default-date))
-         (day (nth 2 default-date))
-         (typed (buffer-substring-no-properties
-                 date-beg (+ date-beg typed-len))))
-    (when (>= typed-len 4)
-      (let ((y (string-to-number (substring typed 0 4))))
-        (when (> y 0) (setq year y))))
-    (when (>= typed-len 7)
-      (let ((m (string-to-number (substring typed 5 7))))
-        (when (<= 1 m 12) (setq month m))))
-    (when (>= typed-len 10)
-      (let ((d (string-to-number (substring typed 8 10))))
-        (when (>= d 1)
-          (setq day (min d (calendar-last-day-of-month month year))))))
-    (list year month (taskjuggler--cal-clamp-day year month day))))
-
-;; --- Minor mode for calendar editing ---
-;;
-;; Instead of a read-event loop, the calendar picker uses a transient
-;; minor mode (like company-mode) with its own keymap for explicit
-;; actions (commit, cancel, navigation) and a `post-command-hook' for
-;; passive monitoring of point and typed text.
-
-(defconst taskjuggler--cal-debounce-delay 0.05
-  "Idle-timer delay (seconds) before refreshing the calendar overlay.")
-
-(defun taskjuggler--cal-nav-delta (key)
-  "Return (DELTA . UNIT) for a shift-arrow KEY."
-  (pcase key
-    ('S-right '(1 . :day))
-    ('S-left  '(-1 . :day))
-    ('S-down  '(1 . :week))
-    ('S-up    '(-1 . :week))
-    ('S-next  '(1 . :month))
-    ('S-prior '(-1 . :month))))
-
-(defun taskjuggler--cal-cleanup ()
-  "Tear down calendar picker state and minor mode."
-  (when taskjuggler--cal-debounce-timer
-    (cancel-timer taskjuggler--cal-debounce-timer)
-    (setq taskjuggler--cal-debounce-timer nil))
-  (remove-hook 'post-command-hook #'taskjuggler--cal-post-command t)
-  (remove-hook 'kill-buffer-hook #'taskjuggler--cal-cancel t)
-  (taskjuggler--cal-remove-overlay)
-  (taskjuggler--cal-remove-faces taskjuggler--cal-date-beg)
-  (setq taskjuggler--cal-column nil
-        taskjuggler--cal-today nil)
-  (taskjuggler-cal-active-mode -1))
-
-(defun taskjuggler--cal-commit ()
-  "Commit the pending date and close the calendar picker."
-  (interactive)
-  (let ((date-beg taskjuggler--cal-date-beg)
-        (year taskjuggler--cal-year)
-        (month taskjuggler--cal-month)
-        (day taskjuggler--cal-day))
-    (taskjuggler--cal-cleanup)
-    ;; Write the final date and move point past it.
-    (save-excursion
-      (goto-char date-beg)
-      (delete-char taskjuggler--cal-date-len)
-      (insert (taskjuggler--format-tj-date year month day)))
-    (goto-char (+ date-beg taskjuggler--cal-date-len))))
-
-(defun taskjuggler--cal-cancel ()
-  "Cancel the calendar picker and restore the original buffer state."
-  (interactive)
-  (let ((date-beg taskjuggler--cal-date-beg)
-        (was-inserted taskjuggler--cal-was-inserted)
-        (orig-date taskjuggler--cal-orig-date))
-    (taskjuggler--cal-cleanup)
-    (if was-inserted
-        ;; Date was freshly inserted — delete it entirely.
-        (delete-region date-beg (+ date-beg taskjuggler--cal-date-len))
-      ;; Date existed — restore the original text.
-      (save-excursion
-        (goto-char date-beg)
-        (delete-char taskjuggler--cal-date-len)
-        (insert (apply #'taskjuggler--format-tj-date orig-date))))))
-
-(defun taskjuggler--cal-commit-or-cancel ()
-  "Commit if a partial date has been typed, otherwise cancel.
-Bound to SPC in the calendar picker."
-  (interactive)
-  (let* ((date-beg taskjuggler--cal-date-beg)
-         (typed-len (- (point) date-beg)))
-    (if (> typed-len 0)
-        (taskjuggler--cal-commit)
-      (taskjuggler--cal-cancel))))
-
-(defun taskjuggler--cal-navigate (key)
-  "Adjust the selected date by the shift-arrow KEY and refresh."
-  (let* ((delta-unit (taskjuggler--cal-nav-delta key))
-         (adjusted (taskjuggler--cal-adjust-date
-                    taskjuggler--cal-year taskjuggler--cal-month
-                    taskjuggler--cal-day
-                    (car delta-unit) (cdr delta-unit))))
-    (setq taskjuggler--cal-year (nth 0 adjusted)
-          taskjuggler--cal-month (nth 1 adjusted)
-          taskjuggler--cal-day (nth 2 adjusted))
-    ;; Rewrite the full date template and move point back to date-beg.
-    (let ((date-beg taskjuggler--cal-date-beg))
-      (save-excursion
-        (goto-char date-beg)
-        (delete-char taskjuggler--cal-date-len)
-        (insert (taskjuggler--format-tj-date
-                 taskjuggler--cal-year taskjuggler--cal-month
-                 taskjuggler--cal-day)))
-      (goto-char date-beg)
-      (taskjuggler--cal-apply-faces date-beg 0)
-      (taskjuggler--cal-show-overlay
-       taskjuggler--cal-year taskjuggler--cal-month
-       taskjuggler--cal-day))))
-
-(defun taskjuggler--cal-nav-right ()
-  "Navigate calendar one day forward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-right))
-
-(defun taskjuggler--cal-nav-left ()
-  "Navigate calendar one day backward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-left))
-
-(defun taskjuggler--cal-nav-down ()
-  "Navigate calendar one week forward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-down))
-
-(defun taskjuggler--cal-nav-up ()
-  "Navigate calendar one week backward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-up))
-
-(defun taskjuggler--cal-nav-next ()
-  "Navigate calendar one month forward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-next))
-
-(defun taskjuggler--cal-nav-prior ()
-  "Navigate calendar one month backward."
-  (interactive)
-  (taskjuggler--cal-navigate 'S-prior))
-
-(defun taskjuggler--cal-overwrite-char ()
-  "Overwrite the template character at point with the typed character.
-Used for digit and hyphen input during calendar date editing so that
-`self-insert-command' does not grow the fixed-length date template."
-  (interactive)
-  (let* ((date-beg taskjuggler--cal-date-beg)
-         (typed-len (- (point) date-beg))
-         (ch last-command-event))
-    (when (and (< typed-len taskjuggler--cal-date-len)
-               (taskjuggler--cal-valid-char-at-p ch typed-len))
-      (delete-char 1)
-      (insert (char-to-string ch)))))
-
-(defvar taskjuggler-cal-active-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "<return>")  #'taskjuggler--cal-commit)
-    (define-key map (kbd "<tab>")     #'taskjuggler--cal-commit)
-    (define-key map (kbd "SPC")       #'taskjuggler--cal-commit-or-cancel)
-    (define-key map (kbd "C-g")       #'taskjuggler--cal-cancel)
-    (define-key map (kbd "S-<right>") #'taskjuggler--cal-nav-right)
-    (define-key map (kbd "S-<left>")  #'taskjuggler--cal-nav-left)
-    (define-key map (kbd "S-<down>")  #'taskjuggler--cal-nav-down)
-    (define-key map (kbd "S-<up>")    #'taskjuggler--cal-nav-up)
-    (define-key map (kbd "S-<next>")  #'taskjuggler--cal-nav-next)
-    (define-key map (kbd "S-<prior>") #'taskjuggler--cal-nav-prior)
-    ;; Digits and hyphen use overwrite-style insertion to keep the
-    ;; date template at a fixed 10-character length.
-    (dolist (ch (append (number-sequence ?0 ?9) (list ?-)))
-      (define-key map (vector ch) #'taskjuggler--cal-overwrite-char))
-    map)
-  "Keymap active while the inline calendar picker is open.")
-
-;; Register our keymap in `emulation-mode-map-alists' so it takes
-;; priority over evil-mode's keymaps (which also live there).
-;; The variable holds a (CONDITION . MAP) pair; we set CONDITION to t
-;; while the picker is active and nil otherwise.
-(defvar-local taskjuggler--cal-emulation-alist nil
-  "Emulation keymap alist entry for the calendar picker.
-Added to `emulation-mode-map-alists' so the picker keymap beats evil.")
-(add-to-list 'emulation-mode-map-alists 'taskjuggler--cal-emulation-alist)
-
-(define-minor-mode taskjuggler-cal-active-mode
-  "Transient minor mode active while the inline calendar picker is open."
-  :lighter " TJ-Cal"
-  :keymap taskjuggler-cal-active-mode-map
-  (if taskjuggler-cal-active-mode
-      (progn
-        (setq taskjuggler--cal-emulation-alist
-              (list (cons t taskjuggler-cal-active-mode-map)))
-        (message "%s" taskjuggler--cal-help-message))
-    ;; Deactivate the emulation keymap and cancel any pending timer.
-    (setq taskjuggler--cal-emulation-alist nil)
-    (when taskjuggler--cal-debounce-timer
-      (cancel-timer taskjuggler--cal-debounce-timer)
-      (setq taskjuggler--cal-debounce-timer nil))))
-
-;; --- Post-command monitoring ---
-
-(defun taskjuggler--cal-schedule-refresh ()
-  "Schedule a debounced calendar overlay refresh."
-  (when taskjuggler--cal-debounce-timer
-    (cancel-timer taskjuggler--cal-debounce-timer))
-  (setq taskjuggler--cal-debounce-timer
-        (run-with-idle-timer
-         taskjuggler--cal-debounce-delay nil
-         #'taskjuggler--cal-deferred-refresh (current-buffer))))
-
-(defun taskjuggler--cal-deferred-refresh (buf)
-  "Refresh the calendar overlay in BUF after the debounce delay."
-  (when (buffer-live-p buf)
-    (with-current-buffer buf
-      (when taskjuggler-cal-active-mode
-        (setq taskjuggler--cal-debounce-timer nil)
-        (taskjuggler--cal-show-overlay
-         taskjuggler--cal-year taskjuggler--cal-month
-         taskjuggler--cal-day)))))
-
-(defun taskjuggler--cal-post-command ()
-  "Monitor point and buffer text after each command.
-Cancels the picker if point moves before `taskjuggler--cal-date-beg'.
-Otherwise parses the typed prefix and updates faces and the overlay."
-  (when taskjuggler-cal-active-mode
-    (let ((date-beg taskjuggler--cal-date-beg)
-          (date-end (+ taskjuggler--cal-date-beg taskjuggler--cal-date-len)))
-      (cond
-       ;; Point moved before the date region — cancel.
-       ((< (point) date-beg)
-        (taskjuggler--cal-cancel))
-       ;; Point moved past the date region — cancel.
-       ((> (point) date-end)
-        (taskjuggler--cal-cancel))
-       ;; Point is within the date region — parse and update.
-       (t
-        (let ((typed-len (- (point) date-beg)))
-          (when (> typed-len 0)
-            ;; Only parse the typed prefix when the user has actually
-            ;; typed something.  When typed-len is 0 (e.g. after a
-            ;; shift-arrow navigation command), the state variables and
-            ;; buffer text are already correct — parsing with typed-len=0
-            ;; would return orig-date and overwrite the navigated date.
-            (let ((parsed (taskjuggler--cal-parse-typed-prefix
-                           date-beg typed-len taskjuggler--cal-orig-date)))
-              (setq taskjuggler--cal-year (nth 0 parsed)
-                    taskjuggler--cal-month (nth 1 parsed)
-                    taskjuggler--cal-day (nth 2 parsed))
-              (taskjuggler--cal-update-prefill
-               date-beg typed-len
-               taskjuggler--cal-year taskjuggler--cal-month taskjuggler--cal-day)))
-          (taskjuggler--cal-apply-faces date-beg typed-len)
-          (taskjuggler--cal-schedule-refresh)))))))
-
-;; --- Calendar edit entry point ---
-
-(defun taskjuggler--cal-edit (date-beg year month day was-inserted)
-  "Start the calendar picker for the date at DATE-BEG.
-YEAR, MONTH, DAY are the initial date.  WAS-INSERTED is non-nil if
-the date was freshly inserted (should be deleted on cancel).
-Point must be at DATE-BEG on entry."
-  ;; Cache today once so every render during this session is free.
-  (let ((now (decode-time)))
-    (setq taskjuggler--cal-today (list (nth 5 now) (nth 4 now) (nth 3 now))))
-  ;; Store editing state.
-  (setq taskjuggler--cal-date-beg date-beg
-        taskjuggler--cal-was-inserted was-inserted
-        taskjuggler--cal-orig-date (list year month day)
-        taskjuggler--cal-year year
-        taskjuggler--cal-month month
-        taskjuggler--cal-day day)
-  ;; Set up faces and overlay.
-  (taskjuggler--cal-apply-faces date-beg 0)
-  (taskjuggler--cal-show-overlay year month day)
-  ;; Install hooks and activate the minor mode.
-  (add-hook 'kill-buffer-hook #'taskjuggler--cal-cancel nil t)
-  (add-hook 'post-command-hook #'taskjuggler--cal-post-command nil t)
-  (taskjuggler-cal-active-mode 1))
-
-;; --- Public date commands ---
-
-(defun taskjuggler-insert-date ()
-  "Insert a TaskJuggler date literal at point using an inline calendar.
-Inserts today's date with a pending face and opens the calendar picker."
-  (interactive)
-  (pcase-let ((`(,_ ,_min ,_hour ,day ,month ,year . ,_) (decode-time)))
-    (let ((date-beg (point)))
-      (insert (taskjuggler--format-tj-date year month day))
-      (goto-char date-beg)
-      (taskjuggler--cal-edit date-beg year month day t))))
-
-(defun taskjuggler-date-dwim ()
-  "Insert or edit a TaskJuggler date literal depending on context.
-If point is on a complete date literal, edit it in place.
-If point is on a partial date prefix (e.g. \"2026-04-\"), delete it and open
-the calendar picker to insert a fresh date.
-If point is on whitespace or at end of line, insert a new date.
-Otherwise, signal a user-error."
-  (interactive)
-  (let ((partial-bounds (taskjuggler--partial-date-bounds-at-point)))
-    (cond
-     ((taskjuggler--date-bounds-at-point)
-      (taskjuggler-edit-date-at-point))
-     (partial-bounds
-      (let* ((partial (buffer-substring-no-properties (car partial-bounds) (cdr partial-bounds)))
-             (partial-len (length partial)))
-        (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
-                     (decode-time)))
-          (let* ((default-date (list today-year today-month today-day))
-                 (parsed (taskjuggler--parse-partial-date partial default-date))
-                 (year (nth 0 parsed))
-                 (month (nth 1 parsed))
-                 (day (nth 2 parsed)))
-            (delete-region (car partial-bounds) (cdr partial-bounds))
-            (goto-char (car partial-bounds))
-            (let ((date-beg (point)))
-              (insert (taskjuggler--format-tj-date year month day))
-              (goto-char date-beg)
-              (taskjuggler--cal-edit date-beg year month day t)
-              ;; Position point after the typed prefix so post-command-hook
-              ;; picks it up as typed-len = partial-len.
-              (goto-char (+ date-beg partial-len)))))))
-     ((or (eolp) (looking-at-p "[ \t]"))
-      (taskjuggler-insert-date))
-     (t
-      (user-error "No date at point")))))
-
-(defun taskjuggler-edit-date-at-point ()
-  "Edit the TJ3 date literal at point using an inline calendar.
-The existing date pre-fills the calendar."
-  (interactive)
-  (let ((bounds (taskjuggler--date-bounds-at-point)))
-    (unless bounds
-      (user-error "No TaskJuggler date at point"))
-    (let* ((date-beg (car bounds))
-           (old-string (buffer-substring-no-properties date-beg (cdr bounds)))
-           (parsed (taskjuggler--parse-tj-date old-string)))
-      (unless parsed
-        (user-error "Cannot parse date: %s" old-string))
-      (pcase-let ((`(,year ,month ,day) parsed))
-        (goto-char date-beg)
-        (taskjuggler--cal-edit date-beg year month day nil)))))
-
-;;; Auto-launch calendar on date keywords
-
-(defconst taskjuggler--date-keyword-list
-  '("start" "end" "maxend" "maxstart" "minend" "minstart" "now")
-  "Property keywords that expect a date literal to immediately follow them.
-Used by `taskjuggler--maybe-launch-calendar' to trigger the inline calendar
-picker automatically when `taskjuggler-auto-cal-on-date-keyword' is non-nil.")
-
-(defconst taskjuggler--date-keyword-regexp
-  (concat (regexp-opt taskjuggler--date-keyword-list 'words) "[ \t]")
-  "Regexp matching a date keyword followed by a space or tab.
-Pre-computed so `taskjuggler--maybe-launch-calendar' avoids rebuilding it on
-every keystroke.")
-
-(defun taskjuggler--maybe-launch-calendar ()
-  "Auto-launch the calendar picker after typing a date keyword and a space.
-Installed on `post-self-insert-hook'.  When
-`taskjuggler-auto-cal-on-date-keyword' is non-nil and the calendar is not
-already active, fires when the character just inserted is a space or tab
-and the text immediately before it ends with a keyword from
-`taskjuggler--date-keyword-list'.  Suppressed inside comments and strings."
-  (when (and taskjuggler-auto-cal-on-date-keyword
-             (not taskjuggler-cal-active-mode)
-             (memq last-command-event '(?\s ?\t))
-             (not (nth 8 (syntax-ppss)))
-             (looking-back taskjuggler--date-keyword-regexp
-                           (line-beginning-position)))
-    (taskjuggler-insert-date)))
+  (taskjuggler-mode--forward-sexp (- (or arg 1))))
 
 ;;; Compilation
 
 ;; TJ3 error format: "filename.tjp:LINE: \e[31mError: message\e[0m"
 ;; The regexp matches with or without ANSI escape codes so it works whether or
 ;; not ansi-color-compilation-filter is active.
-(defconst taskjuggler--compilation-error-re
+(defconst taskjuggler-mode--compilation-error-re
   '(taskjuggler
     "^\\([^()\t\n :]+\\):\\([0-9]+\\): \\(?:\e\\[[0-9;]*m\\)?Error:"
     1 2 nil 2)
@@ -1833,1226 +985,6 @@ and the text immediately before it ends with a keyword from
 
 (defvar compilation-error-regexp-alist-alist)
 (defvar compilation-error-regexp-alist)
-
-;;; Flymake
-
-(defvar-local taskjuggler--flymake-proc nil
-  "The currently running flymake process for this buffer.")
-
-;; Forward declarations; real defvars live next to the daemon-diagnostic
-;; plumbing below.
-(defvar taskjuggler--tj3d-diag-files-by-project)
-(defvar taskjuggler--tj3d-tracked-projects)
-
-(defun taskjuggler--tj3d-owns-current-buffer-p ()
-  "Return non-nil when tj3d is authoritative for the current buffer's project.
-Authoritative when we tracked an add for it this session, when an add
-recorded diagnostics for it (covers the failed-add case where the
-daemon produced errors but `tj3client status' doesn't list the
-project), or — as a last resort — when `tj3client status' itself
-reports it loaded (covers projects added externally before this Emacs
-session).  Cheap hash lookups run before the subprocess query so the
-common case stays off the Flymake hot path.  Resolves .tji files to
-their sibling .tjp."
-  (let ((tjp (taskjuggler--find-tjp-file)))
-    (when tjp
-      (let ((abs (expand-file-name tjp)))
-        (or (gethash abs taskjuggler--tj3d-tracked-projects)
-            (gethash abs taskjuggler--tj3d-diag-files-by-project)
-            (taskjuggler--tj3d-project-loaded-p tjp))))))
-
-(defun taskjuggler-flymake-backend (report-fn &rest _args)
-  "Flymake backend for `taskjuggler-mode'.
-Runs tj3 on the current file and reports errors via REPORT-FN.
-Yields to `taskjuggler-tj3d-flymake-backend' whenever the project is
-loaded in tj3d, to avoid duplicate work and conflicting diagnostics."
-  (unless (executable-find (taskjuggler--tj3-executable "tj3"))
-    (error "Cannot find tj3 executable: %s" (taskjuggler--tj3-executable "tj3")))
-  (when (process-live-p taskjuggler--flymake-proc)
-    (kill-process taskjuggler--flymake-proc))
-  (let* ((source (current-buffer))
-         (file   (buffer-file-name)))
-    (cond
-     ((not file)
-      (funcall report-fn nil))
-     ((taskjuggler--tj3d-owns-current-buffer-p)
-      (funcall report-fn nil))
-     (t
-      (setq taskjuggler--flymake-proc
-            (make-process
-             :name "taskjuggler-flymake"
-             :noquery t
-             :connection-type 'pipe
-             :buffer (generate-new-buffer " *taskjuggler-flymake*")
-             :command (append (list (taskjuggler--tj3-executable "tj3"))
-                              taskjuggler-tj3-extra-args (list file))
-             :sentinel
-             (lambda (proc _event)
-               (when (memq (process-status proc) '(exit signal))
-                 (unwind-protect
-                     (if (eq proc (buffer-local-value 'taskjuggler--flymake-proc source))
-                         (with-current-buffer (process-buffer proc)
-                           ;; Strip ANSI escape codes before parsing.
-                           (goto-char (point-min))
-                           (while (re-search-forward "\e\\[[0-9;]*m" nil t)
-                             (replace-match ""))
-                           ;; Collect errors for the current file only.
-                           ;; Errors in included files are reported there instead.
-                           (let (diags)
-                             (goto-char (point-min))
-                             (while (re-search-forward
-                                     (concat "^" (regexp-quote file)
-                                             ":\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)")
-                                     nil t)
-                               (let* ((lnum (string-to-number (match-string 1)))
-                                      (type (if (equal (match-string 2) "Error")
-                                                :error :warning))
-                                      (msg  (match-string 3))
-                                      (reg  (flymake-diag-region source lnum)))
-                                 (push (flymake-make-diagnostic
-                                        source (car reg) (cdr reg) type msg)
-                                       diags)))
-                             ;; Prefix-less warnings (no file:line), pinned to line 1.
-                             (goto-char (point-min))
-                             (while (re-search-forward
-                                     "^Warning: \\(.*\\)" nil t)
-                               (let* ((msg (match-string 1))
-                                      (reg (flymake-diag-region source 1)))
-                                 (push (flymake-make-diagnostic
-                                        source (car reg) (cdr reg) :warning msg)
-                                       diags)))
-                             (funcall report-fn (nreverse diags))))
-                       (flymake-log :debug "Canceling obsolete check %s" proc))
-                   (kill-buffer (process-buffer proc)))))))))))
-
-(defvar taskjuggler--tj3d-diagnostics (make-hash-table :test 'equal)
-  "Hash table of tj3d-reported diagnostics keyed by absolute file path.
-Each value is a list of (LINE TYPE MSG) entries where TYPE is :error or
-:warning.  Populated from `tj3client add' output and consumed by
-`taskjuggler-tj3d-flymake-backend'.")
-
-(defvar taskjuggler--tj3d-diag-files-by-project (make-hash-table :test 'equal)
-  "Hash table mapping a .tjp file to the list of files it annotated.
-Used to clear the right subset on re-add so diagnostics from other
-projects loaded in the same daemon are preserved.")
-
-(defmacro taskjuggler--with-source-buffer (source &rest body)
-  "Run BODY with point at the start of SOURCE's content.
-SOURCE is either a live buffer (preserved + widened + position saved)
-or a readable file path (loaded into a temp buffer).  When SOURCE is a
-path that can't be read, BODY is not run and the form returns nil."
-  (declare (indent 1))
-  `(let ((source--src ,source))
-     (cond
-      ((bufferp source--src)
-       (with-current-buffer source--src
-         (save-excursion
-           (save-restriction
-             (widen)
-             (goto-char (point-min))
-             ,@body))))
-      ((and (stringp source--src) (file-readable-p source--src))
-       (with-temp-buffer
-         (insert-file-contents source--src)
-         (goto-char (point-min))
-         ,@body)))))
-
-(defun taskjuggler--tj3d-resolve-path (file tjp)
-  "Resolve FILE to an absolute path.
-A relative FILE is expanded against the directory of TJP."
-  (if (file-name-absolute-p file)
-      (expand-file-name file)
-    (expand-file-name file (file-name-directory tjp))))
-
-(defun taskjuggler--tj3d-clear-diagnostics-for-project (tjp)
-  "Drop diagnostics previously recorded under project TJP.
-Returns the list of file paths that had diagnostics cleared so callers
-can refresh Flymake in their buffers."
-  (let* ((tjp-abs (expand-file-name tjp))
-         (files (gethash tjp-abs taskjuggler--tj3d-diag-files-by-project)))
-    (dolist (file files)
-      (remhash file taskjuggler--tj3d-diagnostics))
-    (remhash tjp-abs taskjuggler--tj3d-diag-files-by-project)
-    files))
-
-(defun taskjuggler--tj3d-record-diagnostic (file line type msg tjp)
-  "Record a daemon diagnostic on FILE:LINE of TYPE and MSG under project TJP."
-  (let ((abs (taskjuggler--tj3d-resolve-path file tjp))
-        (tjp-abs (expand-file-name tjp)))
-    (push (list line type msg) (gethash abs taskjuggler--tj3d-diagnostics))
-    (let ((files (gethash tjp-abs taskjuggler--tj3d-diag-files-by-project)))
-      (unless (member abs files)
-        (puthash tjp-abs (cons abs files)
-                 taskjuggler--tj3d-diag-files-by-project)))))
-
-(defun taskjuggler--tj3d-scan-include-lines (source basename)
-  "Return line numbers in SOURCE whose `include' quotes a path ending in BASENAME.
-SOURCE is either a live buffer or an absolute file path; a path that
-can't be read yields nil."
-  (let ((pattern (concat "^[ \t]*include[ \t]+\"[^\"]*"
-                         (regexp-quote basename) "\""))
-        lines)
-    (taskjuggler--with-source-buffer source
-      (while (re-search-forward pattern nil t)
-        (push (line-number-at-pos (match-beginning 0)) lines)))
-    (nreverse lines)))
-
-(defun taskjuggler--tj3d-propagate-to-includers (child-file type msg tjp)
-  "Record a diagnostic of TYPE and MSG on every `include' of CHILD-FILE in TJP.
-Matches by CHILD-FILE's basename only.  Scans only the .tjp passed to
-`tj3client add' (the project root whose add produced the diagnostic) —
-not arbitrary open buffers — so an unrelated buffer whose include
-happens to share the same basename is not flagged.  Reads TJP from
-disk if no buffer is visiting it."
-  (let ((tjp-abs (expand-file-name tjp)))
-    (unless (equal tjp-abs child-file)
-      (let* ((basename (file-name-nondirectory child-file))
-             (source (or (find-buffer-visiting tjp-abs) tjp-abs))
-             (lines (taskjuggler--tj3d-scan-include-lines source basename)))
-        (dolist (line lines)
-          (taskjuggler--tj3d-record-diagnostic
-           tjp-abs line type
-           (format "In %s: %s" basename msg)
-           tjp))))))
-
-(defun taskjuggler--tj3d-parse-diagnostics (tjp)
-  "Parse tj3client output in the current buffer, recording diags under TJP.
-Matches `FILE:LINE: Error|Warning: MSG' lines.  Errors whose FILE
-differs from TJP are also propagated to the `include' line in TJP
-that references that file's basename."
-  (let ((tjp-abs (expand-file-name tjp)))
-    (save-excursion
-      (goto-char (point-min))
-      (while (re-search-forward
-              "^\\(.+?\\):\\([0-9]+\\): \\(Error\\|Warning\\): \\(.*\\)$"
-              nil t)
-        (let* ((file (match-string-no-properties 1))
-               (line (string-to-number (match-string 2)))
-               (type (if (equal (match-string 3) "Error") :error :warning))
-               (msg  (match-string-no-properties 4))
-               (abs  (taskjuggler--tj3d-resolve-path file tjp)))
-          (taskjuggler--tj3d-record-diagnostic file line type msg tjp)
-          (unless (equal abs tjp-abs)
-            (taskjuggler--tj3d-propagate-to-includers abs type msg tjp)))))))
-
-(defun taskjuggler--tj3d-refresh-flymake-for-files (files)
-  "Re-run Flymake in any taskjuggler-mode buffer visiting one of FILES."
-  (dolist (file files)
-    (let ((buf (find-buffer-visiting file)))
-      (when (and buf (buffer-live-p buf))
-        (with-current-buffer buf
-          (when (bound-and-true-p flymake-mode)
-            (flymake-start)))))))
-
-(defun taskjuggler-tj3d-flymake-backend (report-fn &rest _args)
-  "Flymake backend reporting diagnostics cached from `tj3client add'.
-Reports diagnostics for the current buffer to REPORT-FN.  Synchronous:
-no subprocess.  Reports only when the current buffer's project is
-loaded in tj3d; otherwise yields to `taskjuggler-flymake-backend' so
-the two are mutually exclusive."
-  (if (not (taskjuggler--tj3d-owns-current-buffer-p))
-      (funcall report-fn nil)
-    (let* ((source (current-buffer))
-           (file (and buffer-file-name (expand-file-name buffer-file-name)))
-           (entries (and file (gethash file taskjuggler--tj3d-diagnostics)))
-           diags)
-      (dolist (entry entries)
-        (let* ((line (nth 0 entry))
-               (type (nth 1 entry))
-               (msg  (nth 2 entry))
-               (reg  (flymake-diag-region source line)))
-          (when reg
-            (push (flymake-make-diagnostic source (car reg) (cdr reg) type msg)
-                  diags))))
-      (funcall report-fn diags))))
-
-;;; tj3man
-
-(defvar taskjuggler--tj3man-keywords nil
-  "Cached list of keywords returned by `tj3man' with no arguments.
-Populated the first time `taskjuggler-mode' starts with a working tj3man.")
-
-(defun taskjuggler--populate-tj3man-keywords ()
-  "Populate `taskjuggler--tj3man-keywords' by calling tj3man with no arguments.
-Does nothing if the cache is already filled or tj3man cannot be found.
-Only lines that look like TJ3 identifiers (lowercase, may contain
-dots and hyphens) are kept; the copyright header is discarded."
-  (unless taskjuggler--tj3man-keywords
-    (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
-      (when (executable-find tj3man)
-        (setq taskjuggler--tj3man-keywords
-              (seq-filter
-               (lambda (s) (string-match-p "\\`[a-z][a-z0-9._-]*\\'" s))
-               (split-string (shell-command-to-string tj3man) "\n" t)))))))
-
-(defun taskjuggler--make-tj3man-button (start end keyword)
-  "Make a button from START to END that opens the tj3man page for KEYWORD."
-  (make-text-button start end
-                    'action (let ((kw keyword))
-                              (lambda (_btn) (taskjuggler-man kw)))
-                    'follow-link t
-                    'help-echo (format "tj3man %s" keyword)
-                    'face 'button))
-
-(defun taskjuggler--fontify-tj3man-headers ()
-  "Apply Man-overstrike to the six section-header labels in the current buffer."
-  (save-excursion
-    (goto-char (point-min))
-    (while (re-search-forward
-            "^\\(Keyword\\|Purpose\\|Syntax\\|Arguments\\|Context\\|Attributes\\):"
-            nil t)
-      (put-text-property (match-beginning 0) (match-end 0)
-                         'face 'Man-overstrike))))
-
-(defun taskjuggler--fontify-tj3man-syntax ()
-  "Apply Man-underline to <argument> placeholders in the Syntax: section.
-Covers multi-line Syntax blocks up to the first blank line."
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward "^Syntax:" nil t)
-      (let ((section-end (save-excursion
-                           (if (re-search-forward "^$" nil t)
-                               (match-beginning 0)
-                             (point-max)))))
-        (while (re-search-forward "<[^>]+>" section-end t)
-          (put-text-property (match-beginning 0) (match-end 0)
-                             'face 'Man-underline))))))
-
-(defun taskjuggler--fontify-tj3man-arguments (tag-width)
-  "Apply faces to argument entries in the Arguments: section.
-TAG-WIDTH is the column at which argument entries start (matches tagW
-in KeywordDocumentation.rb).  Argument names receive Man-overstrike;
-type specs in [BRACKETS] receive Man-underline.  Continuation lines
-indented by TAG-WIDTH spaces are intentionally skipped."
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward "^Arguments:" nil t)
-      (beginning-of-line)
-      (let ((section-end
-             (save-excursion
-               (if (re-search-forward
-                    "^\\(Keyword\\|Purpose\\|Syntax\\|Context\\|Attributes\\):"
-                    nil t)
-                   (match-beginning 0)
-                 (point-max)))))
-        (while (re-search-forward
-                (concat "^\\(?:Arguments:[ \t]+\\|"
-                        (make-string tag-width ?\s)
-                        "\\)"
-                        "\\([a-zA-Z][a-zA-Z0-9._-]*"
-                        "\\(?:[ \t][a-zA-Z][a-zA-Z0-9._-]*\\)*\\)"
-                        "\\(?:[ \t]+\\[\\([A-Z][A-Z0-9]*\\)\\]\\)?[ \t]*:")
-                section-end t)
-          (put-text-property (match-beginning 1) (match-end 1)
-                             'face 'Man-overstrike)
-          (when (match-beginning 2)
-            (put-text-property (match-beginning 2) (match-end 2)
-                               'face 'Man-underline)))))))
-
-(defun taskjuggler--fontify-tj3man-attributes ()
-  "Linkify attribute names and underline modifier keys in the Attributes: section.
-Each attribute name becomes a button; colon-separated keys inside [...]
-tags (e.g. sc, ip) receive Man-underline.  The modifier-key pass extends
-past the blank line to cover the legend at the end of the buffer."
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward "^Attributes:" nil t)
-      (let ((attrs-end (save-excursion
-                         (if (re-search-forward "^$" nil t)
-                             (match-beginning 0)
-                           (point-max)))))
-        ;; Button on each attribute name only (not the modifier tags).
-        (save-excursion
-          (while (re-search-forward
-                  "\\([a-z][a-z0-9._-]*\\)\\(\\(?:\\[[^]]*\\]\\)*\\)"
-                  attrs-end t)
-            (taskjuggler--make-tj3man-button
-             (match-beginning 1) (match-end 1)
-             (match-string-no-properties 1))))
-        ;; Underline modifier keys to end of buffer (includes legend).
-        (while (re-search-forward "\\[[a-z][a-z0-9:]*\\]" nil t)
-          (let ((b-start (match-beginning 0))
-                (b-end   (match-end 0)))
-            (save-excursion
-              (goto-char (1+ b-start))
-              (while (re-search-forward "[a-z]+" (1- b-end) t)
-                (put-text-property (match-beginning 0) (match-end 0)
-                                   'face 'Man-underline)))))))))
-
-(defun taskjuggler--fontify-tj3man-links ()
-  "Linkify known tj3man keywords throughout the buffer as clickable buttons.
-Skips positions already styled with buttons, Man-overstrike, or
-Man-underline, and skips the documented keyword on the Keyword: and
-Syntax: lines."
-  (when taskjuggler--tj3man-keywords
-    (let ((kw-table (make-hash-table :test 'equal)))
-      (dolist (kw taskjuggler--tj3man-keywords)
-        (puthash kw t kw-table))
-      (save-excursion
-        (goto-char (point-min))
-        (while (re-search-forward "[a-z][a-z0-9._-]*" nil t)
-          (let ((start (match-beginning 0))
-                (end   (match-end 0))
-                (word  (match-string-no-properties 0)))
-            (when (and (gethash word kw-table)
-                       (not (get-text-property start 'button))
-                       (not (memq (get-text-property start 'face)
-                                  '(Man-overstrike Man-underline)))
-                       (not (save-excursion
-                              (goto-char start)
-                              (beginning-of-line)
-                              (or (looking-at "Keyword:")
-                                  (and (looking-at "Syntax:[ \t]+")
-                                       (= (match-end 0) start))))))
-              (taskjuggler--make-tj3man-button start end word))))))))
-
-(defun taskjuggler--fontify-tj3man ()
-  "Apply man-style faces and buttons to the current *tj3man* buffer."
-  (let* ((inhibit-read-only t)
-         ;; Detect the tag column width from the Keyword: line.  This matches
-         ;; tagW in KeywordDocumentation.rb (currently 13) and controls how
-         ;; far argument continuation lines are indented.
-         (tag-width (save-excursion
-                      (goto-char (point-min))
-                      (if (re-search-forward "^Keyword:[ \t]+" nil t)
-                          (current-column)
-                        13))))
-    (taskjuggler--fontify-tj3man-headers)
-    (taskjuggler--fontify-tj3man-syntax)
-    (taskjuggler--fontify-tj3man-arguments tag-width)
-    (taskjuggler--fontify-tj3man-attributes)
-    (taskjuggler--fontify-tj3man-links)))
-
-(defun taskjuggler-man (keyword)
-  "Show tj3man documentation for KEYWORD in a help window.
-Prompts with completion over the keywords listed by `tj3man',
-defaulting to the word at point."
-  (interactive
-   (let* ((tj3man (taskjuggler--tj3-executable "tj3man"))
-          (_ (unless (executable-find tj3man)
-               (user-error "Cannot find tj3man executable: %s" tj3man)))
-          (default (thing-at-point 'word t))
-          (prompt  (if default
-                       (format "tj3man keyword (default %s): " default)
-                     "tj3man keyword: ")))
-     (list (completing-read prompt taskjuggler--tj3man-keywords
-                            nil nil nil nil default))))
-  (let ((tj3man (taskjuggler--tj3-executable "tj3man")))
-    (with-help-window "*tj3man*"
-      (princ (shell-command-to-string
-              (concat tj3man " " (shell-quote-argument keyword))))
-      (with-current-buffer standard-output
-        (taskjuggler--fontify-tj3man)))))
-
-;;; Cursor tracking (task-at-point → tj3webd / js fallback)
-
-;; When a TJP buffer is live, an idle timer periodically identifies the
-;; innermost `task' block enclosing point and sends its full dotted ID to
-;; the browser for two-way task highlighting.
-;;
-;; Transport priority:
-;;   1. tj3webd cursor API (POST /cursor, GET /cursor/state) — used when
-;;      tj3webd is running and the /cursor endpoint is reachable.
-;;   2. js/tj-cursor.js file — written to the js/ subdirectory next to the
-;;      TJP file when js/ exists (file:// polling fallback).
-;;   3. Neither available — cursor tracking is silently disabled.
-
-;; ---- Variables ----
-
-;; TODO: the timer refs below should be `permanent-local'.
-;; `kill-all-local-variables' runs on mode re-activation (M-x
-;; taskjuggler-mode by hand, some revert paths, and — observed in
-;; practice — the mode getting activated in transient buffers like
-;; *company-documentation*).  It wipes these refs BEFORE
-;; `taskjuggler--start-cursor-tracking' gets a chance to cancel the
-;; prior timers, so the old timers stay scheduled forever against the
-;; old buffer.  Checking `list-timers' on a long-lived session shows
-;; stacks of them.  They are harmless (the handler checks
-;; `buffer-live-p') but accumulate.  Proper fix: mark both refs
-;; permanent-local and add a `change-major-mode-hook' entry that calls
-;; `taskjuggler--stop-cursor-tracking' before kill-all-local-variables
-;; can clear them.
-
-(defvar-local taskjuggler--cursor-idle-timer nil
-  "Idle timer that updates cursor position while this buffer is live.")
-
-(defvar-local taskjuggler--click-poll-timer nil
-  "Repeating timer that polls for browser clicks regardless of focus.")
-
-(defvar-local taskjuggler--cursor-last-id :unset
-  "Last task ID sent/written; :unset before the first update.")
-
-(defvar-local taskjuggler--cursor-last-click-ts 0
-  "Last click timestamp acted upon; prevents re-navigating the same click.")
-
-(defvar-local taskjuggler--cursor-api-url nil
-  "Base URL for the tj3webd cursor API (e.g. \"http://127.0.0.1:8080\"), or nil.
-Non-nil means the /cursor endpoint was reachable when tracking started.")
-
-(defvar-local taskjuggler--cursor-js-file-cache :unset
-  "Cached path to js/tj-cursor.js (file:// polling fallback), or nil.
-:unset before the first lookup.")
-
-;; ---- Task ID helpers ----
-
-(defun taskjuggler--block-header-task-id (header-pos)
-  "If the line at HEADER-POS is a `task' declaration, return its ID string.
-Returns nil for any other keyword (resource, project, macro, etc.)."
-  (save-excursion
-    (goto-char header-pos)
-    (when (looking-at "[ \t]*task[ \t]+\\([[:alnum:]_][[:alnum:]_-]*\\)")
-      (match-string-no-properties 1))))
-
-(defun taskjuggler--full-task-id-at-point ()
-  "Return the full dotted TaskJuggler task ID enclosing point, or nil.
-Walks up the brace-nesting hierarchy from the innermost block at point,
-collecting the IDs of every ancestor `task' block, and joins them with `.'.
-Returns nil when point is not inside any `task' block."
-  (save-excursion
-    (when-let ((header (taskjuggler--current-block-header)))
-      (goto-char header)
-      (let (ids parent-open)
-        ;; Prefer (nth 1 (syntax-ppss)) over up-list: scan-lists can land
-        ;; on a sibling's { when scanning backward past balanced pairs.
-        (while (progn
-                 (when-let ((id (taskjuggler--block-header-task-id (point))))
-                   (push id ids))
-                 (setq parent-open (nth 1 (syntax-ppss))))
-          (goto-char parent-open)
-          (beginning-of-line))
-        (when ids
-          (mapconcat #'identity ids "."))))))
-
-(defun taskjuggler--goto-task-id (dotted-id)
-  "Move point to the `task' declaration for DOTTED-ID.
-Searches for lines beginning with `task <leaf-id>' and verifies the full
-dotted hierarchy via `taskjuggler--full-task-id-at-point'.  Returns t on
-success, nil when no matching declaration is found."
-  (let* ((leaf (car (last (split-string dotted-id "\\."))))
-         (re (concat "^[ \t]*task[ \t]+" (regexp-quote leaf) "\\b"))
-         target)
-    (save-excursion
-      (goto-char (point-min))
-      (while (and (not target)
-                  (re-search-forward re nil t))
-        (let ((candidate (line-beginning-position)))
-          (when (equal (save-excursion
-                         (goto-char candidate)
-                         (taskjuggler--full-task-id-at-point))
-                       dotted-id)
-            (setq target candidate)))))
-    (when target
-      (goto-char target)
-      t)))
-
-;; ---- API transport (tj3webd /cursor endpoint) ----
-
-;; TODO: the functions below use `url-retrieve-synchronously' inside
-;; the 0.3s repeating click-poll timer.  That opens a recursive event
-;; loop from a timer handler, which is fragile.  Observed failure: the
-;; live `.tji' poll timer's next-fire-time stopped advancing (showed as
-;; ~47 hours overdue in `list-timers') while other timers in the same
-;; Emacs kept firing normally, and sync stayed dead until
-;; `taskjuggler--stop-cursor-tracking' + `--start-cursor-tracking'
-;; replaced the timer.  Orphan poll timers for *company-documentation*
-;; showed the same overdue pattern in BOTH broken and working sessions,
-;; so the orphans are not the cause — single-timer wedging of the live
-;; timer is.  Suspected triggers: C-g during the 2s timeout, or
-;; re-entrance when Emacs is busy (save + flymake + company +
-;; fontification stacking up).  Proper fix: convert
-;; `taskjuggler--cursor-poll-api' and `taskjuggler--cursor-post-api' to
-;; async `url-retrieve' with callbacks so no recursive event loop runs
-;; from the timer handler.  (`taskjuggler--cursor-api-probe' runs
-;; once at mode init, not from a timer, so it's fine.)
-
-(defun taskjuggler--cursor-api-probe ()
-  "Probe whether the tj3webd cursor API is reachable.
-Returns the base URL string (e.g. \"http://127.0.0.1:8080\") on success,
-or nil when the endpoint is not available."
-  (let ((url (format "http://127.0.0.1:%d/cursor/state"
-                     taskjuggler-tj3webd-port)))
-    (condition-case nil
-        (let ((url-request-method "GET")
-              (url-show-status nil))
-          (with-current-buffer (url-retrieve-synchronously url t nil 2)
-            (unwind-protect
-                (progn
-                  (goto-char (point-min))
-                  (when (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
-                    (format "http://127.0.0.1:%d" taskjuggler-tj3webd-port)))
-              (kill-buffer))))
-      (error nil))))
-
-(defun taskjuggler--cursor-post-api (task-id)
-  "POST TASK-ID to the tj3webd /cursor endpoint.
-TASK-ID may be a string or nil (clears the cursor).
-Returns non-nil on success."
-  (when taskjuggler--cursor-api-url
-    (let ((url (concat taskjuggler--cursor-api-url "/cursor"))
-          (url-request-method "POST")
-          (url-request-extra-headers '(("Content-Type" . "application/json")))
-          (url-request-data
-           (encode-coding-string
-            (json-encode `(("id" . ,(or task-id ""))
-                           ("source" . "editor")))
-            'utf-8))
-          (url-show-status nil))
-      (condition-case nil
-          (let ((buf (url-retrieve-synchronously url t nil 2)))
-            (when buf (kill-buffer buf))
-            t)
-        (error nil)))))
-
-(defun taskjuggler--cursor-poll-api ()
-  "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
-Returns nil on error or when the last event was from the editor."
-  (when taskjuggler--cursor-api-url
-    (let ((url (concat taskjuggler--cursor-api-url "/cursor/state"))
-          (url-request-method "GET")
-          (url-show-status nil))
-      (condition-case nil
-          (with-current-buffer (url-retrieve-synchronously url t nil 2)
-            (unwind-protect
-                (progn
-                  (goto-char (point-min))
-                  (when (re-search-forward "\n\n" nil t)
-                    (let* ((data (json-read))
-                           (source (cdr (assq 'source data))))
-                      (when (equal source "browser")
-                        (cons (cdr (assq 'id data))
-                              (cdr (assq 'ts data)))))))
-              (kill-buffer)))
-        (error nil)))))
-
-;; ---- File transport (js/tj-cursor.js fallback) ----
-
-(defun taskjuggler--cursor-js-file ()
-  "Return the path to js/tj-cursor.js, or nil when js/ does not exist.
-Used as the file-based fallback when the cursor API is unavailable."
-  (if (not (eq taskjuggler--cursor-js-file-cache :unset))
-      taskjuggler--cursor-js-file-cache
-    (setq taskjuggler--cursor-js-file-cache
-          (when-let ((file (buffer-file-name)))
-            (let ((js-dir (expand-file-name "js" (file-name-directory file))))
-              (when (file-directory-p js-dir)
-                (expand-file-name "tj-cursor.js" js-dir)))))))
-
-(defun taskjuggler--read-file-string (file)
-  "Return the contents of FILE as a string, or \"\" on any error."
-  (condition-case nil
-      (with-temp-buffer
-        (insert-file-contents file)
-        (buffer-string))
-    (error "")))
-
-(defun taskjuggler--cursor-parse-field (content name)
-  "Return the value assigned to window.NAME in tj-cursor.js CONTENT.
-Handles quoted string values and bare integer values.  Returns a string
-in both cases, or nil when NAME is not present in CONTENT."
-  (cond
-   ((string-match (concat "window\\." (regexp-quote name)
-                          "\\s-*=\\s-*\"\\([^\"]*\\)\"")
-                  content)
-    (match-string 1 content))
-   ((string-match (concat "window\\." (regexp-quote name)
-                          "\\s-*=\\s-*\\([0-9]+\\)")
-                  content)
-    (match-string 1 content))
-   (t nil)))
-
-(defun taskjuggler--write-cursor-js (task-id)
-  "Write TASK-ID to js/tj-cursor.js as file-based fallback.
-Does nothing when js/ does not exist."
-  (when-let ((js-file (taskjuggler--cursor-js-file)))
-    (let* ((cursor-ts (number-to-string (floor (float-time))))
-           (cursor-id-js (if task-id (concat "\"" task-id "\"") "null"))
-           (click-id-js "null")
-           (click-ts "0"))
-      (when task-id
-        (let ((existing (taskjuggler--read-file-string js-file)))
-          (when-let ((id (taskjuggler--cursor-parse-field existing "_tjClickTaskId")))
-            (setq click-id-js (concat "\"" id "\"")))
-          (when-let ((ts (taskjuggler--cursor-parse-field existing "_tjClickTs")))
-            (setq click-ts ts))))
-      (let ((content (concat "window._tjCursorTaskId = " cursor-id-js ";\n"
-                             "window._tjCursorTs     = " cursor-ts ";\n"
-                             "window._tjClickTaskId  = " click-id-js ";\n"
-                             "window._tjClickTs      = " click-ts ";\n")))
-        (write-region content nil js-file nil 'quiet)))))
-
-;; ---- Dispatchers ----
-
-(defun taskjuggler--write-cursor-json (task-id)
-  "Send TASK-ID to the cursor API, or write js/tj-cursor.js as fallback.
-When `taskjuggler--cursor-api-url' is set, POSTs to /cursor.
-Otherwise writes to js/tj-cursor.js if the js/ directory exists.
-Does nothing when neither method is available."
-  (if taskjuggler--cursor-api-url
-      (taskjuggler--cursor-post-api task-id)
-    (taskjuggler--write-cursor-js task-id)))
-
-(defun taskjuggler--maybe-navigate-to-click ()
-  "Navigate to a task clicked in the browser, if the click is new.
-Uses the cursor API when available, otherwise reads js/tj-cursor.js."
-  (let (click-id click-ts)
-    (if taskjuggler--cursor-api-url
-        ;; API path: poll /cursor/state, only act on browser-sourced events.
-        (when-let ((result (taskjuggler--cursor-poll-api)))
-          (setq click-id (car result)
-                click-ts (cdr result)))
-      ;; File fallback: read js/tj-cursor.js.
-      (when-let ((js-file (taskjuggler--cursor-js-file)))
-        (let* ((content (taskjuggler--read-file-string js-file))
-               (ts-str (taskjuggler--cursor-parse-field content "_tjClickTs")))
-          (setq click-ts (if ts-str (string-to-number ts-str) 0)
-                click-id (taskjuggler--cursor-parse-field
-                          content "_tjClickTaskId")))))
-    (when (and click-ts (> click-ts taskjuggler--cursor-last-click-ts))
-      (setq taskjuggler--cursor-last-click-ts click-ts)
-      (when (and click-id (not (string-empty-p click-id)))
-        (when (taskjuggler--goto-task-id click-id)
-          (when-let ((win (get-buffer-window (current-buffer) t)))
-            (with-selected-window win (recenter))))))))
-
-;; ---- Lifecycle ----
-
-(defun taskjuggler--start-cursor-tracking ()
-  "Start cursor tracking for the current buffer.
-Probes the tj3webd cursor API; if reachable, uses HTTP for both
-directions.  Otherwise falls back to js/tj-cursor.js (if the js/
-directory exists).  When neither is available, cursor tracking is
-silently skipped.
-
-Uses an idle timer for the editor→browser cursor write (so we only write
-when the user stops moving) and a regular repeating timer for the
-browser→editor click poll (so clicks are noticed even when Emacs does not
-have input focus).  Does nothing when `taskjuggler-cursor-idle-delay' is nil."
-  (when taskjuggler-cursor-idle-delay
-    ;; Cancel any existing timers first so re-initialization (e.g. via
-    ;; revert-buffer or M-x taskjuggler-mode) does not orphan them.
-    (when (timerp taskjuggler--cursor-idle-timer)
-      (cancel-timer taskjuggler--cursor-idle-timer))
-    (when (timerp taskjuggler--click-poll-timer)
-      (cancel-timer taskjuggler--click-poll-timer))
-    ;; Decide transport: API first, then js/ file, then nothing.
-    (setq taskjuggler--cursor-api-url (taskjuggler--cursor-api-probe))
-    (when (or taskjuggler--cursor-api-url (taskjuggler--cursor-js-file))
-      (let ((buf (current-buffer)))
-        ;; Editor → Browser: idle timer writes cursor position on quiescence.
-        (setq taskjuggler--cursor-idle-timer
-              (run-with-idle-timer
-               taskjuggler-cursor-idle-delay t
-               (lambda ()
-                 (when (buffer-live-p buf)
-                   (with-current-buffer buf
-                     (let ((id (taskjuggler--full-task-id-at-point)))
-                       (unless (equal id taskjuggler--cursor-last-id)
-                         (setq taskjuggler--cursor-last-id id)
-                         (taskjuggler--write-cursor-json id))))))))
-        ;; Browser → Editor: repeating timer polls for clicks even when
-        ;; Emacs is not focused.
-        (setq taskjuggler--click-poll-timer
-              (run-with-timer
-               taskjuggler-cursor-idle-delay taskjuggler-cursor-idle-delay
-               (lambda ()
-                 (when (buffer-live-p buf)
-                   (with-current-buffer buf
-                     (taskjuggler--maybe-navigate-to-click))))))))))
-
-(defun taskjuggler--stop-cursor-tracking ()
-  "Cancel cursor-tracking timers and clear cursor state."
-  (when (timerp taskjuggler--cursor-idle-timer)
-    (cancel-timer taskjuggler--cursor-idle-timer)
-    (setq taskjuggler--cursor-idle-timer nil))
-  (when (timerp taskjuggler--click-poll-timer)
-    (cancel-timer taskjuggler--click-poll-timer)
-    (setq taskjuggler--click-poll-timer nil))
-  (taskjuggler--write-cursor-json nil)
-  (setq taskjuggler--cursor-api-url nil))
-
-(defun taskjuggler--reset-cursor-file-cache (&rest _)
-  "Reset the cursor file cache in all live `taskjuggler-mode' buffers.
-Added to `compilation-finish-functions' so the js/ directory is
-re-checked after a compile run that may have created it.
-Also re-probes the cursor API, which may have become available
-after a compile that started tj3webd."
-  (dolist (buf (buffer-list))
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (when (derived-mode-p 'taskjuggler-mode)
-          (setq taskjuggler--cursor-js-file-cache :unset)
-          (unless taskjuggler--cursor-api-url
-            (setq taskjuggler--cursor-api-url
-                  (taskjuggler--cursor-api-probe))))))))
-
-;;; Daemon management (tj3d / tj3webd)
-
-;; tj3d is the TaskJuggler scheduling daemon.  Once started, projects can be
-;; added to it with `tj3client' and it will re-schedule on file changes.
-;; tj3webd is a companion web server that serves reports from tj3d.  Both
-;; daemons fork into the background (the launcher process exits immediately),
-;; so liveness is checked via `tj3client status' / TCP probe rather than
-;; process objects.
-
-(defconst taskjuggler--tj3-no-color "--no-color"
-  "Argument that suppresses ANSI escapes from `tj3'/`tj3d'/`tj3client'.
-Passed to every invocation we make so subprocess output reads cleanly
-in `*compilation*'/`*tj3client*'/captured-string contexts.  The flag
-silences tj3client's own output but tj3d still forwards ANSI from the
-daemon side, which `taskjuggler--tj3-process-filter' cleans up.")
-
-(defvar taskjuggler--daemon-status-timer nil
-  "Timer that polls daemon status for modeline updates.")
-
-(defvar taskjuggler--daemon-modeline ""
-  "Current modeline string for daemon status.
-Updated by `taskjuggler--daemon-update-modeline'.")
-
-(defvar taskjuggler--auto-add-pending nil
-  "The .tjp file path for which an auto-add is in progress, or nil.")
-
-(defun taskjuggler--tj3d-alive-p ()
-  "Return non-nil if the tj3d daemon is reachable.
-Probes via `tj3client status'."
-  (condition-case nil
-      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
-                           nil nil nil "status"))
-    (error nil)))
-
-(defun taskjuggler--tj3d-accepting-p ()
-  "Return non-nil if tj3d is accepting connections.
-Unlike `taskjuggler--tj3d-alive-p', this always probes via
-`tj3client status' rather than relying on the process object."
-  (condition-case nil
-      (zerop (call-process (taskjuggler--tj3-executable "tj3client")
-                           nil nil nil "status"))
-    (error nil)))
-
-(defun taskjuggler--tj3webd-alive-p ()
-  "Return non-nil if tj3webd is running.
-Probes the port via TCP."
-  (condition-case nil
-      (let ((proc (make-network-process
-                   :name "tj3webd-probe"
-                   :host "127.0.0.1"
-                   :service taskjuggler-tj3webd-port
-                   :nowait nil)))
-        (delete-process proc)
-        t)
-    (error nil)))
-
-(defun taskjuggler--find-tjp-file ()
-  "Return the .tjp file for the current buffer.
-If visiting a .tjp file, return it directly.  If visiting a .tji file,
-search `default-directory' for a .tjp file.  Returns nil if none found."
-  (let ((file (buffer-file-name)))
-    (cond
-     ((and file (string-suffix-p ".tjp" file)) file)
-     ((and file (string-suffix-p ".tji" file))
-      (car (directory-files default-directory t "\\.tjp\\'" t)))
-     (t nil))))
-
-(defun taskjuggler-tj3d-start ()
-  "Start the tj3d daemon from the current project directory.
-The daemon forks into the background automatically.
-Respects `taskjuggler-tj3-bin-dir' for executable resolution."
-  (interactive)
-  (if (taskjuggler--tj3d-alive-p)
-      (message "tj3d is already running")
-    (let* ((tjp (taskjuggler--find-tjp-file))
-           (default-directory (if tjp (file-name-directory tjp)
-                                default-directory))
-           (cmd (taskjuggler--tj3-executable "tj3d")))
-      (call-process cmd nil nil nil taskjuggler--tj3-no-color "--auto-update")
-      (taskjuggler--daemon-ensure-status-timer)
-      (taskjuggler--daemon-update-modeline)
-      (message "tj3d started"))))
-
-(defun taskjuggler--tj3-process-filter (proc string)
-  "Insert STRING from PROC, handling carriage returns and ANSI colors.
-TaskJuggler writes progress bars using lone `\\r' to overwrite the
-current line, and tj3d forwards ANSI SGR escapes for progress/error text
-over the tj3client socket even when tj3client/tj3d are invoked with
-`--no-color' (upstream bug: the flag only silences tj3client's own
-banner, not the daemon's forwarded output).  This filter runs
-`comint-carriage-motion' and `ansi-color-apply-on-region' over just the
-newly inserted text so the buffer reads like a terminal."
-  (let ((buf (process-buffer proc)))
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (let ((moving (= (point) (process-mark proc)))
-              (inhibit-read-only t)
-              start)
-          (save-excursion
-            (goto-char (process-mark proc))
-            (setq start (copy-marker (point) nil))
-            (insert string)
-            (set-marker (process-mark proc) (point))
-            (comint-carriage-motion start (process-mark proc))
-            (ansi-color-apply-on-region start (process-mark proc))
-            (set-marker start nil))
-          (when moving (goto-char (process-mark proc))))))))
-
-(defvar taskjuggler--tj3d-tracked-projects (make-hash-table :test 'equal)
-  "Hash of abs-.tjp paths submitted to tj3d this session.
-Used as a cheap gate by `taskjuggler--tj3d-refresh-on-save' — no
-`tj3client status' probe needed.  Cleared by `taskjuggler-tj3d-stop'.")
-
-(defvar taskjuggler--tj3d-refresh-queue nil
-  "Pending tj3d refreshes as a FIFO of (ABS-TJP . QUIET) pairs.
-At most one entry per distinct ABS-TJP: duplicate schedule requests
-coalesce so rapid saves don't pile up redundant `tj3client add' runs.")
-
-(defvar taskjuggler--tj3d-refresh-in-flight nil
-  "ABS-TJP currently being refreshed, or nil.
-Guards against two concurrent `tj3client add' runs clobbering the
-shared `*tj3client*' buffer.")
-
-(defun taskjuggler--tj3d-add-project-run (tjp quiet)
-  "Run `tj3client add' on TJP asynchronously and update diagnostics.
-When QUIET, suppress the progress messages (failures still report).
-Marks TJP as tracked and, on completion, drains the refresh queue."
-  (let* ((cmd (taskjuggler--tj3-executable "tj3client"))
-         (buf (get-buffer-create "*tj3client*"))
-         (tjp-abs (expand-file-name tjp)))
-    (puthash tjp-abs t taskjuggler--tj3d-tracked-projects)
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)))
-    (unless quiet
-      (message "Adding %s to tj3d..." (file-name-nondirectory tjp)))
-    (make-process
-     :name "tj3client-add"
-     :buffer buf
-     :command (list cmd taskjuggler--tj3-no-color "add" tjp)
-     :noquery t
-     :filter #'taskjuggler--tj3-process-filter
-     :sentinel
-     (lambda (proc _event)
-       (when (memq (process-status proc) '(exit signal))
-         ;; Always release the in-flight lock and drain the queue, even if
-         ;; parsing or Flymake refresh errors out — otherwise schedule
-         ;; requests for this path silently coalesce away forever.
-         (unwind-protect
-             (let ((old-files
-                    (taskjuggler--tj3d-clear-diagnostics-for-project tjp)))
-               (when (buffer-live-p (process-buffer proc))
-                 (with-current-buffer (process-buffer proc)
-                   (taskjuggler--tj3d-parse-diagnostics tjp)))
-               (let ((new-files
-                      (gethash tjp-abs
-                               taskjuggler--tj3d-diag-files-by-project)))
-                 ;; Always refresh the .tjp itself so the tj3 direct backend
-                 ;; clears any stale errors now that tj3d owns the project.
-                 (taskjuggler--tj3d-refresh-flymake-for-files
-                  (delete-dups (cons tjp-abs
-                                     (append old-files new-files)))))
-               (if (zerop (process-exit-status proc))
-                   (unless quiet
-                     (message "Project added to tj3d: %s"
-                              (file-name-nondirectory tjp)))
-                 (message "tj3client add failed (exit %d); see *tj3client*"
-                          (process-exit-status proc))))
-           (taskjuggler--tj3d-drain-refresh-queue)))))))
-
-(defun taskjuggler--tj3d-drain-refresh-queue ()
-  "Pop the next entry off the refresh queue and launch it, or clear in-flight.
-Called from the `tj3client-add' sentinel after a run completes.  If the
-launched run errors before its sentinel can run (e.g. `tj3client'
-vanished from PATH, fork failed), this resets in-flight so subsequent
-schedules can recover instead of coalescing away forever."
-  (setq taskjuggler--tj3d-refresh-in-flight nil)
-  (when taskjuggler--tj3d-refresh-queue
-    (let* ((next (pop taskjuggler--tj3d-refresh-queue))
-           (next-abs (car next))
-           (next-quiet (cdr next)))
-      (setq taskjuggler--tj3d-refresh-in-flight next-abs)
-      (condition-case err
-          (taskjuggler--tj3d-add-project-run next-abs next-quiet)
-        (error
-         (setq taskjuggler--tj3d-refresh-in-flight nil)
-         (message "tj3client add launch failed for %s: %s"
-                  (file-name-nondirectory next-abs)
-                  (error-message-string err)))))))
-
-(defun taskjuggler--tj3d-schedule-refresh (tjp quiet)
-  "Queue a `tj3client add' refresh for TJP, or start one if idle.
-Coalesces by path: if TJP is already in-flight or already queued, the
-request is dropped.  QUIET propagates through the sentinel's progress
-messages."
-  (let ((abs (expand-file-name tjp)))
-    (cond
-     ((equal abs taskjuggler--tj3d-refresh-in-flight) nil)
-     ((assoc abs taskjuggler--tj3d-refresh-queue) nil)
-     (taskjuggler--tj3d-refresh-in-flight
-      (setq taskjuggler--tj3d-refresh-queue
-            (append taskjuggler--tj3d-refresh-queue
-                    (list (cons abs quiet)))))
-     (t
-      (setq taskjuggler--tj3d-refresh-in-flight abs)
-      (taskjuggler--tj3d-add-project-run abs quiet)))))
-
-(defun taskjuggler-tj3d-add-project ()
-  "Add the current project to the running tj3d daemon.
-Uses `tj3client add' with the .tjp file for the current buffer.
-Serialized through a shared queue so concurrent invocations (e.g.
-manual add during a save-triggered refresh) don't race on the
-`*tj3client*' buffer."
-  (interactive)
-  (unless (taskjuggler--tj3d-alive-p)
-    (user-error "Process tj3d is not running; start it with `taskjuggler-tj3d-start'"))
-  (let ((tjp (taskjuggler--find-tjp-file)))
-    (unless tjp
-      (user-error "No .tjp file found for the current buffer"))
-    (taskjuggler--tj3d-schedule-refresh tjp nil)))
-
-(defun taskjuggler--tj3d-refresh-on-save ()
-  "Schedule a tj3d refresh when this buffer's project is tracked.
-Runs from `after-save-hook'.  Cheap: no subprocess probe — just a hash
-lookup in `taskjuggler--tj3d-tracked-projects'.  The refresh itself
-runs asynchronously through the shared queue, which coalesces by path
-so rapid saves don't pile up redundant `tj3client add' runs."
-  (let ((tjp (taskjuggler--find-tjp-file)))
-    (when (and tjp (gethash (expand-file-name tjp)
-                            taskjuggler--tj3d-tracked-projects))
-      (taskjuggler--tj3d-schedule-refresh tjp t))))
-
-(defun taskjuggler--tj3-project-id (tjp)
-  "Return the project ID declared in TJP, or nil if none found.
-Reads from a buffer visiting TJP when available; otherwise reads the
-file from disk.  Matches the first toplevel `project <id>' statement."
-  (when (stringp tjp)
-    (let ((source (or (find-buffer-visiting tjp) tjp))
-          (pattern "^[ \t]*project[ \t]+\\([A-Za-z_][A-Za-z0-9_.-]*\\)"))
-      (taskjuggler--with-source-buffer source
-        (when (re-search-forward pattern nil t)
-          (match-string-no-properties 1))))))
-
-(defun taskjuggler--tj3d-project-loaded-p (tjp)
-  "Return non-nil if TJP is already loaded in the running tj3d daemon.
-`tj3client status' lists projects by the ID declared inside the .tjp
-\(not by filename), so we extract the ID and look for it in the Project
-ID column of the status table."
-  (when (and tjp (taskjuggler--tj3d-alive-p))
-    (let ((pid (taskjuggler--tj3-project-id tjp)))
-      (when pid
-        (condition-case nil
-            (with-temp-buffer
-              (when (zerop (call-process
-                            (taskjuggler--tj3-executable "tj3client")
-                            nil t nil taskjuggler--tj3-no-color "status"))
-                (goto-char (point-min))
-                (re-search-forward
-                 (concat "^[ \t]*[0-9]+[ \t]*|[ \t]*"
-                         (regexp-quote pid)
-                         "[ \t]*|")
-                 nil t)))
-          (error nil))))))
-
-(defun taskjuggler--auto-add-project-tj3d ()
-  "Add the current project to tj3d if not already loaded.
-When tj3d is accepting connections and the project is not yet loaded,
-adds it immediately.  When tj3d is not yet ready (e.g. just started),
-retries up to 5 times at 1-second intervals.
-Guards against duplicate attempts via `taskjuggler--auto-add-pending'."
-  (let ((tjp (taskjuggler--find-tjp-file)))
-    (when (and tjp
-               (not (equal tjp taskjuggler--auto-add-pending))
-               (not (taskjuggler--tj3d-project-loaded-p tjp)))
-      (setq taskjuggler--auto-add-pending tjp)
-      (if (taskjuggler--tj3d-accepting-p)
-          (progn
-            (taskjuggler-tj3d-add-project)
-            (setq taskjuggler--auto-add-pending nil))
-        ;; tj3d was just started; poll until accepting connections.
-        (let ((retries 0)
-              (timer nil))
-          (setq timer
-                (run-with-timer
-                 1 1
-                 (lambda ()
-                   (setq retries (1+ retries))
-                   (cond
-                    ((taskjuggler--tj3d-project-loaded-p tjp)
-                     (cancel-timer timer)
-                     (setq taskjuggler--auto-add-pending nil))
-                    ((taskjuggler--tj3d-accepting-p)
-                     (cancel-timer timer)
-                     (taskjuggler-tj3d-add-project)
-                     (setq taskjuggler--auto-add-pending nil))
-                    ((>= retries 5)
-                     (cancel-timer timer)
-                     (setq taskjuggler--auto-add-pending nil)
-                     (message "tj3d not ready after %d attempts; \
-skipping auto-add for %s" retries (file-name-nondirectory tjp))))))))))))
-
-(defun taskjuggler--tj3webd-pidfile (port)
-  "Return the absolute path of the pidfile we ask tj3webd to write for PORT.
-Lives under `user-emacs-directory' so it's user-owned (avoiding the
-spoofing surface a world-writable /tmp pidfile would have).
-Uses `expand-file-name' rather than `locate-user-emacs-file' because the
-latter abbreviates HOME back to a tilde for display, and tj3webd's Ruby
-daemon treats any path not starting with `/' as relative to its working
-directory — handing it the unexpanded form would silently write the
-pidfile under the project tree instead."
-  (expand-file-name (format "taskjuggler-tj3webd-%d.pid" port)
-                    user-emacs-directory))
-
-(defun taskjuggler--tj3webd-pidfile-pid (port)
-  "Return the live PID recorded in the pidfile for PORT, or nil.
-Deletes a stale pidfile (file present but PID no longer running) and
-returns nil so callers don't signal a stranger that recycled the PID."
-  (let ((file (taskjuggler--tj3webd-pidfile port)))
-    (when (file-readable-p file)
-      (let ((pid (with-temp-buffer
-                   (insert-file-contents file)
-                   (string-to-number (string-trim (buffer-string))))))
-        (cond
-         ((<= pid 0)
-          (delete-file file) nil)
-         ((condition-case nil
-              (progn (signal-process pid 0) t)
-            (error nil))
-          pid)
-         (t (delete-file file) nil))))))
-
-(defun taskjuggler-tj3webd-start ()
-  "Start the tj3webd web daemon from the current project directory.
-The daemon forks into the background automatically.
-Uses `taskjuggler-tj3webd-port' for the port number, and asks the
-daemon to write its PID to `taskjuggler--tj3webd-pidfile' so
-`taskjuggler-tj3webd-stop' can find it without scanning ports."
-  (interactive)
-  (if (taskjuggler--tj3webd-alive-p)
-      (message "tj3webd is already running on port %d"
-               taskjuggler-tj3webd-port)
-    (let* ((tjp (taskjuggler--find-tjp-file))
-           (default-directory (if tjp (file-name-directory tjp)
-                                 default-directory))
-           (cmd (taskjuggler--tj3-executable "tj3webd"))
-           (pidfile (taskjuggler--tj3webd-pidfile
-                     taskjuggler-tj3webd-port)))
-      (call-process cmd nil nil nil
-                    "--webserver-port"
-                    (number-to-string taskjuggler-tj3webd-port)
-                    "--pidfile" pidfile)
-      (taskjuggler--daemon-ensure-status-timer)
-      (taskjuggler--daemon-update-modeline)
-      (message "tj3webd started on port %d" taskjuggler-tj3webd-port)
-      ;; Re-probe the cursor API once the server has had time to bind.
-      (run-with-timer
-       2 nil
-       (lambda ()
-         (dolist (buf (buffer-list))
-           (when (buffer-live-p buf)
-             (with-current-buffer buf
-               (when (and (derived-mode-p 'taskjuggler-mode)
-                          (not taskjuggler--cursor-api-url))
-                 (setq taskjuggler--cursor-api-url
-                       (taskjuggler--cursor-api-probe))
-                 (when (and taskjuggler--cursor-api-url
-                            (not taskjuggler--cursor-idle-timer))
-                   (taskjuggler--start-cursor-tracking)))))))))))
-
-
-(defun taskjuggler-daemon-status ()
-  "Display `tj3client status' output in a popup buffer."
-  (interactive)
-  (let ((cmd (taskjuggler--tj3-executable "tj3client"))
-        (buf (get-buffer-create "*tj3client status*")))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)))
-    (make-process
-     :name "tj3client-status"
-     :buffer buf
-     :command (list cmd taskjuggler--tj3-no-color "status")
-     :noquery t
-     :filter #'taskjuggler--tj3-process-filter
-     :sentinel (lambda (proc _event)
-                 (when (memq (process-status proc) '(exit signal))
-                   (with-current-buffer (process-buffer proc)
-                     (special-mode))
-                   (display-buffer (process-buffer proc)))))))
-
-(defun taskjuggler-tj3webd-browse ()
-  "Open the tj3webd URL in the default browser."
-  (interactive)
-  (unless (taskjuggler--tj3webd-alive-p)
-    (user-error "Process tj3webd is not running"))
-  (browse-url (format "http://localhost:%d/taskjuggler" taskjuggler-tj3webd-port)))
-
-(defun taskjuggler-tj3d-stop ()
-  "Stop the running tj3d daemon via `tj3client terminate'.
-Also clears the session's tracked-projects and pending refresh queue,
-since neither is meaningful after the daemon goes away."
-  (interactive)
-  (unless (taskjuggler--tj3d-alive-p)
-    (user-error "Process tj3d is not running"))
-  (call-process (taskjuggler--tj3-executable "tj3client")
-                nil nil nil taskjuggler--tj3-no-color "terminate")
-  (clrhash taskjuggler--tj3d-tracked-projects)
-  (setq taskjuggler--tj3d-refresh-queue nil)
-  (taskjuggler--daemon-update-modeline)
-  (message "tj3d stopped"))
-
-(defun taskjuggler-tj3webd-stop ()
-  "Stop the running tj3webd daemon by sending SIGTERM to its recorded PID.
-SIGTERM is the daemon's documented graceful-shutdown path: tj3webd's
-`WebServer' installs a TERM handler that closes SSE pipes and shuts
-WEBrick down cleanly.  The PID is read from the pidfile we asked
-tj3webd to write at start time (see `taskjuggler-tj3webd-start');
-when the pidfile is missing or stale, tj3webd was started outside
-this Emacs session and the user must stop it manually."
-  (interactive)
-  (unless (taskjuggler--tj3webd-alive-p)
-    (user-error "Process tj3webd is not running"))
-  (let ((pid (taskjuggler--tj3webd-pidfile-pid
-              taskjuggler-tj3webd-port)))
-    (unless pid
-      (user-error
-       "No tj3webd pidfile for port %d; was it started outside Emacs?"
-       taskjuggler-tj3webd-port))
-    (signal-process pid 'SIGTERM))
-  (taskjuggler--daemon-update-modeline)
-  (message "tj3webd stopped"))
-
-(defun taskjuggler--stop-daemons ()
-  "Stop tj3d and tj3webd if they are running.
-Registered on `kill-emacs-hook' so daemons do not outlive the Emacs session."
-  (condition-case nil
-      (when (taskjuggler--tj3d-alive-p)
-        (taskjuggler-tj3d-stop))
-    (error nil))
-  (condition-case nil
-      (when (taskjuggler--tj3webd-alive-p)
-        (taskjuggler-tj3webd-stop))
-    (error nil)))
-
-(defun taskjuggler--daemon-update-modeline ()
-  "Recompute `taskjuggler--daemon-modeline' from current daemon state."
-  (let ((d (taskjuggler--tj3d-alive-p))
-        (w (taskjuggler--tj3webd-alive-p)))
-    (setq taskjuggler--daemon-modeline
-          (cond
-           ((and d w)
-            (propertize "󰙬󰒍" 'face 'success))
-           (d
-            (propertize "󰙬" 'face 'success))
-           (w
-            (propertize "󰒍" 'face 'warning))
-           (t "")))
-    (force-mode-line-update t)))
-
-(defun taskjuggler--daemon-ensure-status-timer ()
-  "Ensure the daemon status polling timer is running.
-Polls every 5 seconds so the modeline stays current even if a daemon
-dies outside of Emacs (e.g. killed from a terminal)."
-  (unless (and taskjuggler--daemon-status-timer
-               (timerp taskjuggler--daemon-status-timer))
-    (setq taskjuggler--daemon-status-timer
-          (run-with-timer 5 5 #'taskjuggler--daemon-update-modeline))))
-
 
 ;;; Evil integration
 
@@ -3068,92 +1000,100 @@ dies outside of Emacs (e.g. killed from a terminal)."
 ;; so the call survives byte-compilation without evil present.
 (defvar taskjuggler-mode-map)
 
-(defun taskjuggler--setup-evil-keys ()
+(defun taskjuggler-mode--setup-evil-keys ()
   "Set up `evil-mode' keybindings for `taskjuggler-mode' if evil is loaded."
   (when (fboundp 'evil-define-key*)
     (evil-define-key* 'normal taskjuggler-mode-map
-      (kbd "gj") #'taskjuggler-next-block
-      (kbd "gk") #'taskjuggler-prev-block
-      (kbd "gh") #'taskjuggler-goto-parent
-      (kbd "gl") #'taskjuggler-goto-first-child
-      (kbd "gL") #'taskjuggler-goto-last-child
-      (kbd "]t") #'taskjuggler-forward-block-sexp
-      (kbd "[t") #'taskjuggler-backward-block-sexp
-      (kbd "]B") #'taskjuggler-forward-block
-      (kbd "[B") #'taskjuggler-backward-block
+      (kbd "gj") #'taskjuggler-mode-next-block
+      (kbd "gk") #'taskjuggler-mode-prev-block
+      (kbd "gh") #'taskjuggler-mode-goto-parent
+      (kbd "gl") #'taskjuggler-mode-goto-first-child
+      (kbd "gL") #'taskjuggler-mode-goto-last-child
+      (kbd "]t") #'taskjuggler-mode-forward-block-sexp
+      (kbd "[t") #'taskjuggler-mode-backward-block-sexp
+      (kbd "]B") #'taskjuggler-mode-forward-block
+      (kbd "[B") #'taskjuggler-mode-backward-block
       (kbd "[[") #'beginning-of-defun
       (kbd "]]") #'end-of-defun)))
 
+;;; Submodules
+
+(require 'taskjuggler-mode-cal)
+(require 'taskjuggler-mode-cursor)
+(require 'taskjuggler-mode-daemon)
+(require 'taskjuggler-mode-flymake)
+(require 'taskjuggler-mode-tj3man)
+
 ;;; Mode definition
 
-(defcustom taskjuggler-keymap-prefix (kbd "C-c C-t")
-  "Prefix key for variable `taskjuggler-command-map'."
+(defcustom taskjuggler-mode-keymap-prefix (kbd "C-c C-t")
+  "Prefix key for variable `taskjuggler-mode-command-map'."
   :group 'taskjuggler
   :type 'key-sequence)
 
-(defvar taskjuggler-command-map
+(defvar taskjuggler-mode-command-map
   (let ((km (make-sparse-keymap)))
-    (define-key km (kbd "d") #'taskjuggler-date-dwim)
-    (define-key km (kbd "m") #'taskjuggler-man)
-    (define-key km (kbd "n") #'taskjuggler-narrow-to-block)
-    (define-key km (kbd "D") #'taskjuggler-tj3d-start)
-    (define-key km (kbd "a") #'taskjuggler-tj3d-add-project)
-    (define-key km (kbd "W") #'taskjuggler-tj3webd-start)
-    (define-key km (kbd "b") #'taskjuggler-tj3webd-browse)
-    (define-key km (kbd "s") #'taskjuggler-daemon-status)
+    (define-key km (kbd "d") #'taskjuggler-mode-date-dwim)
+    (define-key km (kbd "m") #'taskjuggler-mode-man)
+    (define-key km (kbd "n") #'taskjuggler-mode-narrow-to-block)
+    (define-key km (kbd "D") #'taskjuggler-mode-tj3d-start)
+    (define-key km (kbd "a") #'taskjuggler-mode-tj3d-add-project)
+    (define-key km (kbd "W") #'taskjuggler-mode-tj3webd-start)
+    (define-key km (kbd "b") #'taskjuggler-mode-tj3webd-browse)
+    (define-key km (kbd "s") #'taskjuggler-mode-daemon-status)
     km)
-  "Keymap for TaskJuggler commands after `taskjuggler-keymap-prefix'.")
-(defalias 'taskjuggler-command-map taskjuggler-command-map)
+  "Keymap for TaskJuggler commands after `taskjuggler-mode-keymap-prefix'.")
+(defalias 'taskjuggler-mode-command-map taskjuggler-mode-command-map)
 
 (defvar taskjuggler-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "M-<up>")   #'taskjuggler-move-block-up)
-    (define-key map (kbd "M-<down>") #'taskjuggler-move-block-down)
-    (define-key map (kbd "C-M-n")    #'taskjuggler-next-block)
-    (define-key map (kbd "C-M-p")    #'taskjuggler-prev-block)
-    (define-key map (kbd "C-M-u")    #'taskjuggler-goto-parent)
-    (define-key map (kbd "C-M-d")    #'taskjuggler-goto-first-child)
-    (define-key map (kbd "C-M-h")    #'taskjuggler-mark-block)
-    (when taskjuggler-keymap-prefix
-      (define-key map taskjuggler-keymap-prefix 'taskjuggler-command-map))
+    (define-key map (kbd "M-<up>")   #'taskjuggler-mode-move-block-up)
+    (define-key map (kbd "M-<down>") #'taskjuggler-mode-move-block-down)
+    (define-key map (kbd "C-M-n")    #'taskjuggler-mode-next-block)
+    (define-key map (kbd "C-M-p")    #'taskjuggler-mode-prev-block)
+    (define-key map (kbd "C-M-u")    #'taskjuggler-mode-goto-parent)
+    (define-key map (kbd "C-M-d")    #'taskjuggler-mode-goto-first-child)
+    (define-key map (kbd "C-M-h")    #'taskjuggler-mode-mark-block)
+    (when taskjuggler-mode-keymap-prefix
+      (define-key map taskjuggler-mode-keymap-prefix 'taskjuggler-mode-command-map))
     map)
   "Keymap for `taskjuggler-mode'.")
 
-(easy-menu-define taskjuggler-menu taskjuggler-mode-map
+(easy-menu-define taskjuggler-mode-menu taskjuggler-mode-map
   "Menu for `taskjuggler-mode'."
   '("TJ3"
-    ["Date DWIM" taskjuggler-date-dwim]
-    ["Man Lookup" taskjuggler-man]
-    ["Narrow to Block" taskjuggler-narrow-to-block]
+    ["Date DWIM" taskjuggler-mode-date-dwim]
+    ["Man Lookup" taskjuggler-mode-man]
+    ["Narrow to Block" taskjuggler-mode-narrow-to-block]
     "---"
     ("Block Navigation"
-     ["Move Block Up" taskjuggler-move-block-up]
-     ["Move Block Down" taskjuggler-move-block-down]
-     ["Next Block" taskjuggler-next-block]
-     ["Prev Block" taskjuggler-prev-block]
-     ["Goto Parent" taskjuggler-goto-parent]
-     ["Goto First Child" taskjuggler-goto-first-child]
-     ["Mark Block" taskjuggler-mark-block])
+     ["Move Block Up" taskjuggler-mode-move-block-up]
+     ["Move Block Down" taskjuggler-mode-move-block-down]
+     ["Next Block" taskjuggler-mode-next-block]
+     ["Prev Block" taskjuggler-mode-prev-block]
+     ["Goto Parent" taskjuggler-mode-goto-parent]
+     ["Goto First Child" taskjuggler-mode-goto-first-child]
+     ["Mark Block" taskjuggler-mode-mark-block])
     "---"
     ("Daemons"
-     ["Start tj3d" taskjuggler-tj3d-start]
-     ["Stop tj3d" taskjuggler-tj3d-stop]
-     ["Add Project to tj3d" taskjuggler-tj3d-add-project]
-     ["Start tj3webd" taskjuggler-tj3webd-start]
-     ["Stop tj3webd" taskjuggler-tj3webd-stop]
-     ["Browse tj3webd" taskjuggler-tj3webd-browse]
-     ["Daemon Status" taskjuggler-daemon-status])))
+     ["Start tj3d" taskjuggler-mode-tj3d-start]
+     ["Stop tj3d" taskjuggler-mode-tj3d-stop]
+     ["Add Project to tj3d" taskjuggler-mode-tj3d-add-project]
+     ["Start tj3webd" taskjuggler-mode-tj3webd-start]
+     ["Stop tj3webd" taskjuggler-mode-tj3webd-stop]
+     ["Browse tj3webd" taskjuggler-mode-tj3webd-browse]
+     ["Daemon Status" taskjuggler-mode-daemon-status])))
 
-(defvar taskjuggler--mode-line-map
+(defvar taskjuggler-mode--mode-line-map
   (let ((map (make-sparse-keymap)))
-    (define-key map [mode-line mouse-1] #'taskjuggler--show-mode-line-menu)
+    (define-key map [mode-line mouse-1] #'taskjuggler-mode--show-mode-line-menu)
     map)
   "Keymap for the TJ3 modeline indicator.")
 
-(defun taskjuggler--show-mode-line-menu ()
-  "Show `taskjuggler-menu' as a popup from the modeline."
+(defun taskjuggler-mode--show-mode-line-menu ()
+  "Show `taskjuggler-mode-menu' as a popup from the modeline."
   (interactive)
-  (popup-menu taskjuggler-menu))
+  (popup-menu taskjuggler-mode-menu))
 
 (define-derived-mode taskjuggler-mode prog-mode "TJ3"
   "Major mode for editing TaskJuggler 3 project files (.tjp, .tji).
@@ -3165,71 +1105,71 @@ See URL `https://taskjuggler.org' for more information.
   :syntax-table taskjuggler-mode-syntax-table
   ;; Font-lock: nil for KEYWORDS-ONLY means strings/comments use syntax table.
   (setq-local font-lock-defaults
-              '(taskjuggler-font-lock-keywords nil nil nil nil))
+              '(taskjuggler-mode-font-lock-keywords nil nil nil nil))
   ;; Comment configuration: default to # for M-; and comment-region.
   ;; All three styles (//, #, /* */) are recognized for navigation.
   (setq-local comment-start "# ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "\\(?://+\\|#+\\|/\\*+\\)[ \t]*")
   ;; Syntax propertize handles # as a line comment character.
-  (setq-local syntax-propertize-function #'taskjuggler--syntax-propertize)
+  (setq-local syntax-propertize-function #'taskjuggler-mode--syntax-propertize)
   ;; Extend the propertize region to cover any enclosing scissors string so
   ;; that -8<- … ->8- fence pairs are always re-propertized as a unit.
   (add-hook 'syntax-propertize-extend-region-functions
-            #'taskjuggler--syntax-propertize-extend-region nil t)
+            #'taskjuggler-mode--syntax-propertize-extend-region nil t)
   ;; Indentation
-  (setq-local indent-line-function #'taskjuggler-indent-line)
-  (setq-local indent-region-function #'taskjuggler-indent-region)
+  (setq-local indent-line-function #'taskjuggler-mode-indent-line)
+  (setq-local indent-region-function #'taskjuggler-mode-indent-region)
   (setq-local indent-tabs-mode nil)
-  (setq-local tab-width taskjuggler-indent-level)
+  (setq-local tab-width taskjuggler-mode-indent-level)
   ;; Defun navigation: wire up standard C-M-a / C-M-e / C-M-h / narrow-to-defun.
-  (setq-local beginning-of-defun-function #'taskjuggler--beginning-of-defun)
-  (setq-local end-of-defun-function #'taskjuggler--end-of-defun)
+  (setq-local beginning-of-defun-function #'taskjuggler-mode--beginning-of-defun)
+  (setq-local end-of-defun-function #'taskjuggler-mode--end-of-defun)
   ;; Sexp movement: treat a full block (keyword + body) as one sexp for C-M-f/b.
-  (setq-local forward-sexp-function #'taskjuggler--forward-sexp)
+  (setq-local forward-sexp-function #'taskjuggler-mode--forward-sexp)
   ;; Compilation: pre-fill compile-command with tj3 and the current file.
   (when (buffer-file-name)
     (setq-local compile-command
-                (concat (taskjuggler--tj3-executable "tj3") " "
+                (concat (taskjuggler-mode--tj3-executable "tj3") " "
                         (shell-quote-argument (buffer-file-name)))))
   ;; Auto-launch calendar popup after date-expecting keywords.
-  (add-hook 'post-self-insert-hook #'taskjuggler--maybe-launch-calendar nil t)
+  (add-hook 'post-self-insert-hook #'taskjuggler-mode--maybe-launch-calendar nil t)
   ;; Flymake
-  (add-hook 'flymake-diagnostic-functions #'taskjuggler-flymake-backend nil t)
-  (add-hook 'flymake-diagnostic-functions #'taskjuggler-tj3d-flymake-backend nil t)
-  (add-hook 'after-save-hook #'taskjuggler--tj3d-refresh-on-save nil t)
+  (add-hook 'flymake-diagnostic-functions #'taskjuggler-mode-flymake-backend nil t)
+  (add-hook 'flymake-diagnostic-functions #'taskjuggler-mode-tj3d-flymake-backend nil t)
+  (add-hook 'after-save-hook #'taskjuggler-mode--tj3d-refresh-on-save nil t)
   ;; Compilation: register TJ3 error regexp when compile is available.
   (when (featurep 'compile)
     (add-to-list 'compilation-error-regexp-alist-alist
-                 taskjuggler--compilation-error-re)
+                 taskjuggler-mode--compilation-error-re)
     (add-to-list 'compilation-error-regexp-alist 'taskjuggler))
   ;; tj3man: populate keyword cache on first mode activation.
-  (taskjuggler--populate-tj3man-keywords)
+  (taskjuggler-mode--populate-tj3man-keywords)
   ;; Cursor tracking: sync task-at-point via API or js/ fallback.
-  (taskjuggler--start-cursor-tracking)
-  (add-hook 'kill-buffer-hook #'taskjuggler--stop-cursor-tracking nil t)
-  (add-hook 'compilation-finish-functions #'taskjuggler--reset-cursor-file-cache)
+  (taskjuggler-mode--start-cursor-tracking)
+  (add-hook 'kill-buffer-hook #'taskjuggler-mode--stop-cursor-tracking nil t)
+  (add-hook 'compilation-finish-functions #'taskjuggler-mode--reset-cursor-file-cache)
   ;; Daemon modeline: combine "TJ3" label with daemon status in one clickable entry.
   (setq mode-line-process nil)
   (setq mode-name
         `(,(propertize "TJ3"
                        'mouse-face 'mode-line-highlight
                        'help-echo "mouse-1: TaskJuggler menu"
-                       'local-map taskjuggler--mode-line-map)
-          (:eval taskjuggler--daemon-modeline)))
+                       'local-map taskjuggler-mode--mode-line-map)
+          (:eval taskjuggler-mode--daemon-modeline)))
   ;; Auto-start tj3d and tj3webd if configured.
-  (when taskjuggler-auto-start-tj3d-tj3webd
-    (unless (taskjuggler--tj3d-alive-p)
-      (taskjuggler-tj3d-start))
-    (unless (taskjuggler--tj3webd-alive-p)
-      (taskjuggler-tj3webd-start)))
+  (when taskjuggler-mode-auto-start-tj3d-tj3webd
+    (unless (taskjuggler-mode--tj3d-alive-p)
+      (taskjuggler-mode-tj3d-start))
+    (unless (taskjuggler-mode--tj3webd-alive-p)
+      (taskjuggler-mode-tj3webd-start)))
   ;; Auto-add project to tj3d if configured.
-  (when taskjuggler-auto-add-project-tj3d
-    (taskjuggler--auto-add-project-tj3d))
+  (when taskjuggler-mode-auto-add-project-tj3d
+    (taskjuggler-mode--auto-add-project-tj3d))
   ;; Shut down daemons when Emacs exits (idempotent; safe to add per buffer).
-  (add-hook 'kill-emacs-hook #'taskjuggler--stop-daemons)
+  (add-hook 'kill-emacs-hook #'taskjuggler-mode--stop-daemons)
   ;; Evil: set up normal-state navigation bindings if evil is loaded.
-  (taskjuggler--setup-evil-keys)
+  (taskjuggler-mode--setup-evil-keys)
   ;; Yasnippet: register snippet directory if already loaded.
   (when (featurep 'yasnippet)
     (taskjuggler-mode-snippets-initialize)))

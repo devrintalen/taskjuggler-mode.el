@@ -15,15 +15,23 @@ Load and test interactively in Emacs:
 M-x load-file RET taskjuggler-mode.el RET
 ```
 
-Byte-compile to check for warnings:
+Byte-compile to check for warnings (the `-L .` puts the repo on the
+load path so the submodule files resolve their cross-file `require`s):
 ```
-emacs --batch -f batch-byte-compile taskjuggler-mode.el
+emacs --batch -L . -f batch-byte-compile *.el
 ```
 
 Run the ERT test suite:
 ```
 emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
 ```
+
+The entry point hosts the core mode tests and `require`s each subsystem
+test file. Subsystem tests can also be run individually, e.g.:
+```
+emacs --batch -l test/taskjuggler-mode-cal-test.el -f ert-run-tests-batch-and-exit
+```
+Shared fixtures live in `test/taskjuggler-mode-test-helpers.el`.
 
 Open a test fixture to exercise the mode:
 ```
@@ -33,48 +41,36 @@ emacs test/gnomes.tjp
 
 ## Architecture
 
-The mode is implemented as a standard Emacs derived mode
-(`define-derived-mode` from `prog-mode`). All logic is in
-`taskjuggler-mode.el` in this order:
+The package is split across six files. All public symbols use the
+`taskjuggler-mode-` prefix (package-lint compliant); internal symbols
+use `taskjuggler-mode--`.
 
-1. **Customization** — Eight defcustoms: `taskjuggler-indent-level`,
-   `taskjuggler-tj3-bin-dir`, `taskjuggler-tj3-extra-args`,
-   `taskjuggler-cursor-idle-delay`, `taskjuggler-cal-show-week-numbers`,
-   `taskjuggler-auto-cal-on-date-keyword`,
-   `taskjuggler-auto-start-tj3d-tj3webd`,
-   `taskjuggler-auto-add-project-tj3d`
-2. **Faces** — Three syntax faces (`taskjuggler-date-face`,
-   `taskjuggler-duration-face`, `taskjuggler-macro-face`) plus eight
-   calendar popup faces (`taskjuggler-cal-face`, `-header-face`,
-   `-selected-face`, `-today-face`, `-inactive-face`, `-pending-face`,
-   `-typing-face`, `-week-face`)
-3. **Keyword lists** — Four `defconst` lists: top-level keywords, report
-   keywords, property keywords, value keywords
-4. **Font-lock patterns** — `taskjuggler-font-lock-keywords` built from the
-   keyword lists plus regex constants for dates, durations, and macro refs
-5. **Syntax table** — Handles `//` and `/* */` via standard Emacs style
-   flags; `#` comments and `-8<-..->8-` scissors strings via
-   `syntax-propertize-rules`
-6. **Indentation** — Brace/bracket depth via `syntax-ppss`; closing
-   delimiters de-indented one level; comma-terminated lines aligned as
-   continuations to the first argument of the keyword line
-7. **Block operations** — Movement (`M-<up>`/`M-<down>`), navigation
-   (next/prev sibling, parent, first child), editing (mark, narrow,
-   clone), sexp movement (`C-M-f`/`C-M-b`)
-8. **Defun integration** — `beginning-of-defun-function` /
-   `end-of-defun-function` wired to block navigation for standard
-   `C-M-a`/`C-M-e` support
-9. **Calendar picker** — Inline overlay calendar (`C-c C-t d`) for
-   editing date literals at point; auto-launches after date-expecting
-   keywords when `taskjuggler-auto-cal-on-date-keyword` is set
-10. **Tooling integrations** — Compilation support (pre-filled
-    `compile-command`), Flymake backend (on-the-fly `tj3` errors), tj3man
-    keyword lookup (`C-c C-t m`), cursor tracking (writes
-    `tj-cursor.json` sidecar on idle), Evil mode bindings (`[[`/`]]`),
-    Yasnippet snippets from `snippets/`
-11. **Mode definition** — Wires everything together via
-    `taskjuggler-keymap-prefix` (`C-c C-t`), registers `.tjp`/`.tji`
-    extensions
+- **`taskjuggler-mode.el`** — Entry point. `define-derived-mode` from
+  `prog-mode`, plus everything that doesn't have its own subsystem
+  file: defcustoms, faces, keyword lists, font-lock, syntax table,
+  indentation, block operations, defun integration, evil bindings,
+  compilation hookup, mode/keymap/menu definition, and yasnippet
+  loader. Loads the five submodules below via `require`.
+- **`taskjuggler-mode-cal.el`** — Inline calendar picker (`C-c C-t d`)
+  for editing date literals. Auto-launches after date-expecting
+  keywords when `taskjuggler-mode-auto-cal-on-date-keyword` is set.
+- **`taskjuggler-mode-cursor.el`** — Two-way cursor tracking between
+  the open `.tjp` buffer and the tj3webd report server. Uses the
+  `/cursor` HTTP endpoint when reachable; falls back to writing
+  `js/tj-cursor.js` for `file://` polling.
+- **`taskjuggler-mode-daemon.el`** — tj3d/tj3webd daemon lifecycle plus
+  the in-memory diagnostic cache populated by `tj3client add` (drained
+  by the daemon-mode Flymake backend).
+- **`taskjuggler-mode-flymake.el`** — Two mutually-exclusive Flymake
+  backends. The standalone backend runs `tj3` on the current file when
+  no daemon owns the project; the daemon-mode backend reports the
+  cached diagnostics from `taskjuggler-mode-daemon.el` instead.
+- **`taskjuggler-mode-tj3man.el`** — `tj3man` keyword lookup
+  (`C-c C-t m`) and the populated keyword cache used for completion.
+
+Submodules forward-declare any symbols they depend on from other
+files (`defvar`, `declare-function`); they do not `require` each
+other except where necessary (`flymake.el` requires `daemon.el`).
 
 ## Key design decisions
 
