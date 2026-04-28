@@ -20,7 +20,8 @@
 ;;   6. Edit the project name, save, observe tj3webd's listing update
 ;;   7. Insert a syntax error, save, observe the daemon-mode Flymake
 ;;      backend report it
-;;   8. Stop tj3d and tj3webd cleanly
+;;   8. Fix the syntax error, save, observe the diagnostics clear
+;;   9. Stop tj3d and tj3webd cleanly
 ;;
 ;; Skipped via `ert-skip' unless TASKJUGGLER_BIN_DIR is set.
 
@@ -121,12 +122,40 @@
                                      (eq :error (flymake-diagnostic-type d)))
                                    reported)))
 
-                ;; ---- Step 8: stop daemons cleanly ----
+                ;; ---- Step 8: fix the syntax error -> diagnostics clear ----
+                ;; Remove the `task broken' line we appended above and save;
+                ;; refresh-on-save reruns `tj3client add' against a now-clean
+                ;; project, the sentinel clears the cache before parsing the
+                ;; (empty) error stream, and Flymake should report nothing.
+                (goto-char (point-max))
+                (re-search-backward "^task broken$")
+                (delete-region (line-beginning-position)
+                               (min (1+ (line-end-position)) (point-max)))
+                (save-buffer)
+                (taskjuggler-mode-test--wait-until
+                 (lambda () (null taskjuggler-mode--tj3d-refresh-in-flight))
+                 60 "tj3d refresh after fixing syntax error")
+                (should-not
+                 (cl-some
+                  (lambda (e) (eq :error (nth 1 e)))
+                  (gethash (expand-file-name tjp)
+                           taskjuggler-mode--tj3d-diagnostics)))
+                (let (called reported)
+                  (taskjuggler-mode-tj3d-flymake-backend
+                   (lambda (diags) (setq called t reported diags)))
+                  (should called)
+                  (should-not
+                   (cl-some (lambda (d)
+                              (eq :error (flymake-diagnostic-type d)))
+                            reported)))
+
+                ;; ---- Step 9: stop daemons cleanly ----
                 ;; tj3webd first (no rc-file dependency), then tj3d.
                 ;; Wait for tj3d's `--auto-update' reschedule (kicked
-                ;; off by step 7's save) to settle before terminating;
-                ;; otherwise terminate is queued behind the in-progress
-                ;; reschedule and tj3d takes tens of seconds to exit.
+                ;; off by the most recent save) to settle before
+                ;; terminating; otherwise terminate is queued behind
+                ;; the in-progress reschedule and tj3d takes tens of
+                ;; seconds to exit.
                 (taskjuggler-mode-tj3webd-stop)
                 (taskjuggler-mode-test--wait-until
                  (lambda () (not (taskjuggler-mode--tj3webd-alive-p)))
