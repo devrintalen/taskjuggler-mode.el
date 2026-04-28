@@ -1068,6 +1068,7 @@ and `forward-sexp -1' moves back over the token normally."
 (require 'taskjuggler-mode-daemon-test)
 (require 'taskjuggler-mode-flymake-test)
 (require 'taskjuggler-mode-tj3man-test)
+(require 'taskjuggler-mode-scenario-test)
 
 (provide 'taskjuggler-mode-test)
 

@@ -156,6 +156,37 @@ LABEL is included in the timeout error message.  Polls every 100ms."
     (while (not (funcall predicate))
       (accept-process-output nil 0.1))))
 
+(defun taskjuggler-mode-test--force-kill-tj3d ()
+  "Best-effort SIGKILL of any lingering tj3d processes for the current user.
+Used as a fixture safety net when `tj3d-stop' + a polite wait doesn't
+manage to bring the daemon down.  Inside the `with-fresh-tj3d' macro's
+scope the only tj3d that could be running is the one we started
+ourselves (the macro skips the test up front when one is already
+alive), so killing all of them is safe."
+  (ignore-errors
+    (call-process "pkill" nil nil nil
+                  "-KILL" "-u" (user-login-name) "-f" "tj3d")))
+
+(defun taskjuggler-mode-test--tj3d-idle-p ()
+  "Return non-nil when tj3d has no `loading' or `new' projects.
+Polls `tj3client status' and inspects the `Status' column.  When no
+project is in a transient state, tj3d's main loop is quiescent and
+will honor `tj3client terminate' promptly.
+
+Note: the modified flag `*' in the `M' column is intentionally NOT
+checked.  When `--auto-update' fails to re-parse a project (e.g. the
+user introduced a syntax error), tj3d leaves `*' set permanently on
+the still-loaded prior version — but the daemon itself is idle and
+terminate works fine."
+  (with-temp-buffer
+    (when (zerop (call-process
+                  (taskjuggler-mode--tj3-executable "tj3client")
+                  nil t nil "--no-color" "status"))
+      (goto-char (point-min))
+      (not (re-search-forward
+            "|[ \t]*\\(?:loading\\|new\\)[ \t]*|"
+            nil t)))))
+
 (defmacro taskjuggler-mode-test--with-fresh-tj3d (&rest body)
   "Start tj3d in a sandbox dir, run BODY, and stop tj3d on exit.
 Creates a temp dir with a `.taskjugglerrc' so tj3d/tj3client can
@@ -179,11 +210,54 @@ alive — starting a second instance would clash with the user's daemon."
                 #'taskjuggler-mode--tj3d-alive-p 10 "tj3d to start")
                ,@body)
            (when (taskjuggler-mode--tj3d-alive-p)
+             ;; tj3d ignores `terminate' while busy with an auto-update
+             ;; reschedule; wait until the status table is quiescent
+             ;; first so terminate is honored promptly.  Force-kill is
+             ;; the safety net if tj3d gets wedged.
+             (condition-case nil
+                 (taskjuggler-mode-test--wait-until
+                  #'taskjuggler-mode-test--tj3d-idle-p 15
+                  "tj3d to become idle before terminate")
+               (error nil))
              (ignore-errors (taskjuggler-mode-tj3d-stop))
-             (taskjuggler-mode-test--wait-until
-              (lambda () (not (taskjuggler-mode--tj3d-alive-p)))
-              10 "tj3d to stop"))
+             (condition-case nil
+                 (taskjuggler-mode-test--wait-until
+                  (lambda () (not (taskjuggler-mode--tj3d-alive-p)))
+                  5 "tj3d to stop politely")
+               (error
+                (taskjuggler-mode-test--force-kill-tj3d)
+                (taskjuggler-mode-test--wait-until
+                 (lambda () (not (taskjuggler-mode--tj3d-alive-p)))
+                 5 "tj3d to die after SIGKILL"))))
            (delete-directory dir t))))))
+
+(defun taskjuggler-mode-test--http-get (url)
+  "GET URL and return the response body as a string, or nil on error."
+  (condition-case nil
+      (let ((url-show-status nil))
+        (with-current-buffer (url-retrieve-synchronously url t nil 5)
+          (unwind-protect
+              (progn
+                (goto-char (point-min))
+                (when (re-search-forward "\n\n" nil t)
+                  (buffer-substring-no-properties (point) (point-max))))
+            (kill-buffer))))
+    (error nil)))
+
+(defun taskjuggler-mode-test--cursor-state (base-url)
+  "Return the parsed JSON state from BASE-URL/cursor/state, or nil on error."
+  (condition-case nil
+      (let ((url (concat base-url "/cursor/state"))
+            (url-show-status nil))
+        (with-current-buffer (url-retrieve-synchronously url t nil 5)
+          (unwind-protect
+              (progn
+                (goto-char (point-min))
+                (when (re-search-forward "\n\n" nil t)
+                  (let ((json-object-type 'alist))
+                    (json-read))))
+            (kill-buffer))))
+    (error nil)))
 
 (defmacro taskjuggler-mode-test--with-fresh-tj3webd (port &rest body)
   "Start tj3webd on PORT, run BODY, and stop on exit.

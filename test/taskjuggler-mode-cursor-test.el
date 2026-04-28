@@ -242,21 +242,6 @@ enclosing header is still the task header."
 ;; Drive the real /cursor HTTP API hosted by tj3webd.  Skipped via
 ;; `ert-skip' unless TASKJUGGLER_BIN_DIR is set.
 
-(defun taskjuggler-mode-test--cursor-state (base-url)
-  "Return the parsed JSON state from BASE-URL/cursor/state, or nil on error."
-  (condition-case nil
-      (let ((url (concat base-url "/cursor/state"))
-            (url-show-status nil))
-        (with-current-buffer (url-retrieve-synchronously url t nil 5)
-          (unwind-protect
-              (progn
-                (goto-char (point-min))
-                (when (re-search-forward "\n\n" nil t)
-                  (let ((json-object-type 'alist))
-                    (json-read))))
-            (kill-buffer))))
-    (error nil)))
-
 (ert-deftest taskjuggler-mode-cursor-integration--probe-finds-tj3webd ()
   "When tj3webd is running, the API probe returns its base URL."
   (taskjuggler-mode-test--with-tj3 ("tj3webd")
