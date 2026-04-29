@@ -17,7 +17,10 @@
 ;;   3. Add the project to tj3d
 ;;   4. Sync the cursor (point on a task -> POST -> /cursor/state matches)
 ;;   5. Look up `task' via tj3man
-;;   6. Edit the project name, save, observe tj3webd's listing update
+;;   6. Put point on the project's start date and invoke
+;;      `taskjuggler-mode-date-dwim'; the calendar popup appears with
+;;      the correct date highlighted, navigate one week down, commit,
+;;      observe tj3webd's listing update, then restore the date
 ;;   7. Insert a syntax error, save, observe the daemon-mode Flymake
 ;;      backend report it
 ;;   8. Fix the syntax error, save, observe the diagnostics clear
@@ -75,32 +78,97 @@
                       (should (string-match-p "^Keyword:[ \t]+task" text))
                       (should (string-match-p "^Purpose:" text)))))
 
-                ;; ---- Step 6: edit, save, expect tj3webd to update ----
-                (let ((before (taskjuggler-mode-test--http-get
-                               (concat base-url "/taskjuggler"))))
-                  (should before)
-                  (should (string-match-p "Accounting Software" before)))
+                ;; ---- Step 6: date-dwim, navigate, commit, observe update ----
+                ;; Move point onto the project's start date "2002-01-16"
+                ;; (line 16, column 42 lands inside the date) and invoke
+                ;; `taskjuggler-mode-date-dwim'.  The calendar overlay
+                ;; appears with January 2002 / day 16 selected.  Press
+                ;; S-<up> to step back one week (-> 2002-01-09), commit
+                ;; with RET, save the buffer, and observe tj3webd's
+                ;; project listing update from the original date to the
+                ;; new one.  Finally, manually restore "2002-01-16" so
+                ;; step 7 starts from the original on-disk state.
+                ;;
+                ;; S-<up> (rather than S-<down>) so the project start
+                ;; moves earlier rather than later: tutorial.tjp pins
+                ;; `delayed:start 2002-01-20' inside `task start', and
+                ;; tj3 rejects any project frame that doesn't contain
+                ;; that date.  Moving the start to 2002-01-09 widens the
+                ;; frame and keeps the file parseable.
+                (should-not taskjuggler-mode--cal-overlay)
+                (should-not taskjuggler-mode-cal-active-mode)
                 (goto-char (point-min))
-                (re-search-forward
-                 "^project acso \"Accounting Software\"")
-                (replace-match "project acso \"Edited Tutorial Project\"")
+                (forward-line 15)        ; line 16, 1-based
+                (move-to-column 42)
+                (should (equal "2002-01-16"
+                               (buffer-substring-no-properties
+                                (- (point) 6) (+ (point) 4))))
+                (let ((before (taskjuggler-mode-test--http-get
+                               (concat base-url
+                                       "/taskjuggler?project=acso"
+                                       ";report=frame.index"))))
+                  (should before)
+                  (should (string-match-p "2002-01-16" before)))
+                (taskjuggler-mode-date-dwim)
+                (should taskjuggler-mode-cal-active-mode)
+                (should taskjuggler-mode--cal-overlay)
+                (should (= 2002 taskjuggler-mode--cal-year))
+                (should (= 1    taskjuggler-mode--cal-month))
+                (should (= 16   taskjuggler-mode--cal-day))
+                (let ((display (overlay-get taskjuggler-mode--cal-overlay
+                                            'before-string)))
+                  (should (string-match-p
+                           "January 2002" (substring-no-properties display)))
+                  (let ((pos (string-match "16" display)))
+                    (should pos)
+                    (should (eq 'taskjuggler-mode-cal-selected-face
+                                (get-text-property pos 'face display)))))
+                ;; S-<up> -> `taskjuggler-mode--cal-nav-up': step the
+                ;; selection back by one week (16 -> 9).
+                (taskjuggler-mode--cal-nav-up)
+                (should (= 2002 taskjuggler-mode--cal-year))
+                (should (= 1    taskjuggler-mode--cal-month))
+                (should (= 9    taskjuggler-mode--cal-day))
+                ;; RET -> `taskjuggler-mode--cal-commit': write the new
+                ;; date into the buffer and tear down the picker.
+                (taskjuggler-mode--cal-commit)
+                (should-not taskjuggler-mode-cal-active-mode)
+                (should-not taskjuggler-mode--cal-overlay)
+                (save-excursion
+                  (goto-char (point-min))
+                  (forward-line 15)
+                  (should (re-search-forward "2002-01-09"
+                                             (line-end-position) t)))
                 (save-buffer)
                 (taskjuggler-mode-test--wait-until
                  (lambda () (null taskjuggler-mode--tj3d-refresh-in-flight))
-                 60 "tj3d refresh after save")
-                ;; tj3webd polls tj3d for project metadata; allow it a beat
-                ;; to refresh its rendered listing.
+                 60 "tj3d refresh after committing date change")
+                ;; tj3webd polls tj3d for project metadata; allow it a
+                ;; beat to refresh its rendered listing.
                 (taskjuggler-mode-test--wait-until
                  (lambda ()
                    (let ((html (taskjuggler-mode-test--http-get
-                                (concat base-url "/taskjuggler"))))
-                     (and html (string-match-p "Edited Tutorial Project" html))))
-                 30 "tj3webd listing to reflect the edit")
+                                (concat base-url
+                                        "/taskjuggler?project=acso"
+                                        ";report=frame.index"))))
+                     (and html (string-match-p "2002-01-09" html))))
+                 30 "tj3webd listing to reflect the new start date")
                 (let ((after (taskjuggler-mode-test--http-get
-                              (concat base-url "/taskjuggler"))))
+                              (concat base-url
+                                      "/taskjuggler?project=acso"
+                                      ";report=frame.index"))))
                   (should after)
-                  (should (string-match-p "Edited Tutorial Project" after))
-                  (should-not (string-match-p "Accounting Software" after)))
+                  (should (string-match-p "2002-01-09" after)))
+                ;; Manually restore the original date so step 7 starts
+                ;; from the same on-disk state as the rest of the
+                ;; scenario.
+                (goto-char (point-min))
+                (re-search-forward "2002-01-09")
+                (replace-match "2002-01-16")
+                (save-buffer)
+                (taskjuggler-mode-test--wait-until
+                 (lambda () (null taskjuggler-mode--tj3d-refresh-in-flight))
+                 60 "tj3d refresh after restoring original date")
 
                 ;; ---- Step 7: syntax error -> daemon Flymake reports it ----
                 (goto-char (point-max))
