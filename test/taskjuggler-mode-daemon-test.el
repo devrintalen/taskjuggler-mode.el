@@ -507,6 +507,100 @@ its cwd to."
       (should-not (string-match-p "/~/" path))
       (should-not (string-match-p "/~$" path)))))
 
+;;; Integration tests
+;;
+;; Spin up real tj3d and tj3webd daemons and exercise the lifecycle.
+;; Skipped via `ert-skip' unless TASKJUGGLER_BIN_DIR is set, plus an
+;; additional skip for tj3d when one is already running for the user
+;; (tj3d binds a per-user unix socket, so starting a second one would
+;; fail and disrupt the user's existing session).
+;;
+;; Shared fixtures (`taskjuggler-mode-test--with-fresh-tj3d',
+;; `taskjuggler-mode-test--with-fresh-tj3webd', and
+;; `taskjuggler-mode-test--wait-until') live in
+;; `taskjuggler-mode-test-helpers.el'.
+
+;; ---- tj3d ----
+
+(ert-deftest taskjuggler-mode-tj3d-integration--start-stop ()
+  "`tj3d-start' brings the daemon up; `tj3d-stop' brings it down."
+  (taskjuggler-mode-test--with-tj3 ("tj3d" "tj3client")
+    (taskjuggler-mode-test--with-fresh-tj3d
+      (should (taskjuggler-mode--tj3d-alive-p))
+      (taskjuggler-mode-tj3d-stop)
+      (taskjuggler-mode-test--wait-until
+       (lambda () (not (taskjuggler-mode--tj3d-alive-p)))
+       10 "tj3d to stop")
+      (should-not (taskjuggler-mode--tj3d-alive-p)))))
+
+(ert-deftest taskjuggler-mode-tj3d-integration--add-project-tracks ()
+  "`tj3d-add-project' loads a TJP into the daemon and records it as tracked."
+  (taskjuggler-mode-test--with-tj3 ("tj3d" "tj3client")
+    (taskjuggler-mode-test--with-fresh-tj3d
+      (let ((tjp (expand-file-name "p.tjp" default-directory)))
+        (with-temp-file tjp
+          (insert "project p \"P\" 2024-01-01 +1y {\n}\n"
+                  "task t \"T\" {\n  duration 1d\n}\n"
+                  "taskreport r \"r\" {\n  formats html\n}\n"))
+        (let ((buf (find-file-noselect tjp)))
+          (unwind-protect
+              (with-current-buffer buf
+                (taskjuggler-mode-tj3d-add-project)
+                (taskjuggler-mode-test--wait-until
+                 (lambda () (null taskjuggler-mode--tj3d-refresh-in-flight))
+                 30 "tj3client add to complete")
+                (should (gethash (expand-file-name tjp)
+                                 taskjuggler-mode--tj3d-tracked-projects))
+                (should (taskjuggler-mode--tj3d-project-loaded-p tjp)))
+            (kill-buffer buf)))))))
+
+(ert-deftest taskjuggler-mode-tj3d-integration--add-malformed-records-diagnostics ()
+  "Adding a malformed TJP populates the diagnostic cache for that file."
+  (taskjuggler-mode-test--with-tj3 ("tj3d" "tj3client")
+    (taskjuggler-mode-test--with-fresh-tj3d
+      (let ((tjp (expand-file-name "bad.tjp" default-directory)))
+        (with-temp-file tjp
+          (insert "project bad \"Bad\" 2024-01-01 +1y {\n}\n\n"
+                  "task missing-name\n"))
+        (let ((buf (find-file-noselect tjp)))
+          (unwind-protect
+              (with-current-buffer buf
+                (taskjuggler-mode-tj3d-add-project)
+                (taskjuggler-mode-test--wait-until
+                 (lambda () (null taskjuggler-mode--tj3d-refresh-in-flight))
+                 30 "tj3client add to complete")
+                (let ((entries (gethash (expand-file-name tjp)
+                                        taskjuggler-mode--tj3d-diagnostics)))
+                  (should entries)
+                  (should (cl-some (lambda (e) (eq :error (nth 1 e)))
+                                   entries))))
+            (kill-buffer buf)))))))
+
+;; ---- tj3webd ----
+
+(ert-deftest taskjuggler-mode-tj3webd-integration--start-stop ()
+  "`tj3webd-start' brings the web daemon up and writes its pidfile."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    ;; Use a non-default port so we never collide with the user's own
+    ;; tj3webd on 8080.
+    (taskjuggler-mode-test--with-fresh-tj3webd 18080
+      (should (taskjuggler-mode--tj3webd-alive-p))
+      (let ((pidfile (taskjuggler-mode--tj3webd-pidfile 18080)))
+        (should (file-readable-p pidfile))
+        (should (taskjuggler-mode--tj3webd-pidfile-pid 18080))))))
+
+(ert-deftest taskjuggler-mode-tj3webd-integration--port-reachable ()
+  "Once tj3webd is up, the configured port accepts TCP connections."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    (taskjuggler-mode-test--with-fresh-tj3webd 18081
+      (let ((proc (make-network-process
+                   :name "tj3webd-probe-test"
+                   :host "127.0.0.1"
+                   :service 18081
+                   :nowait nil)))
+        (should (process-live-p proc))
+        (delete-process proc)))))
+
 (provide 'taskjuggler-mode-daemon-test)
 
 ;;; taskjuggler-mode-daemon-test.el ends here

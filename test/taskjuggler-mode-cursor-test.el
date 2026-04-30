@@ -237,6 +237,53 @@ enclosing header is still the task header."
     (goto-char (point-min))
     (should-not (taskjuggler-mode--goto-task-id "outer.nonexistent"))))
 
+;;; Integration tests
+;;
+;; Drive the real /cursor HTTP API hosted by tj3webd.  Skipped via
+;; `ert-skip' unless TASKJUGGLER_BIN_DIR is set.
+
+(ert-deftest taskjuggler-mode-cursor-integration--probe-finds-tj3webd ()
+  "When tj3webd is running, the API probe returns its base URL."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    (taskjuggler-mode-test--with-fresh-tj3webd 18083
+      (should (equal "http://127.0.0.1:18083"
+                     (taskjuggler-mode--cursor-api-probe))))))
+
+(ert-deftest taskjuggler-mode-cursor-integration--probe-nil-when-port-closed ()
+  "The probe returns nil when nothing is listening on the configured port."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    ;; Port left intentionally bare — no server here.
+    (let ((taskjuggler-mode-tj3webd-port 18099))
+      (should-not (taskjuggler-mode--cursor-api-probe)))))
+
+(ert-deftest taskjuggler-mode-cursor-integration--post-roundtrip ()
+  "POSTing a task ID via the API updates `/cursor/state' on the server."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    (taskjuggler-mode-test--with-fresh-tj3webd 18084
+      (let ((taskjuggler-mode--cursor-api-url
+             (taskjuggler-mode--cursor-api-probe)))
+        (should taskjuggler-mode--cursor-api-url)
+        (should (taskjuggler-mode--cursor-post-api "demo.task.id"))
+        (let ((state (taskjuggler-mode-test--cursor-state
+                      taskjuggler-mode--cursor-api-url)))
+          (should state)
+          (should (equal "demo.task.id" (cdr (assq 'id state))))
+          (should (equal "editor" (cdr (assq 'source state)))))))))
+
+(ert-deftest taskjuggler-mode-cursor-integration--post-clears-when-nil ()
+  "POSTing nil clears the cursor (id becomes empty string on the server)."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    (taskjuggler-mode-test--with-fresh-tj3webd 18085
+      (let ((taskjuggler-mode--cursor-api-url
+             (taskjuggler-mode--cursor-api-probe)))
+        (should taskjuggler-mode--cursor-api-url)
+        (taskjuggler-mode--cursor-post-api "to-be-cleared")
+        (taskjuggler-mode--cursor-post-api nil)
+        (let ((state (taskjuggler-mode-test--cursor-state
+                      taskjuggler-mode--cursor-api-url)))
+          (should state)
+          (should (equal "" (cdr (assq 'id state)))))))))
+
 (provide 'taskjuggler-mode-cursor-test)
 
 ;;; taskjuggler-mode-cursor-test.el ends here

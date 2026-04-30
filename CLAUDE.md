@@ -33,6 +33,22 @@ emacs --batch -l test/taskjuggler-mode-cal-test.el -f ert-run-tests-batch-and-ex
 ```
 Shared fixtures live in `test/taskjuggler-mode-test-helpers.el`.
 
+Some tests exercise the real `tj3`, `tj3d`, `tj3webd`, and `tj3man`
+binaries. They are opt-in via the `TASKJUGGLER_BIN_DIR` environment
+variable and skip themselves (`ert-skip`) when it is unset:
+```
+TASKJUGGLER_BIN_DIR=~/repos/TaskJuggler/bin \
+  emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
+```
+
+The integration suite includes a single `*-scenario-*` test
+(`test/taskjuggler-mode-scenario-test.el`) that walks through the full
+editing-session loop on `test/tutorial.tjp`: open the buffer, start
+tj3d/tj3webd, add the project, sync the cursor, look up `tj3man`,
+edit + save and observe the tj3webd listing update, introduce a
+syntax error and observe the daemon-mode Flymake backend pick it up,
+then stop both daemons.
+
 Open a test fixture to exercise the mode:
 ```
 emacs test/tutorial.tjp
