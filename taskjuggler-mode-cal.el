@@ -160,12 +160,18 @@ present in PARTIAL."
 
 (defun taskjuggler-mode--parse-tj-date (date-string)
   "Parse TJ3 DATE-STRING into a (YEAR MONTH DAY) list.
-Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats."
+Handles YYYY-MM-DD and YYYY-MM-DD-HH:MM[:SS] formats.
+Out-of-range months and days are clamped silently into valid ranges so
+that downstream `calendar' functions never see a bogus month index."
   (when (string-match "\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)"
                       date-string)
-    (list (string-to-number (match-string 1 date-string))
-          (string-to-number (match-string 2 date-string))
-          (string-to-number (match-string 3 date-string)))))
+    (let* ((year (string-to-number (match-string 1 date-string)))
+           (month (max 1 (min 12 (string-to-number
+                                  (match-string 2 date-string)))))
+           (day (max 1 (min (calendar-last-day-of-month month year)
+                            (string-to-number
+                             (match-string 3 date-string))))))
+      (list year month day))))
 
 (defun taskjuggler-mode--format-tj-date (year month day)
   "Format YEAR, MONTH, DAY as a TJ3 date string YYYY-MM-DD."
@@ -581,7 +587,7 @@ Called from the minor mode disable hook."
     (cancel-timer taskjuggler-mode--cal-debounce-timer)
     (setq taskjuggler-mode--cal-debounce-timer nil))
   (remove-hook 'post-command-hook #'taskjuggler-mode--cal-post-command t)
-  (remove-hook 'kill-buffer-hook #'taskjuggler-mode--cal-cancel t)
+  (remove-hook 'kill-buffer-hook #'taskjuggler-mode--cal-cancel-on-kill t)
   (taskjuggler-mode--cal-remove-overlay)
   (taskjuggler-mode--cal-remove-faces)
   (setq taskjuggler-mode--cal-column nil
@@ -618,15 +624,13 @@ Called from the minor mode disable hook."
         (delete-char taskjuggler-mode--cal-date-len)
         (insert (apply #'taskjuggler-mode--format-tj-date orig-date))))))
 
-(defun taskjuggler-mode--cal-commit-or-cancel ()
-  "Commit if a partial date has been typed, otherwise cancel.
-Bound to SPC in the calendar picker."
-  (interactive)
-  (let* ((date-beg taskjuggler-mode--cal-date-beg)
-         (typed-len (- (point) date-beg)))
-    (if (> typed-len 0)
-        (taskjuggler-mode--cal-commit)
-      (taskjuggler-mode--cal-cancel))))
+(defun taskjuggler-mode--cal-cancel-on-kill ()
+  "Tear down picker state when the buffer is being killed.
+Skips the buffer-mutating restore that `--cal-cancel' performs, since
+the buffer is about to be destroyed anyway.  Disabling the minor mode
+runs `--cal-cleanup', which cancels the debounce timer and removes
+overlays/hooks."
+  (taskjuggler-mode-cal-active-mode -1))
 
 (defun taskjuggler-mode--cal-nav-delta (key)
   "Return (DELTA . UNIT) for a shift-arrow KEY."
@@ -694,22 +698,39 @@ Bound to SPC in the calendar picker."
 
 (defun taskjuggler-mode--cal-overwrite-char ()
   "Overwrite the template character at point with the typed character.
-Used for digit and hyphen input during calendar date editing so that
-`self-insert-command' does not grow the fixed-length date template."
+Bound to all self-inserting keys during calendar date editing so the
+fixed-length date template is preserved.  Invalid characters are
+silently ignored.  Typing a digit at a hyphen slot (positions 4 and 7)
+auto-advances past the hyphen and accepts the digit in the next slot."
   (interactive)
   (let* ((date-beg taskjuggler-mode--cal-date-beg)
          (typed-len (- (point) date-beg))
          (ch last-command-event))
+    ;; Auto-skip hyphen positions when the user types a digit there.
+    (when (and (or (= typed-len 4) (= typed-len 7))
+               (characterp ch)
+               (<= ?0 ch ?9))
+      (forward-char 1)
+      (setq typed-len (1+ typed-len)))
     (when (and (< typed-len taskjuggler-mode--cal-date-len)
+               (characterp ch)
                (taskjuggler-mode--cal-valid-char-at-p ch typed-len))
       (delete-char 1)
       (insert (char-to-string ch)))))
+
+(defun taskjuggler-mode--cal-backspace ()
+  "Move point back one position within the date template.
+If point would move before the start of the date, cancel the picker."
+  (interactive)
+  (if (<= (point) taskjuggler-mode--cal-date-beg)
+      (taskjuggler-mode--cal-cancel)
+    (backward-char 1)))
 
 (defvar taskjuggler-mode-cal-active-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "<return>")  #'taskjuggler-mode--cal-commit)
     (define-key map (kbd "<tab>")     #'taskjuggler-mode--cal-commit)
-    (define-key map (kbd "SPC")       #'taskjuggler-mode--cal-commit-or-cancel)
+    (define-key map (kbd "SPC")       #'taskjuggler-mode--cal-commit)
     (define-key map (kbd "C-g")       #'taskjuggler-mode--cal-cancel)
     (define-key map (kbd "S-<right>") #'taskjuggler-mode--cal-nav-right)
     (define-key map (kbd "S-<left>")  #'taskjuggler-mode--cal-nav-left)
@@ -717,10 +738,18 @@ Used for digit and hyphen input during calendar date editing so that
     (define-key map (kbd "S-<up>")    #'taskjuggler-mode--cal-nav-up)
     (define-key map (kbd "S-<next>")  #'taskjuggler-mode--cal-nav-next)
     (define-key map (kbd "S-<prior>") #'taskjuggler-mode--cal-nav-prior)
-    ;; Digits and hyphen use overwrite-style insertion to keep the
-    ;; date template at a fixed 10-character length.
-    (dolist (ch (append (number-sequence ?0 ?9) (list ?-)))
-      (define-key map (vector ch) #'taskjuggler-mode--cal-overwrite-char))
+    ;; All self-inserting keys go through overwrite-char so the date
+    ;; template stays a fixed 10 characters.  Invalid chars are dropped.
+    (define-key map [remap self-insert-command]
+                #'taskjuggler-mode--cal-overwrite-char)
+    ;; Backspace moves point back without modifying the buffer; if it
+    ;; would leave the template, the picker cancels.
+    (define-key map [remap delete-backward-char]
+                #'taskjuggler-mode--cal-backspace)
+    (define-key map [remap backward-delete-char-untabify]
+                #'taskjuggler-mode--cal-backspace)
+    (define-key map (kbd "<backspace>") #'taskjuggler-mode--cal-backspace)
+    (define-key map (kbd "DEL")         #'taskjuggler-mode--cal-backspace)
     map)
   "Keymap active while the inline calendar picker is open.")
 
@@ -821,7 +850,7 @@ Point must be at DATE-BEG on entry."
   (taskjuggler-mode--cal-apply-faces date-beg 0)
   (taskjuggler-mode--cal-show-overlay year month day)
   ;; Install hooks and activate the minor mode.
-  (add-hook 'kill-buffer-hook #'taskjuggler-mode--cal-cancel nil t)
+  (add-hook 'kill-buffer-hook #'taskjuggler-mode--cal-cancel-on-kill nil t)
   (add-hook 'post-command-hook #'taskjuggler-mode--cal-post-command nil t)
   (taskjuggler-mode-cal-active-mode 1))
 
