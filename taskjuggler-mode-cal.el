@@ -177,6 +177,11 @@ that downstream `calendar' functions never see a bogus month index."
   "Format YEAR, MONTH, DAY as a TJ3 date string YYYY-MM-DD."
   (format "%04d-%02d-%02d" year month day))
 
+(defun taskjuggler-mode--today ()
+  "Return today's date as a (YEAR MONTH DAY) list."
+  (let ((now (decode-time)))
+    (list (nth 5 now) (nth 4 now) (nth 3 now))))
+
 ;;; Calendar math
 ;;
 ;; `calendar-leap-year-p', `calendar-last-day-of-month', and
@@ -279,17 +284,14 @@ larger numbers."
   (propertize (format "%2d" day) 'face face))
 
 (defun taskjuggler-mode--cal-format-week (cells week-num)
-  "Join a list of 7 propertized day CELLS into a single week-row string.
-WEEK-NUM is the ISO week number; it is prepended as a \"WW%02d\" label when
-`taskjuggler-mode-cal-show-week-numbers' is non-nil.
-Each cell is separated by a space with the base calendar face."
-  (let* ((pad (propertize " " 'face 'taskjuggler-mode-cal-face))
-         (body (mapconcat #'identity cells pad)))
-    (if taskjuggler-mode-cal-show-week-numbers
-        (let ((label (propertize (format "WW%02d" week-num)
-                                 'face 'taskjuggler-mode-cal-week-face)))
-          (concat label pad body pad))
-      (concat pad body pad))))
+  "Join 7 propertized day CELLS into a single week-row string.
+When `taskjuggler-mode-cal-show-week-numbers' is non-nil, prepend a
+\"WW%02d\" label using WEEK-NUM (the ISO week number)."
+  (let ((pad (propertize " " 'face 'taskjuggler-mode-cal-face))
+        (label (and taskjuggler-mode-cal-show-week-numbers
+                    (propertize (format "WW%02d" week-num)
+                                'face 'taskjuggler-mode-cal-week-face))))
+    (concat label pad (mapconcat #'identity cells pad) pad)))
 
 (defun taskjuggler-mode--cal-build-day-cells (year month selected-day
                                               today-year today-month today-day)
@@ -367,23 +369,21 @@ TODAY-YEAR, TODAY-MONTH, TODAY-DAY identify today's date for the today face."
 (defun taskjuggler-mode--cal-render (year month day)
   "Render a calendar grid for MONTH of YEAR with DAY selected.
 Return a list of propertized strings, one per line."
-  (let* ((today (or taskjuggler-mode--cal-today
-                    (let ((now (decode-time)))
-                      (list (nth 5 now) (nth 4 now) (nth 3 now)))))
-         (today-year (nth 0 today))
-         (today-month (nth 1 today))
-         (today-day (nth 2 today))
-         (title (taskjuggler-mode--cal-pad-line
-                 (taskjuggler-mode--cal-title-line year month)))
-         (day-hdr (if taskjuggler-mode-cal-show-week-numbers
-                      (concat (make-string taskjuggler-mode--cal-week-prefix-width ?\s)
-                              taskjuggler-mode--cal-day-header)
-                    taskjuggler-mode--cal-day-header))
-         (weeks (taskjuggler-mode--cal-week-lines year month day
-                                             today-year today-month today-day))
-         (headers (list (propertize title 'face 'taskjuggler-mode-cal-header-face)
-                        (propertize day-hdr 'face 'taskjuggler-mode-cal-header-face))))
-    (append headers weeks)))
+  (pcase-let* ((`(,today-year ,today-month ,today-day)
+                (or taskjuggler-mode--cal-today (taskjuggler-mode--today)))
+               (title (taskjuggler-mode--cal-pad-line
+                       (taskjuggler-mode--cal-title-line year month)))
+               (day-hdr (if taskjuggler-mode-cal-show-week-numbers
+                            (concat (make-string
+                                     taskjuggler-mode--cal-week-prefix-width ?\s)
+                                    taskjuggler-mode--cal-day-header)
+                          taskjuggler-mode--cal-day-header))
+               (weeks (taskjuggler-mode--cal-week-lines
+                       year month day today-year today-month today-day))
+               (face 'taskjuggler-mode-cal-header-face))
+    (append (list (propertize title 'face face)
+                  (propertize day-hdr 'face face))
+            weeks)))
 
 ;;; Overlay management
 ;;
@@ -445,15 +445,12 @@ Return the combined string."
 (defun taskjuggler-mode--cal-build-display (cal-lines old-lines col)
   "Build the multi-line display string for the calendar popup.
 CAL-LINES is a list of calendar row strings.  OLD-LINES is a list
-of original buffer line strings.  COL is the column offset.
-Return a single string with embedded newlines."
-  (let ((result '()))
-    (while cal-lines
-      (let* ((cal-line (pop cal-lines))
-             (old-line (or (pop old-lines) ""))
-             (spliced (taskjuggler-mode--cal-splice-line old-line cal-line col)))
-        (push spliced result)))
-    (mapconcat #'identity (nreverse result) "\n")))
+of original buffer line strings (shorter lists are padded with \"\").
+COL is the column offset.  Return a single string with newlines."
+  (mapconcat (lambda (cal-line)
+               (taskjuggler-mode--cal-splice-line
+                (or (pop old-lines) "") cal-line col))
+             cal-lines "\n"))
 
 (defun taskjuggler-mode--cal-show-overlay (year month day)
   "Display or update the calendar overlay below the current line.
@@ -554,24 +551,11 @@ filled with the date formatted from YEAR, MONTH, and DAY."
 
 (defun taskjuggler-mode--cal-parse-typed-prefix (date-beg typed-len default-date)
   "Parse the typed prefix at DATE-BEG and return (YEAR MONTH DAY).
-Uses DEFAULT-DATE (a (YEAR MONTH DAY) list) for components not yet
-typed.  TYPED-LEN is how many characters have been typed so far."
-  (let* ((year (nth 0 default-date))
-         (month (nth 1 default-date))
-         (day (nth 2 default-date))
-         (typed (buffer-substring-no-properties
-                 date-beg (+ date-beg typed-len))))
-    (when (>= typed-len 4)
-      (let ((y (string-to-number (substring typed 0 4))))
-        (when (> y 0) (setq year y))))
-    (when (>= typed-len 7)
-      (let ((m (string-to-number (substring typed 5 7))))
-        (when (<= 1 m 12) (setq month m))))
-    (when (>= typed-len 10)
-      (let ((d (string-to-number (substring typed 8 10))))
-        (when (>= d 1)
-          (setq day (min d (calendar-last-day-of-month month year))))))
-    (list year month (taskjuggler-mode--cal-clamp-day year month day))))
+TYPED-LEN is how many characters have been typed so far; DEFAULT-DATE
+fills in components not yet typed."
+  (taskjuggler-mode--parse-partial-date
+   (buffer-substring-no-properties date-beg (+ date-beg typed-len))
+   default-date))
 
 ;;; Minor mode
 ;;
@@ -706,17 +690,16 @@ auto-advances past the hyphen and accepts the digit in the next slot."
   (let* ((date-beg taskjuggler-mode--cal-date-beg)
          (typed-len (- (point) date-beg))
          (ch last-command-event))
-    ;; Auto-skip hyphen positions when the user types a digit there.
-    (when (and (or (= typed-len 4) (= typed-len 7))
-               (characterp ch)
-               (<= ?0 ch ?9))
-      (forward-char 1)
-      (setq typed-len (1+ typed-len)))
-    (when (and (< typed-len taskjuggler-mode--cal-date-len)
-               (characterp ch)
-               (taskjuggler-mode--cal-valid-char-at-p ch typed-len))
-      (delete-char 1)
-      (insert (char-to-string ch)))))
+    (when (characterp ch)
+      ;; Auto-skip hyphen positions when the user types a digit there.
+      (when (and (or (= typed-len 4) (= typed-len 7))
+                 (<= ?0 ch ?9))
+        (forward-char 1)
+        (setq typed-len (1+ typed-len)))
+      (when (and (< typed-len taskjuggler-mode--cal-date-len)
+                 (taskjuggler-mode--cal-valid-char-at-p ch typed-len))
+        (delete-char 1)
+        (insert (char-to-string ch))))))
 
 (defun taskjuggler-mode--cal-backspace ()
   "Move point back one position within the date template.
@@ -837,8 +820,7 @@ YEAR, MONTH, DAY are the initial date.  WAS-INSERTED is non-nil if
 the date was freshly inserted (should be deleted on cancel).
 Point must be at DATE-BEG on entry."
   ;; Cache today once so every render during this session is free.
-  (let ((now (decode-time)))
-    (setq taskjuggler-mode--cal-today (list (nth 5 now) (nth 4 now) (nth 3 now))))
+  (setq taskjuggler-mode--cal-today (taskjuggler-mode--today))
   ;; Store editing state.
   (setq taskjuggler-mode--cal-date-beg date-beg
         taskjuggler-mode--cal-was-inserted was-inserted
@@ -860,33 +842,28 @@ Point must be at DATE-BEG on entry."
   "Insert a TaskJuggler date literal at point using an inline calendar.
 Inserts today's date with a pending face and opens the calendar picker."
   (interactive)
-  (pcase-let ((`(,_ ,_min ,_hour ,day ,month ,year . ,_) (decode-time)))
-    (let ((date-beg (point)))
-      (insert (taskjuggler-mode--format-tj-date year month day))
-      (goto-char date-beg)
-      (taskjuggler-mode--cal-edit date-beg year month day t))))
+  (pcase-let ((`(,year ,month ,day) (taskjuggler-mode--today))
+              (date-beg (point)))
+    (insert (taskjuggler-mode--format-tj-date year month day))
+    (goto-char date-beg)
+    (taskjuggler-mode--cal-edit date-beg year month day t)))
 
 (defun taskjuggler-mode--cal-replace-partial-date (partial-bounds)
   "Replace the partial date in PARTIAL-BOUNDS and open the picker.
 The partial input is treated as already-typed characters: point is positioned
 after them so the post-command hook resumes editing where the user left off."
-  (let* ((partial (buffer-substring-no-properties
-                   (car partial-bounds) (cdr partial-bounds)))
-         (partial-len (length partial)))
-    (pcase-let ((`(,_ ,_min ,_hour ,today-day ,today-month ,today-year . ,_)
-                 (decode-time)))
-      (let* ((default-date (list today-year today-month today-day))
-             (parsed (taskjuggler-mode--parse-partial-date partial default-date))
-             (year (nth 0 parsed))
-             (month (nth 1 parsed))
-             (day (nth 2 parsed))
-             (date-beg (car partial-bounds)))
-        (delete-region (car partial-bounds) (cdr partial-bounds))
-        (goto-char date-beg)
-        (insert (taskjuggler-mode--format-tj-date year month day))
-        (goto-char date-beg)
-        (taskjuggler-mode--cal-edit date-beg year month day t)
-        (goto-char (+ date-beg partial-len))))))
+  (pcase-let* ((partial (buffer-substring-no-properties
+                         (car partial-bounds) (cdr partial-bounds)))
+               (`(,year ,month ,day)
+                (taskjuggler-mode--parse-partial-date
+                 partial (taskjuggler-mode--today)))
+               (date-beg (car partial-bounds)))
+    (delete-region (car partial-bounds) (cdr partial-bounds))
+    (goto-char date-beg)
+    (insert (taskjuggler-mode--format-tj-date year month day))
+    (goto-char date-beg)
+    (taskjuggler-mode--cal-edit date-beg year month day t)
+    (goto-char (+ date-beg (length partial)))))
 
 (defun taskjuggler-mode-date-dwim ()
   "Insert or edit a TaskJuggler date literal depending on context.
