@@ -38,6 +38,11 @@
 (defvar taskjuggler-mode-cursor-idle-delay)
 (declare-function taskjuggler-mode--current-block-header "taskjuggler-mode" ())
 
+;; Set by `url-http' as a buffer-local in the response buffer; declared
+;; here so the byte-compiler does not flag it as a free variable when
+;; we read it inside the async response callback.
+(defvar url-http-response-status)
+
 ;; When a TJP buffer is live, an idle timer periodically identifies the
 ;; innermost `task' block enclosing point and sends its full dotted ID to
 ;; the browser for two-way task highlighting.
@@ -84,6 +89,24 @@ Non-nil means the /cursor endpoint was reachable when tracking started.")
 (defvar-local taskjuggler-mode--cursor-js-file-cache :unset
   "Cached path to js/tj-cursor.js (file:// polling fallback), or nil.
 :unset before the first lookup.")
+
+(defvar-local taskjuggler-mode--cursor-request-seq 0
+  "Monotonic counter used to mint per-request in-flight tokens.")
+
+(defvar-local taskjuggler-mode--cursor-post-inflight nil
+  "Token of the currently in-flight async POST, or nil when idle.
+A new POST is suppressed while this is non-nil; the next idle tick will
+retry once the callback (or watchdog) clears it.")
+
+(defvar-local taskjuggler-mode--cursor-poll-inflight nil
+  "Token of the currently in-flight async GET, or nil when idle.
+A new poll is suppressed while this is non-nil.")
+
+(defconst taskjuggler-mode--cursor-async-timeout 5
+  "Seconds before an in-flight cursor request is considered wedged.
+Past this point a watchdog clears the in-flight token so the next timer
+tick can issue a fresh request, even if the underlying url-retrieve
+callback never fires.")
 
 ;; ---- Task ID helpers ----
 
@@ -134,31 +157,24 @@ on success, nil when no matching declaration is found."
     (when target (goto-char target) t)))
 
 ;; ---- API transport (tj3webd /cursor endpoint) ----
-
-;; TODO: the functions below use `url-retrieve-synchronously' inside
-;; the 0.3s repeating click-poll timer.  That opens a recursive event
-;; loop from a timer handler, which is fragile.  Observed failure: the
-;; live `.tji' poll timer's next-fire-time stopped advancing (showed as
-;; ~47 hours overdue in `list-timers') while other timers in the same
-;; Emacs kept firing normally, and sync stayed dead until
-;; `taskjuggler-mode--stop-cursor-tracking' + `--start-cursor-tracking'
-;; replaced the timer.  Orphan poll timers for *company-documentation*
-;; showed the same overdue pattern in BOTH broken and working sessions,
-;; so the orphans are not the cause — single-timer wedging of the live
-;; timer is.  Suspected triggers: C-g during the 2s timeout, or
-;; re-entrance when Emacs is busy (save + flymake + company +
-;; fontification stacking up).  Proper fix: convert
-;; `taskjuggler-mode--cursor-poll-api' and `taskjuggler-mode--cursor-post-api' to
-;; async `url-retrieve' with callbacks so no recursive event loop runs
-;; from the timer handler.  (`taskjuggler-mode--cursor-api-probe' runs
-;; once at mode init, not from a timer, so it's fine.)
+;;
+;; The probe is synchronous because it runs once at mode init.  The post
+;; and poll calls run from timers, so they use async `url-retrieve' with
+;; callbacks — a synchronous URL call inside a timer opens a recursive
+;; event loop that wedged the live poll timer in long sessions.
+;;
+;; Per-direction in-flight tokens (a monotonic per-buffer counter) suppress
+;; new requests while one is pending, so a slow tj3webd does not pile up
+;; requests; the next timer tick re-checks state and retries.  A watchdog
+;; clears the in-flight token after `--cursor-async-timeout' seconds in
+;; case the callback never fires (network wedge, killed daemon, etc.).
 
 (defmacro taskjuggler-mode--with-cursor-api (path &rest body)
   "Run BODY inside the response buffer of a request to PATH on the cursor API.
 Caller binds `url-request-method' (and `-data', `-extra-headers' as needed)
 in the surrounding `let'.  Returns the value of BODY, or nil on any error
 or when `taskjuggler-mode--cursor-api-url' is nil.  The response buffer is
-killed before returning."
+killed before returning.  Synchronous: only safe outside timer handlers."
   (declare (indent 1))
   `(when taskjuggler-mode--cursor-api-url
      (let ((url-show-status nil))
@@ -180,29 +196,106 @@ or nil when the endpoint is not available."
       (goto-char (point-min))
       (and (re-search-forward "^HTTP/[0-9.]+ 200" nil t) base))))
 
+(defun taskjuggler-mode--cursor-mint-token ()
+  "Return a fresh per-buffer request token (a monotonic integer)."
+  (setq taskjuggler-mode--cursor-request-seq
+        (1+ taskjuggler-mode--cursor-request-seq)))
+
+(defun taskjuggler-mode--cursor-arm-watchdog (buf var token)
+  "Clear BUF's local VAR if it still holds TOKEN after the async timeout.
+Safety net for the case where `url-retrieve' never fires its callback."
+  (run-at-time taskjuggler-mode--cursor-async-timeout nil
+               (lambda ()
+                 (when (buffer-live-p buf)
+                   (with-current-buffer buf
+                     (when (eq (symbol-value var) token)
+                       (set var nil)))))))
+
+(defun taskjuggler-mode--cursor-status-ok-p (status)
+  "Return non-nil when url-retrieve STATUS plist indicates success."
+  (and (not (plist-get status :error))
+       (or (null (boundp 'url-http-response-status))
+           (null url-http-response-status)
+           (and (>= url-http-response-status 200)
+                (<  url-http-response-status 300)))))
+
 (defun taskjuggler-mode--cursor-post-api (task-id)
-  "POST TASK-ID to the tj3webd /cursor endpoint.
-TASK-ID may be a string or nil (clears the cursor).
-Return non-nil on success."
-  (let ((url-request-method "POST")
-        (url-request-extra-headers '(("Content-Type" . "application/json")))
-        (url-request-data
-         (encode-coding-string
-          (json-encode `(("id" . ,(or task-id "")) ("source" . "editor")))
-          'utf-8)))
-    (taskjuggler-mode--with-cursor-api "/cursor" t)))
+  "Asynchronously POST TASK-ID to the tj3webd /cursor endpoint.
+TASK-ID may be a string or nil (clears the cursor).  No-op when the cursor
+API is unset or a previous POST is still in flight; in either case the
+next idle tick will retry.  On HTTP success the buffer-local
+`taskjuggler-mode--cursor-last-id' is updated to TASK-ID."
+  (when (and taskjuggler-mode--cursor-api-url
+             (null taskjuggler-mode--cursor-post-inflight))
+    (let* ((token (taskjuggler-mode--cursor-mint-token))
+           (buf (current-buffer))
+           (sent task-id)
+           (url (concat taskjuggler-mode--cursor-api-url "/cursor"))
+           (url-request-method "POST")
+           (url-request-extra-headers '(("Content-Type" . "application/json")))
+           (url-request-data
+            (encode-coding-string
+             (json-encode `(("id" . ,(or task-id "")) ("source" . "editor")))
+             'utf-8))
+           (url-show-status nil))
+      (setq taskjuggler-mode--cursor-post-inflight token)
+      (taskjuggler-mode--cursor-arm-watchdog
+       buf 'taskjuggler-mode--cursor-post-inflight token)
+      (condition-case nil
+          (url-retrieve
+           url
+           (lambda (status)
+             (let ((ok (taskjuggler-mode--cursor-status-ok-p status)))
+               (kill-buffer (current-buffer))
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (when (eq taskjuggler-mode--cursor-post-inflight token)
+                     (setq taskjuggler-mode--cursor-post-inflight nil)
+                     (when ok
+                       (setq taskjuggler-mode--cursor-last-id sent)))))))
+           nil t t)
+        (error (setq taskjuggler-mode--cursor-post-inflight nil))))))
 
 (defun taskjuggler-mode--cursor-poll-api ()
-  "Poll GET /cursor/state and return (ID . TS) when source is \"browser\".
-Return nil on error or when the last event was from the editor."
-  (let ((url-request-method "GET"))
-    (taskjuggler-mode--with-cursor-api "/cursor/state"
-      (goto-char (point-min))
-      (when (re-search-forward "\n\n" nil t)
-        (let ((data (json-read)))
-          (when (equal (cdr (assq 'source data)) "browser")
-            (cons (cdr (assq 'id data))
-                  (cdr (assq 'ts data)))))))))
+  "Asynchronously poll GET /cursor/state.
+On a browser-sourced response, hand the (ID . TS) result to
+`taskjuggler-mode--apply-click-result' in the originating buffer.  No-op
+when the cursor API is unset or a previous poll is still in flight."
+  (when (and taskjuggler-mode--cursor-api-url
+             (null taskjuggler-mode--cursor-poll-inflight))
+    (let* ((token (taskjuggler-mode--cursor-mint-token))
+           (buf (current-buffer))
+           (url (concat taskjuggler-mode--cursor-api-url "/cursor/state"))
+           (url-request-method "GET")
+           (url-show-status nil))
+      (setq taskjuggler-mode--cursor-poll-inflight token)
+      (taskjuggler-mode--cursor-arm-watchdog
+       buf 'taskjuggler-mode--cursor-poll-inflight token)
+      (condition-case nil
+          (url-retrieve
+           url
+           (lambda (status)
+             (let ((result
+                    (and (taskjuggler-mode--cursor-status-ok-p status)
+                         (condition-case nil
+                             (progn
+                               (goto-char (point-min))
+                               (when (re-search-forward "\n\n" nil t)
+                                 (let ((data (json-read)))
+                                   (when (equal (cdr (assq 'source data))
+                                                "browser")
+                                     (cons (cdr (assq 'id data))
+                                           (cdr (assq 'ts data)))))))
+                           (error nil)))))
+               (kill-buffer (current-buffer))
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (when (eq taskjuggler-mode--cursor-poll-inflight token)
+                     (setq taskjuggler-mode--cursor-poll-inflight nil)
+                     (when result
+                       (taskjuggler-mode--apply-click-result result)))))))
+           nil t t)
+        (error (setq taskjuggler-mode--cursor-poll-inflight nil))))))
 
 ;; ---- File transport (js/tj-cursor.js fallback) ----
 
@@ -241,7 +334,8 @@ both cases, or nil when NAME is not present in CONTENT."
 
 (defun taskjuggler-mode--write-cursor-js (task-id)
   "Write TASK-ID to js/tj-cursor.js as file-based fallback.
-Does nothing when js/ does not exist."
+Does nothing when js/ does not exist.  On success updates
+`taskjuggler-mode--cursor-last-id'."
   (when-let ((js-file (taskjuggler-mode--cursor-js-file)))
     (let ((click-id nil) (click-ts "0"))
       ;; Preserve any prior click record so the browser-side polling
@@ -260,7 +354,8 @@ Does nothing when js/ does not exist."
                (floor (float-time))
                (taskjuggler-mode--js-quote click-id)
                click-ts)
-       nil js-file nil 'quiet))))
+       nil js-file nil 'quiet)
+      (setq taskjuggler-mode--cursor-last-id task-id))))
 
 (defun taskjuggler-mode--cursor-poll-file ()
   "Read the click record from js/tj-cursor.js as (ID . TS), or nil.
@@ -279,28 +374,37 @@ TS defaults to 0 when missing; ID may be nil if the field is absent."
       (taskjuggler-mode--cursor-post-api task-id)
     (taskjuggler-mode--write-cursor-js task-id)))
 
+(defun taskjuggler-mode--apply-click-result (result)
+  "Navigate to the task in (ID . TS) RESULT when it represents a new click."
+  (let ((click-id (car result))
+        (click-ts (cdr result)))
+    (when (and click-ts (> click-ts taskjuggler-mode--cursor-last-click-ts))
+      (setq taskjuggler-mode--cursor-last-click-ts click-ts)
+      (when (and click-id (not (string-empty-p click-id))
+                 (taskjuggler-mode--goto-task-id click-id))
+        (when-let ((win (get-buffer-window (current-buffer) t)))
+          (with-selected-window win (recenter)))))))
+
 (defun taskjuggler-mode--maybe-navigate-to-click ()
-  "Navigate to a task clicked in the browser, if the click is new.
-Uses the cursor API when available, otherwise reads js/tj-cursor.js."
-  (when-let ((result (if taskjuggler-mode--cursor-api-url
-                         (taskjuggler-mode--cursor-poll-api)
-                       (taskjuggler-mode--cursor-poll-file))))
-    (let ((click-id (car result))
-          (click-ts (cdr result)))
-      (when (and click-ts (> click-ts taskjuggler-mode--cursor-last-click-ts))
-        (setq taskjuggler-mode--cursor-last-click-ts click-ts)
-        (when (and click-id (not (string-empty-p click-id))
-                   (taskjuggler-mode--goto-task-id click-id))
-          (when-let ((win (get-buffer-window (current-buffer) t)))
-            (with-selected-window win (recenter))))))))
+  "Trigger a click poll: async via the API, sync via the JS file fallback.
+The async path navigates from its own callback; the sync path applies
+the result inline."
+  (if taskjuggler-mode--cursor-api-url
+      (taskjuggler-mode--cursor-poll-api)
+    (when-let ((result (taskjuggler-mode--cursor-poll-file)))
+      (taskjuggler-mode--apply-click-result result))))
 
 ;; ---- Lifecycle ----
 
 (defun taskjuggler-mode--cursor-update-if-changed ()
-  "Send the task ID at point to the browser if it differs from the last sent."
+  "Send the task ID at point to the browser if it differs from the last sent.
+Skips silently when a previous async POST is still in flight; the next idle
+tick will retry once the in-flight slot clears.  `--cursor-last-id' is
+updated by the post callback (API path) or by `--write-cursor-js' (file
+path), so a dropped or failed send naturally retries on the next tick."
   (let ((id (taskjuggler-mode--full-task-id-at-point)))
-    (unless (equal id taskjuggler-mode--cursor-last-id)
-      (setq taskjuggler-mode--cursor-last-id id)
+    (unless (or taskjuggler-mode--cursor-post-inflight
+                (equal id taskjuggler-mode--cursor-last-id))
       (taskjuggler-mode--write-cursor-json id))))
 
 (defun taskjuggler-mode--start-cursor-tracking ()
@@ -343,7 +447,10 @@ is nil."
                delay delay in-buffer #'taskjuggler-mode--maybe-navigate-to-click))))))
 
 (defun taskjuggler-mode--stop-cursor-tracking ()
-  "Cancel cursor-tracking timers and clear cursor state."
+  "Cancel cursor-tracking timers and clear cursor state.
+Drops in-flight tokens so any callbacks that still fire become no-ops,
+and resets `--cursor-last-id' so a subsequent restart re-syncs the
+browser on the next idle tick."
   (when (timerp taskjuggler-mode--cursor-idle-timer)
     (cancel-timer taskjuggler-mode--cursor-idle-timer)
     (setq taskjuggler-mode--cursor-idle-timer nil))
@@ -351,7 +458,10 @@ is nil."
     (cancel-timer taskjuggler-mode--click-poll-timer)
     (setq taskjuggler-mode--click-poll-timer nil))
   (taskjuggler-mode--write-cursor-json nil)
-  (setq taskjuggler-mode--cursor-api-url nil))
+  (setq taskjuggler-mode--cursor-api-url nil
+        taskjuggler-mode--cursor-post-inflight nil
+        taskjuggler-mode--cursor-poll-inflight nil
+        taskjuggler-mode--cursor-last-id :unset))
 
 (defun taskjuggler-mode--reset-cursor-file-cache (&rest _)
   "Reset the cursor file cache in all live `taskjuggler-mode' buffers.
