@@ -922,7 +922,7 @@ Feb 2024 starts on Thursday (start-dow=4).  Thursday of each row:
     (should (eq 'taskjuggler-mode-cal-pending-face
                 (get-char-property 5 'face)))
     ;; Remove faces.
-    (taskjuggler-mode--cal-remove-faces 1)
+    (taskjuggler-mode--cal-remove-faces)
     (should-not (get-char-property 1 'face))
     (should-not (get-char-property 5 'face))))
 ;; ---- Calendar rendering ----
