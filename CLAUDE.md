@@ -32,12 +32,23 @@ dir and invokes the same `emacs --batch --load=melpazoid.el` the
 upstream Docker image runs as its CMD. Requires a melpazoid checkout
 (default `~/repos/melpazoid`, override via `MELPAZOID_DIR`) and the
 `pkg-info` and `package-lint` packages installed in `~/.emacs.d/elpa`
-— the script's header lists exact install commands. The per-submodule
-package-lint sections of melpazoid's output emit a cascade of
-"doesn't start with package's prefix" errors because the five
+— the script's header lists exact install commands.
+
+For a lighter check without the melpazoid wrapper, run `checkdoc` and
+`package-lint` directly:
+```
+emacs --batch --eval "(mapc #'checkdoc-file (file-expand-wildcards \"*.el\"))"
+emacs --batch --eval "(progn (require 'package) (package-initialize) \
+  (require 'package-lint))" -f package-lint-batch-and-exit taskjuggler-mode.el
+```
+`package-lint` (whether run via melpazoid or directly) is only
+meaningful on the `taskjuggler-mode.el` entry point. The five
 submodules share the unified `taskjuggler-mode-` / `taskjuggler-mode--`
-prefix (see Architecture below) rather than a per-file prefix; this is
-intentional and only the entry point's section is meaningful.
+prefix (see Architecture below) rather than a per-file prefix, and
+lack standalone package headers, so running `package-lint` on them
+trips a cascade of "doesn't start with package's prefix" and
+missing-header errors that don't apply to a multi-file package; this
+is intentional and only the entry point's section is meaningful.
 
 Run the ERT test suite:
 ```

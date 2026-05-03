@@ -256,33 +256,68 @@ enclosing header is still the task header."
     (let ((taskjuggler-mode-tj3webd-port 18099))
       (should-not (taskjuggler-mode--cursor-api-probe)))))
 
+(defun taskjuggler-mode-cursor-test--wait-post-done ()
+  "Spin until the in-flight POST clears (callback fired or watchdog ran)."
+  (taskjuggler-mode-test--wait-until
+   (lambda () (null taskjuggler-mode--cursor-post-inflight))
+   3 "cursor POST callback"))
+
 (ert-deftest taskjuggler-mode-cursor-integration--post-roundtrip ()
-  "POSTing a task ID via the API updates `/cursor/state' on the server."
+  "POSTing a task ID via the API updates `/cursor/state' on the server.
+The post is async, so we wait for the callback before reading state."
   (taskjuggler-mode-test--with-tj3 ("tj3webd")
     (taskjuggler-mode-test--with-fresh-tj3webd 18084
-      (let ((taskjuggler-mode--cursor-api-url
-             (taskjuggler-mode--cursor-api-probe)))
-        (should taskjuggler-mode--cursor-api-url)
-        (should (taskjuggler-mode--cursor-post-api "demo.task.id"))
-        (let ((state (taskjuggler-mode-test--cursor-state
-                      taskjuggler-mode--cursor-api-url)))
-          (should state)
-          (should (equal "demo.task.id" (cdr (assq 'id state))))
-          (should (equal "editor" (cdr (assq 'source state)))))))))
+      (with-temp-buffer
+        (let ((taskjuggler-mode--cursor-api-url
+               (taskjuggler-mode--cursor-api-probe)))
+          (should taskjuggler-mode--cursor-api-url)
+          (taskjuggler-mode--cursor-post-api "demo.task.id")
+          (taskjuggler-mode-cursor-test--wait-post-done)
+          ;; Callback should have written the id back as the new last-id.
+          (should (equal "demo.task.id" taskjuggler-mode--cursor-last-id))
+          (let ((state (taskjuggler-mode-test--cursor-state
+                        taskjuggler-mode--cursor-api-url)))
+            (should state)
+            (should (equal "demo.task.id" (cdr (assq 'id state))))
+            (should (equal "editor" (cdr (assq 'source state))))))))))
 
 (ert-deftest taskjuggler-mode-cursor-integration--post-clears-when-nil ()
   "POSTing nil clears the cursor (id becomes empty string on the server)."
   (taskjuggler-mode-test--with-tj3 ("tj3webd")
     (taskjuggler-mode-test--with-fresh-tj3webd 18085
-      (let ((taskjuggler-mode--cursor-api-url
-             (taskjuggler-mode--cursor-api-probe)))
-        (should taskjuggler-mode--cursor-api-url)
-        (taskjuggler-mode--cursor-post-api "to-be-cleared")
-        (taskjuggler-mode--cursor-post-api nil)
-        (let ((state (taskjuggler-mode-test--cursor-state
-                      taskjuggler-mode--cursor-api-url)))
-          (should state)
-          (should (equal "" (cdr (assq 'id state)))))))))
+      (with-temp-buffer
+        (let ((taskjuggler-mode--cursor-api-url
+               (taskjuggler-mode--cursor-api-probe)))
+          (should taskjuggler-mode--cursor-api-url)
+          (taskjuggler-mode--cursor-post-api "to-be-cleared")
+          (taskjuggler-mode-cursor-test--wait-post-done)
+          (taskjuggler-mode--cursor-post-api nil)
+          (taskjuggler-mode-cursor-test--wait-post-done)
+          (let ((state (taskjuggler-mode-test--cursor-state
+                        taskjuggler-mode--cursor-api-url)))
+            (should state)
+            (should (equal "" (cdr (assq 'id state))))))))))
+
+(ert-deftest taskjuggler-mode-cursor-integration--post-suppressed-while-inflight ()
+  "A second POST issued while one is in flight is dropped.
+The in-flight gate prevents request piling under server slowness; the
+suppressed payload should not appear in `/cursor/state'."
+  (taskjuggler-mode-test--with-tj3 ("tj3webd")
+    (taskjuggler-mode-test--with-fresh-tj3webd 18086
+      (with-temp-buffer
+        (let ((taskjuggler-mode--cursor-api-url
+               (taskjuggler-mode--cursor-api-probe)))
+          (should taskjuggler-mode--cursor-api-url)
+          (taskjuggler-mode--cursor-post-api "first")
+          ;; Immediately, while the first request is still in flight, try a
+          ;; second.  It should be dropped.
+          (should taskjuggler-mode--cursor-post-inflight)
+          (taskjuggler-mode--cursor-post-api "second-should-be-dropped")
+          (taskjuggler-mode-cursor-test--wait-post-done)
+          ;; Only the first id should have made it to the server.
+          (let ((state (taskjuggler-mode-test--cursor-state
+                        taskjuggler-mode--cursor-api-url)))
+            (should (equal "first" (cdr (assq 'id state))))))))))
 
 (provide 'taskjuggler-mode-cursor-test)
 
