@@ -21,6 +21,19 @@ load path so the submodule files resolve their cross-file `require`s):
 emacs --batch -L . -f batch-byte-compile *.el
 ```
 
+Lint with `checkdoc` and `package-lint`:
+```
+emacs --batch --eval "(mapc #'checkdoc-file (file-expand-wildcards \"*.el\"))"
+emacs --batch --eval "(progn (require 'package) (package-initialize) \
+  (require 'package-lint))" -f package-lint-batch-and-exit taskjuggler-mode.el
+```
+`package-lint` is only meaningful on the `taskjuggler-mode.el` entry
+point. The five submodules share the unified `taskjuggler-mode-` /
+`taskjuggler-mode--` prefix (see Architecture below) and lack
+standalone package headers, so running `package-lint` directly on them
+trips a cascade of "doesn't start with package's prefix" and
+missing-header errors that don't apply to a multi-file package.
+
 Run the ERT test suite:
 ```
 emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit

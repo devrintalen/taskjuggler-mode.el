@@ -105,7 +105,7 @@ A new poll is suppressed while this is non-nil.")
 (defconst taskjuggler-mode--cursor-async-timeout 5
   "Seconds before an in-flight cursor request is considered wedged.
 Past this point a watchdog clears the in-flight token so the next timer
-tick can issue a fresh request, even if the underlying url-retrieve
+tick can issue a fresh request, even if the underlying `url-retrieve'
 callback never fires.")
 
 ;; ---- Task ID helpers ----
@@ -202,7 +202,7 @@ or nil when the endpoint is not available."
         (1+ taskjuggler-mode--cursor-request-seq)))
 
 (defun taskjuggler-mode--cursor-arm-watchdog (buf var token)
-  "Clear BUF's local VAR if it still holds TOKEN after the async timeout.
+  "Clear BUF's buffer-local VAR after the async timeout if it still equals TOKEN.
 Safety net for the case where `url-retrieve' never fires its callback."
   (run-at-time taskjuggler-mode--cursor-async-timeout nil
                (lambda ()
@@ -212,7 +212,7 @@ Safety net for the case where `url-retrieve' never fires its callback."
                        (set var nil)))))))
 
 (defun taskjuggler-mode--cursor-status-ok-p (status)
-  "Return non-nil when url-retrieve STATUS plist indicates success."
+  "Return non-nil when `url-retrieve' STATUS plist indicates success."
   (and (not (plist-get status :error))
        (or (null (boundp 'url-http-response-status))
            (null url-http-response-status)
