@@ -346,10 +346,10 @@ Does nothing when js/ does not exist.  On success updates
                 click-ts (or (taskjuggler-mode--cursor-parse-field existing "_tjClickTs")
                              "0"))))
       (write-region
-       (format (concat "window._tjCursorTaskId = %s;\n"
-                       "window._tjCursorTs     = %d;\n"
-                       "window._tjClickTaskId  = %s;\n"
-                       "window._tjClickTs      = %s;\n")
+       (format "window._tjCursorTaskId = %s;
+window._tjCursorTs     = %d;
+window._tjClickTaskId  = %s;
+window._tjClickTs      = %s;\n"
                (taskjuggler-mode--js-quote task-id)
                (floor (float-time))
                (taskjuggler-mode--js-quote click-id)
