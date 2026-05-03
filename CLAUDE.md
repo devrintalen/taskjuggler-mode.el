@@ -21,6 +21,24 @@ load path so the submodule files resolve their cross-file `require`s):
 emacs --batch -L . -f batch-byte-compile *.el
 ```
 
+Run melpazoid (full MELPA review: byte-compile + checkdoc +
+package-lint + experimental checks + load test) on the host without
+Docker:
+```
+scripts/melpazoid.sh
+```
+This stages every `taskjuggler-mode*.el` plus `snippets/` into a temp
+dir and invokes the same `emacs --batch --load=melpazoid.el` the
+upstream Docker image runs as its CMD. Requires a melpazoid checkout
+(default `~/repos/melpazoid`, override via `MELPAZOID_DIR`) and the
+`pkg-info` and `package-lint` packages installed in `~/.emacs.d/elpa`
+— the script's header lists exact install commands. The per-submodule
+package-lint sections of melpazoid's output emit a cascade of
+"doesn't start with package's prefix" errors because the five
+submodules share the unified `taskjuggler-mode-` / `taskjuggler-mode--`
+prefix (see Architecture below) rather than a per-file prefix; this is
+intentional and only the entry point's section is meaningful.
+
 Run the ERT test suite:
 ```
 emacs --batch -l test/taskjuggler-mode-test.el -f ert-run-tests-batch-and-exit
