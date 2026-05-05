@@ -16,7 +16,7 @@ Here's what this mode provides, out of the box, with no dependencies:
 - Syntax highlighting and automatic indentation
 - Helpful inline calendar picker for date entry
 - `tj3d` and `tj3webd` daemon management
-- Live task highlighting in the browser
+- Live task selection updating between Emacs and the browser
 - `tj3man` documentation lookup
 - Compilation and `flymake` support
 - s-expression movement
@@ -31,7 +31,7 @@ use `yasnippet`, several templates are included — see the
 - [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
 
 Optional:
-- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better `tj3d` and `tj3webd` integration, including 2-way task syncing.
+- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better `tj3d` and `tj3webd` integration, including 2-way task selection.
 - [yasnippet](https://github.com/joaotavora/yasnippet) (call `taskjuggler-mode-snippets-initialize` after yasnippet loads to register snippets)
 
 [jsgantt]: https://github.com/devrintalen/TaskJuggler/tree/jsgantt
@@ -253,28 +253,6 @@ When tj3d owns the current project (see [Daemon
 integration](#daemon-integration) below), Flymake instead reports the
 diagnostics cached from the last `tj3client add` run — no extra `tj3`
 invocation per check.
-
-### Daemon integration
-
-The mode can drive the tj3d scheduling daemon and tj3webd web server
-directly. Running tj3d makes Flymake free (diagnostics come from the
-daemon's own re-scheduling), and running tj3webd lets the browser-side
-report stay in sync with point.
-
-| Key         | Command                                  | Description                                           |
-|-------------|------------------------------------------|-------------------------------------------------------|
-| `C-c C-t D` | `taskjuggler-mode-tj3d-start`            | Start tj3d in `--auto-update` mode                    |
-| `C-c C-t a` | `taskjuggler-mode-tj3d-add-project`      | Add the current project to tj3d                       |
-| `C-c C-t W` | `taskjuggler-mode-tj3webd-start`         | Start tj3webd on `taskjuggler-mode-tj3webd-port`      |
-| `C-c C-t b` | `taskjuggler-mode-tj3webd-browse`        | Open the tj3webd index page in your browser           |
-| `C-c C-t s` | `taskjuggler-mode-daemon-status`         | Echo the live state of both daemons                   |
-| —           | `taskjuggler-mode-tj3d-stop`             | Stop tj3d                                             |
-| —           | `taskjuggler-mode-tj3webd-stop`          | Stop tj3webd via its pidfile                          |
-
-Set `taskjuggler-mode-auto-start-tj3d-tj3webd` to start the daemons
-automatically on mode activation, and
-`taskjuggler-mode-auto-add-project-tj3d` to register the project file
-once tj3d is running.
 
 ### yasnippet snippets
 
