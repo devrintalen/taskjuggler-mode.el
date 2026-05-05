@@ -15,6 +15,7 @@ Here's what this mode provides, out of the box, with no dependencies:
 
 - Syntax highlighting and automatic indentation
 - Helpful inline calendar picker for date entry
+- `tj3d` and `tj3webd` daemon management
 - Live task highlighting in the browser
 - `tj3man` documentation lookup
 - Compilation and `flymake` support
@@ -30,7 +31,10 @@ use `yasnippet`, several templates are included — see the
 - [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
 
 Optional:
+- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better `tj3d` and `tj3webd` integration, including 2-way task syncing.
 - [yasnippet](https://github.com/joaotavora/yasnippet) (call `taskjuggler-mode-snippets-initialize` after yasnippet loads to register snippets)
+
+[jsgantt]: https://github.com/devrintalen/TaskJuggler/tree/jsgantt
 
 ## Features
 
@@ -41,35 +45,76 @@ for working with TJ3 dates:
 
 ![Screencast of calendar popup showing and adjusting the date](screenshots/calendarpicker.gif)
 
-The calendar appears as an overlay below the current line. The
-calendar updates as you type the YYYY-MM-DD date, or navigate the
-selected date with shift-arrows (`S-<right>`/`S-<left>` by day,
-`S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
+The calendar appears as an overlay below the current line. Keywords
+such as `start`, `end`, etc. will automatically activate the
+picker. The calendar updates as you type the YYYY-MM-DD date, or
+navigate the selected date with shift-arrows (`S-<right>`/`S-<left>`
+by day, `S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
 month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
-### Live task highlighting
+### `tj3d` and `tj3webd` daemon management
 
-If you're using my [`jsgantt` branch of TaskJuggler](https://github.com/devrintalen/TaskJuggler/tree/jsgantt), 
-then you can easily see the task you're editing in the browser.
+**TODO a picture of the modeline with daemons active**
+
+Running `tj3` standalone is an easy way to get started with
+TaskJuggler, but things get easier when using the `tj3d` and `tj3webd`
+daemons to manage compiling your projects. This mode includes daemon
+management commands to make this easy.
+
+| Key         | Command                                  | Description                                           |
+|-------------|------------------------------------------|-------------------------------------------------------|
+| `C-c C-t D` | `taskjuggler-mode-tj3d-start`            | Start tj3d in `--auto-update` mode                    |
+| `C-c C-t a` | `taskjuggler-mode-tj3d-add-project`      | Add the current project to tj3d                       |
+| `C-c C-t W` | `taskjuggler-mode-tj3webd-start`         | Start tj3webd on `taskjuggler-mode-tj3webd-port`      |
+| `C-c C-t b` | `taskjuggler-mode-tj3webd-browse`        | Open the tj3webd index page in your browser           |
+| `C-c C-t s` | `taskjuggler-mode-daemon-status`         | Echo the live state of both daemons                   |
+| —           | `taskjuggler-mode-tj3d-stop`             | Stop tj3d                                             |
+| —           | `taskjuggler-mode-tj3webd-stop`          | Stop tj3webd via its pidfile                          |
+
+These variables can customize the behavior:
+
+- `taskjuggler-mode-auto-start-tj3d-tj3webd` controls if the Emacs
+  will attempt to start `tj3d` and `tj3d` automatically when
+  `taskjuggler-mode` activates.
+- `taskjuggler-mode-auto-add-project-tj3d` is useful to use with the
+  above and will automatically submit the project to `tj3d` with
+  `tj3client`.
+- `taskjuggler-mode-tj3webd-port` controls the port argument passed to
+  `tj3webd`. Defaults to `8080`.
+
+
+### 2-way task highlighting
+
+If you're using [`devrintalen/TaskJuggler:jsgantt`][jsgantt], then you
+can easily see the task you're editing in the browser, and select
+tasks in the browser to jump to them in the active buffer.
 
 ![Screencast of active task highlighting with Emacs and browser side by side](screenshots/tasksync.gif)
 
 How it works:
 
 1. Use the `format htmljs` attribute in the report definiton to get the interactive chart.
-2. Compile the project with `tj3` as usual.
+2. Compile the project with `tj3` (from [`devrintalen/TaskJuggler:jsgantt`][jsgantt]) as usual.
 3. Open the generated report in a browser.
 4. Edit the `.tjp/i` file in Emacs. The chart row for the task at point is
    highlighted automatically as the cursor moves.
+5. Click rows in the browser. The Emacs buffer jumps to the `task` location for the row.
 
-Tracking starts automatically when a `.tjp` file is opened and stops (writing
-`null`) when the buffer is killed. It is disabled if the `js/` directory does not
-exist, and can be turned off entirely by setting `taskjuggler-mode-cursor-idle-delay`
-to `nil`.
+Tracking starts automatically when a `.tjp` file is opened and stops
+when the buffer is killed. Sync is two-way: as point moves in Emacs
+the matching task is highlighted in the browser, and clicking a task
+in the browser navigates the Emacs cursor to it. Set
+`taskjuggler-mode-cursor-idle-delay` to `nil` to turn tracking off
+entirely.
 
-The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
-rather than JSON so the browser can load it via a `<script>` tag, which works
-under `file://` without CORS restrictions.
+Two transports are supported. When `tj3webd` is running, the mode
+posts to its `/cursor` HTTP endpoint and polls `/cursor/state` for
+click events — this is the preferred path. Otherwise, if a `js/`
+directory exists next to the `.tjp` file, the mode writes
+`js/tj-cursor.js` as a JS assignment (`window._tjCursorTaskId = "…"`)
+so the browser can load it via a `<script>` tag, which works under
+`file://` without CORS restrictions. If neither transport is
+available, tracking is silently disabled.
 
 ### tj3man integration
 
