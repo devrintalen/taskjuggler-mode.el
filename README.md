@@ -18,12 +18,13 @@ Here's what this mode provides, out of the box, with no dependencies:
 - `tj3d` and `tj3webd` daemon management
 - Live task selection updating between Emacs and the browser
 - `tj3man` documentation lookup
-- Compilation and `flymake` support
+- Compilation and flymake support
 - s-expression movement
 
 Evil mode bindings are provided for all of us on the dark side. If you
-use `yasnippet`, several templates are included — see the
-[yasnippet snippets](#yasnippet-snippets) section for setup.
+use `yasnippet`, several templates are included.
+
+![Emacs kitchen sink](screenshots/sink_black.png)
 
 ## Requirements
 
@@ -31,8 +32,12 @@ use `yasnippet`, several templates are included — see the
 - [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
 
 Optional:
-- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better `tj3d` and `tj3webd` integration, including 2-way task selection.
-- [yasnippet](https://github.com/joaotavora/yasnippet) (call `taskjuggler-mode-snippets-initialize` after yasnippet loads to register snippets)
+- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better
+  `tj3d` and `tj3webd` integration, including 2-way task selection and
+  automatic updating.
+- [yasnippet](https://github.com/joaotavora/yasnippet) — see the
+[yasnippet snippets](#yasnippet-snippets) section for setup.
+
 
 [jsgantt]: https://github.com/devrintalen/TaskJuggler/tree/jsgantt
 
@@ -403,4 +408,3 @@ Here's how this one differs:
   clone block
 - Evil-mode bindings for all block navigation commands
 
-![Emacs kitchen sink](screenshots/sink_black.png)
