@@ -143,7 +143,7 @@ diagnostics. Errors in included `.tji` files are reported in those
 files' own buffers rather than in the parent `.tjp` buffer, matching
 TJ3's output behavior.
 
-**TODO screenshot of an inline error/warning**
+![Screenshot of flymake diagnostic message](screenshots/flymake_diag.png)
 
 - If `tj3d` owns the current project, the mode invokes `tj3client add`
   on each file save and gets diagnostics from `tj3d`.
