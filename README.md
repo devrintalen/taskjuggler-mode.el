@@ -15,14 +15,16 @@ Here's what this mode provides, out of the box, with no dependencies:
 
 - Syntax highlighting and automatic indentation
 - Helpful inline calendar picker for date entry
-- Live task highlighting in the browser
+- `tj3d` and `tj3webd` daemon management
+- Live task selection updating between Emacs and the browser
 - `tj3man` documentation lookup
-- Compilation and `flymake` support
+- Compilation and flymake support
 - s-expression movement
 
 Evil mode bindings are provided for all of us on the dark side. If you
-use `yasnippet`, several templates are included — see the
-[yasnippet snippets](#yasnippet-snippets) section for setup.
+use `yasnippet`, several templates are included.
+
+![Emacs kitchen sink](screenshots/sink_black.png)
 
 ## Requirements
 
@@ -30,7 +32,14 @@ use `yasnippet`, several templates are included — see the
 - [TaskJuggler](https://taskjuggler.org/) `tj3` and `tj3man` for compilation, flymake, and man page features
 
 Optional:
-- [yasnippet](https://github.com/joaotavora/yasnippet) (call `taskjuggler-mode-snippets-initialize` after yasnippet loads to register snippets)
+- [TaskJuggler:jsgantt][jsgantt] for 2-way task syncing and better
+  `tj3d` and `tj3webd` integration, including 2-way task selection and
+  automatic updating.
+- [yasnippet](https://github.com/joaotavora/yasnippet) — see the
+[yasnippet snippets](#yasnippet-snippets) section for setup.
+
+
+[jsgantt]: https://github.com/devrintalen/TaskJuggler/tree/jsgantt
 
 ## Features
 
@@ -41,35 +50,77 @@ for working with TJ3 dates:
 
 ![Screencast of calendar popup showing and adjusting the date](screenshots/calendarpicker.gif)
 
-The calendar appears as an overlay below the current line. The
-calendar updates as you type the YYYY-MM-DD date, or navigate the
-selected date with shift-arrows (`S-<right>`/`S-<left>` by day,
-`S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
+The calendar appears as an overlay below the current line. Keywords
+such as `start`, `end`, etc. will automatically activate the
+picker. The calendar updates as you type the YYYY-MM-DD date, or
+navigate the selected date with shift-arrows (`S-<right>`/`S-<left>`
+by day, `S-<up>`/`S-<down>` by week, or `S-<prior>`/`S-<next>` by
 month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
-### Live task highlighting
+### `tj3d` and `tj3webd` daemon management
 
-If you're using my [`jsgantt` branch of TaskJuggler](https://github.com/devrintalen/TaskJuggler/tree/jsgantt), 
-then you can easily see the task you're editing in the browser.
+![Screenshot of Emacs modeline with tj3d and tj3webd daemons active](screenshots/daemon_modeline.png)
+
+Running `tj3` standalone is an easy way to get started with
+TaskJuggler, but things get even better when using the `tj3d` and
+`tj3webd` daemons to manage compiling your projects. This mode
+includes daemon management commands to make this easy, and the daemon
+status is shown in the modeline with helpful [nerd
+symbols](https://www.nerdfonts.com/).
+
+| Key         | Command                                  | Description                                           |
+|-------------|------------------------------------------|-------------------------------------------------------|
+| `C-c C-t D` | `taskjuggler-mode-tj3d-start`            | Start tj3d in `--auto-update` mode                    |
+| `C-c C-t a` | `taskjuggler-mode-tj3d-add-project`      | Add the current project to tj3d                       |
+| `C-c C-t W` | `taskjuggler-mode-tj3webd-start`         | Start tj3webd on `taskjuggler-mode-tj3webd-port`      |
+| `C-c C-t b` | `taskjuggler-mode-tj3webd-browse`        | Open the tj3webd index page in your browser           |
+| `C-c C-t s` | `taskjuggler-mode-daemon-status`         | Echo the live state of both daemons                   |
+| —           | `taskjuggler-mode-tj3d-stop`             | Stop tj3d                                             |
+| —           | `taskjuggler-mode-tj3webd-stop`          | Stop tj3webd via its pidfile                          |
+
+These variables can customize the behavior:
+
+- `taskjuggler-mode-auto-start-tj3d-tj3webd` controls if the Emacs
+  will attempt to start `tj3d` and `tj3d` automatically when
+  `taskjuggler-mode` activates.
+- `taskjuggler-mode-auto-add-project-tj3d` is useful to use with the
+  above and will automatically submit the project to `tj3d` with
+  `tj3client`.
+- `taskjuggler-mode-tj3webd-port` controls the port argument passed to
+  `tj3webd`. Defaults to `8080`.
+
+
+### 2-way task highlighting
+
+If you're using [`devrintalen/TaskJuggler:jsgantt`][jsgantt], then you
+can easily see the task you're editing in the browser, and select
+tasks in the browser to jump to them in the active buffer.
 
 ![Screencast of active task highlighting with Emacs and browser side by side](screenshots/tasksync.gif)
 
 How it works:
 
 1. Use the `format htmljs` attribute in the report definiton to get the interactive chart.
-2. Compile the project with `tj3` as usual.
+2. Compile the project with `tj3` (from [`devrintalen/TaskJuggler:jsgantt`][jsgantt]) as usual.
 3. Open the generated report in a browser.
 4. Edit the `.tjp/i` file in Emacs. The chart row for the task at point is
    highlighted automatically as the cursor moves.
+5. Click rows in the browser. The Emacs buffer jumps to the `task` location for the row.
 
-Tracking starts automatically when a `.tjp` file is opened and stops (writing
-`null`) when the buffer is killed. It is disabled if the `js/` directory does not
-exist, and can be turned off entirely by setting `taskjuggler-mode-cursor-idle-delay`
-to `nil`.
+Tracking starts automatically when a `taskjuggler-mode` is activated
+and stops when the buffer is killed. Sync uses one of two transports:
 
-The sidecar file is written as a JS assignment (`window._tjCursorTaskId = "…"`)
-rather than JSON so the browser can load it via a `<script>` tag, which works
-under `file://` without CORS restrictions.
+- If `tj3webd` is running then `taskjuggler-mode` will use the
+  `/cursor` HTTP endpoint. This supports 2-way syncing.
+  
+- If the browser is viewing a local HTML file generated by `tj3` and
+  there is a `js/` directory in that same folder, then
+  `taskjuggler-mode` will use `js/tj-cursor.js` file to support 1-way
+  syncing from Emacs to the browser.
+
+The `taskjuggler-mode-cursor-idle-delay` variable can adjust the
+polling interval, and if set to `nil` will disable task syncing.
+
 
 ### tj3man integration
 
@@ -84,7 +135,35 @@ under `file://` without CORS restrictions.
 - Uses syntax highlighting to make the pages easier to read.
 - Hyperlinks used to jump to related pages.
 
-`tj3man` is resolved via `taskjuggler-mode-tj3-bin-dir`.
+
+### Flymake integration
+
+The Flymake backend reports `tj3` warnings and errors as inline
+diagnostics. Errors in included `.tji` files are reported in those
+files' own buffers rather than in the parent `.tjp` buffer, matching
+TJ3's output behavior.
+
+![Screenshot of flymake diagnostic message](screenshots/flymake_diag.png)
+
+- If `tj3d` owns the current project, the mode invokes `tj3client add`
+  on each file save and gets diagnostics from `tj3d`.
+- If not, the mode runs `tj3` on each file save and gets diagnostics
+  in the same way as `M-x compile`.
+
+
+### Compilation support
+
+The mode supports the standard `compile-command` features. When you
+open a `.tjp` file, `compile-command` is pre-filled with `tj3
+<filename>`, so `M-x compile` (or `C-c C-c` if bound) immediately runs
+the scheduler on the current file.
+
+TJ3's error format (`filename.tjp:LINE: Error: message`) is registered
+with `compilation-error-regexp-alist`, so `next-error` /
+`previous-error` (`M-g n` / `M-g p`) jump directly to the offending
+line. The regexp matches with or without ANSI color codes so errors
+are found whether or not `ansi-color-compilation-filter` is active.
+
 
 ### Syntax highlighting and indentation
 
@@ -100,10 +179,31 @@ similar navigation commands.
 - `C-M-\` indents the active region (`taskjuggler-mode-indent-region`).
 - Tabs are never inserted; `indent-tabs-mode` is `nil`.
 
-### Block movement
+### Block navigation
 
-| Key        | Command                       | Description                                   |
-|------------|-------------------------------|-----------------------------------------------|
+Several commands let you move through the block structure without the mouse:
+
+| Key     | Command                             | Description                                          |
+|---------|-------------------------------------|------------------------------------------------------|
+| `C-M-f` | `forward-sexp`                      | Skip forward over one block as a unit (sexp)         |
+| `C-M-b` | `backward-sexp`                     | Skip backward over one block as a unit (sexp)        |
+| `C-M-n` | `taskjuggler-mode-next-block`       | Jump to the next *sibling* at the same depth         |
+| `C-M-p` | `taskjuggler-mode-prev-block`       | Jump to the previous *sibling* at the same depth     |
+| `C-M-u` | `taskjuggler-mode-goto-parent`      | Jump to the enclosing block's header                 |
+| `C-M-d` | `taskjuggler-mode-goto-first-child` | Jump to the first direct child block                 |
+| `C-M-a` | `beginning-of-defun`                | Jump to the header of the current/enclosing block    |
+| `C-M-e` | `end-of-defun`                      | Jump past the closing `}` of the current block       |
+| `C-M-h` | `taskjuggler-mode-mark-block`       | Mark the current block as a region (incl. comments)  |
+| —       | `taskjuggler-mode-forward-block`    | Linear scan to the next block header (any depth)     |
+| —       | `taskjuggler-mode-backward-block`   | Linear scan to the previous block header (any depth) |
+| —       | `taskjuggler-mode-goto-last-child`  | Jump to the last direct child block                  |
+
+`narrow-to-defun` also works as expected (via the defun integration).
+
+### Block editing
+
+| Key        | Command                            | Description                                   |
+|------------|------------------------------------|-----------------------------------------------|
 | `M-<up>`   | `taskjuggler-mode-move-block-up`   | Swap block at point with its previous sibling |
 | `M-<down>` | `taskjuggler-mode-move-block-down` | Swap block at point with its next sibling     |
 
@@ -112,34 +212,11 @@ similar navigation commands.
 - The blank-line separator between the two blocks is preserved.
 - Works from anywhere inside a block, not just on the header line.
 
-### Block navigation
-
-Several commands let you move through the block structure without the mouse:
-
-| Key        | Command                             | Description                                           |
-|------------|-------------------------------------|-------------------------------------------------------|
-| `C-M-f`    | `forward-sexp`                      | Skip forward over one block as a unit (sexp)          |
-| `C-M-b`    | `backward-sexp`                     | Skip backward over one block as a unit (sexp)         |
-| `C-M-n`    | `taskjuggler-mode-next-block`            | Jump to the next *sibling* at the same depth          |
-| `C-M-p`    | `taskjuggler-mode-prev-block`            | Jump to the previous *sibling* at the same depth      |
-| `C-M-u`    | `taskjuggler-mode-goto-parent`           | Jump to the enclosing block's header                  |
-| `C-M-d`    | `taskjuggler-mode-goto-first-child`      | Jump to the first direct child block                  |
-| `C-M-a`    | `beginning-of-defun`                | Jump to the header of the current/enclosing block     |
-| `C-M-e`    | `end-of-defun`                      | Jump past the closing `}` of the current block        |
-| `C-M-h`    | `taskjuggler-mode-mark-block`            | Mark the current block as a region (incl. comments)   |
-| —          | `taskjuggler-mode-forward-block`         | Linear scan to the next block header (any depth)      |
-| —          | `taskjuggler-mode-backward-block`        | Linear scan to the previous block header (any depth)  |
-| —          | `taskjuggler-mode-goto-last-child`       | Jump to the last direct child block                   |
-
-`narrow-to-defun` also works as expected (via the defun integration).
-
-### Block editing
-
-| Key        | Command                             | Description                                           |
-|------------|-------------------------------------|-------------------------------------------------------|
-| `C-M-h`    | `taskjuggler-mode-mark-block`            | Select the current block as the active region         |
-| `C-x n b`  | `taskjuggler-mode-narrow-to-block`       | Narrow the buffer to the current block                |
-| —          | `taskjuggler-mode-clone-block`           | Duplicate the current block immediately after itself  |
+| Key         | Command                            | Description                                          |
+|-------------|------------------------------------|------------------------------------------------------|
+| `C-M-h`     | `taskjuggler-mode-mark-block`      | Select the current block as the active region        |
+| `C-c C-t n` | `taskjuggler-mode-narrow-to-block` | Narrow the buffer to the current block               |
+| —           | `taskjuggler-mode-clone-block`     | Duplicate the current block immediately after itself |
 
 - `taskjuggler-mode-mark-block` places point at the start of any immediately
   preceding comment lines and mark at the end of the closing `}`.
@@ -153,83 +230,22 @@ Several commands let you move through the block structure without the mouse:
 
 When `evil-mode` is active, additional normal-state bindings are registered:
 
-| Key   | Command                             |
-|-------|-------------------------------------|
-| `gj`  | `taskjuggler-mode-next-block`            |
-| `gk`  | `taskjuggler-mode-prev-block`            |
-| `gh`  | `taskjuggler-mode-goto-parent`           |
-| `gl`  | `taskjuggler-mode-goto-first-child`      |
-| `gL`  | `taskjuggler-mode-goto-last-child`       |
-| `]t`  | `taskjuggler-mode-forward-block-sexp`    |
-| `[t`  | `taskjuggler-mode-backward-block-sexp`   |
-| `]B`  | `taskjuggler-mode-forward-block`         |
-| `[B`  | `taskjuggler-mode-backward-block`        |
-| `[[`  | `beginning-of-defun`                |
-| `]]`  | `end-of-defun`                      |
+| Key  | Command                                |
+|------|----------------------------------------|
+| `gj` | `taskjuggler-mode-next-block`          |
+| `gk` | `taskjuggler-mode-prev-block`          |
+| `gh` | `taskjuggler-mode-goto-parent`         |
+| `gl` | `taskjuggler-mode-goto-first-child`    |
+| `gL` | `taskjuggler-mode-goto-last-child`     |
+| `]t` | `taskjuggler-mode-forward-block-sexp`  |
+| `[t` | `taskjuggler-mode-backward-block-sexp` |
+| `]B` | `taskjuggler-mode-forward-block`       |
+| `[B` | `taskjuggler-mode-backward-block`      |
+| `[[` | `beginning-of-defun`                   |
+| `]]` | `end-of-defun`                         |
 
-These bindings are registered with `with-eval-after-load 'evil` so the mode
-loads cleanly without evil present.
-
-### Command prefix (`C-c C-t`)
-
-Mode-specific commands are grouped under the `C-c C-t` prefix:
-
-| Key         | Command                       | Description                        |
-|-------------|-------------------------------|------------------------------------|
-| `C-c C-t d` | `taskjuggler-mode-date-dwim`       | Insert or edit a date at point     |
-| `C-c C-t m` | `taskjuggler-mode-man`             | Look up a TJ3 keyword in tj3man    |
-| `C-c C-t n` | `taskjuggler-mode-narrow-to-block` | Narrow buffer to the current block |
-
-### Compilation support
-
-The mode supports the standard `compile-command` features. If `tj3` is
-not in `PATH`, then customize `taskjuggler-mode-tj3-bin-dir` with the
-directory containing the binary. This will then get used for all
-compilation and tj3man support.
-
-When you open a `.tjp` file, `compile-command` is pre-filled with
-`tj3 <filename>`, so `M-x compile` (or `C-c C-c` if bound) immediately
-runs the scheduler on the current file.
-
-TJ3's error format (`filename.tjp:LINE: Error: message`) is registered with
-`compilation-error-regexp-alist`, so `next-error` / `previous-error` (`M-g n` /
-`M-g p`) jump directly to the offending line. The regexp matches with or without
-ANSI color codes so errors are found whether or not
-`ansi-color-compilation-filter` is active.
-
-### Flymake integration
-
-The Flymake backend runs `tj3` on the **saved file** whenever Flymake
-checks the buffer and reports errors as inline diagnostics. Errors in
-included `.tji` files are reported in those files' own buffers rather
-than in the parent `.tjp` buffer, matching TJ3's output behavior.
-
-When tj3d owns the current project (see [Daemon
-integration](#daemon-integration) below), Flymake instead reports the
-diagnostics cached from the last `tj3client add` run — no extra `tj3`
-invocation per check.
-
-### Daemon integration
-
-The mode can drive the tj3d scheduling daemon and tj3webd web server
-directly. Running tj3d makes Flymake free (diagnostics come from the
-daemon's own re-scheduling), and running tj3webd lets the browser-side
-report stay in sync with point.
-
-| Key         | Command                                  | Description                                           |
-|-------------|------------------------------------------|-------------------------------------------------------|
-| `C-c C-t D` | `taskjuggler-mode-tj3d-start`            | Start tj3d in `--auto-update` mode                    |
-| `C-c C-t a` | `taskjuggler-mode-tj3d-add-project`      | Add the current project to tj3d                       |
-| `C-c C-t W` | `taskjuggler-mode-tj3webd-start`         | Start tj3webd on `taskjuggler-mode-tj3webd-port`      |
-| `C-c C-t b` | `taskjuggler-mode-tj3webd-browse`        | Open the tj3webd index page in your browser           |
-| `C-c C-t s` | `taskjuggler-mode-daemon-status`         | Echo the live state of both daemons                   |
-| —           | `taskjuggler-mode-tj3d-stop`             | Stop tj3d                                             |
-| —           | `taskjuggler-mode-tj3webd-stop`          | Stop tj3webd via its pidfile                          |
-
-Set `taskjuggler-mode-auto-start-tj3d-tj3webd` to start the daemons
-automatically on mode activation, and
-`taskjuggler-mode-auto-add-project-tj3d` to register the project file
-once tj3d is running.
+These bindings are registered with `with-eval-after-load 'evil` so the
+mode loads cleanly without evil present.
 
 ### yasnippet snippets
 
@@ -260,8 +276,8 @@ The following snippet templates are available:
 
 ## Installation
 
-Note that all of these assume your `tj3` and `tj3man` programs are
-located at `~/bin`, adjust this path to where they are on your system.
+Note that all of these assume your `tj3` programs are located at
+`~/bin`, adjust this path to where they are on your system.
 
 ### MELPA (recommended)
 
@@ -326,6 +342,13 @@ git clone https://github.com/devrintalen/taskjuggler-mode.el ~/.emacs.d/taskjugg
 
 ## Configuration
 
+Mode-specific commands are grouped under the `C-c C-t` prefix.
+
+If `tj3` is not in `PATH`, then customize `taskjuggler-mode-tj3-bin-dir` with the directory containing the binary. This will then get used for all
+compilation and tj3man support.
+
+`tj3man` is resolved via `taskjuggler-mode-tj3-bin-dir`.
+
 All options belong to the `taskjuggler` customization group (`M-x customize-group
 RET taskjuggler RET`). The table below lists every option with its default value.
 
@@ -385,4 +408,3 @@ Here's how this one differs:
   clone block
 - Evil-mode bindings for all block navigation commands
 
-![Emacs kitchen sink](screenshots/sink_black.png)
