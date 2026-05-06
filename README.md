@@ -64,7 +64,10 @@ month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 Running `tj3` standalone is an easy way to get started with
 TaskJuggler, but things get even better when using the `tj3d` and
 `tj3webd` daemons to manage compiling your projects. This mode
-includes daemon management commands to make this easy.
+includes daemon management commands to make this easy, and the daemon
+status is shwown in the modeline with helpful 󰙬 (`tj3d`) and 󰒍
+(`tj3webd`) [nerd symbols][https://www.nerdfonts.com/].
+
 
 | Key         | Command                                  | Description                                           |
 |-------------|------------------------------------------|-------------------------------------------------------|
