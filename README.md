@@ -59,7 +59,7 @@ month). Press `RET` or `TAB` to confirm, `C-g` to cancel.
 
 ### `tj3d` and `tj3webd` daemon management
 
-**TODO a picture of the modeline with daemons active**
+![Screenshot of Emacs modeline with tj3d and tj3webd daemons active](screenshots/daemon_modeline.png)
 
 Running `tj3` standalone is an easy way to get started with
 TaskJuggler, but things get even better when using the `tj3d` and
