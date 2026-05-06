@@ -6,3 +6,12 @@ project gnomes "Get Good at TaskJuggler" 1998-12-16 +3m {
 task phase1 "Install taskjuggler-mode.el" { }
 task phase2 "?" { }
 task phase3 "Profit" { }
+
+
+taskreport main "Business Plan" {
+  formats htmljs
+  columns bsi { title 'WBS' }, name, start, end, effort, chart
+  timeformat "%Y-%m-%d"
+  loadunit days
+  hideresource @all
+}
