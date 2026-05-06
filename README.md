@@ -140,18 +140,16 @@ TJ3's output behavior.
 
 **TODO screenshot of an inline error/warning**
 
-- If `tj3d` owns the current project, the mode invokes `tj3client add` on each file save.
-- If not, the mode runs `tj3` on each file save.
+- If `tj3d` owns the current project, the mode invokes `tj3client add`
+  on each file save and gets diagnostics from `tj3d`.
+- If not, the mode runs `tj3` on each file save and gets diagnostics
+  in the same way as `M-x compile`.
 
 
 ### Compilation support
 
-The mode supports the standard `compile-command` features. If `tj3` is
-not in `PATH`, then customize `taskjuggler-mode-tj3-bin-dir` with the
-directory containing the binary. This will then get used for all
-compilation and tj3man support.
-
-When you open a `.tjp` file, `compile-command` is pre-filled with `tj3
+The mode supports the standard `compile-command` features. When you
+open a `.tjp` file, `compile-command` is pre-filled with `tj3
 <filename>`, so `M-x compile` (or `C-c C-c` if bound) immediately runs
 the scheduler on the current file.
 
@@ -176,10 +174,31 @@ similar navigation commands.
 - `C-M-\` indents the active region (`taskjuggler-mode-indent-region`).
 - Tabs are never inserted; `indent-tabs-mode` is `nil`.
 
-### Block movement
+### Block navigation
 
-| Key        | Command                       | Description                                   |
-|------------|-------------------------------|-----------------------------------------------|
+Several commands let you move through the block structure without the mouse:
+
+| Key     | Command                             | Description                                          |
+|---------|-------------------------------------|------------------------------------------------------|
+| `C-M-f` | `forward-sexp`                      | Skip forward over one block as a unit (sexp)         |
+| `C-M-b` | `backward-sexp`                     | Skip backward over one block as a unit (sexp)        |
+| `C-M-n` | `taskjuggler-mode-next-block`       | Jump to the next *sibling* at the same depth         |
+| `C-M-p` | `taskjuggler-mode-prev-block`       | Jump to the previous *sibling* at the same depth     |
+| `C-M-u` | `taskjuggler-mode-goto-parent`      | Jump to the enclosing block's header                 |
+| `C-M-d` | `taskjuggler-mode-goto-first-child` | Jump to the first direct child block                 |
+| `C-M-a` | `beginning-of-defun`                | Jump to the header of the current/enclosing block    |
+| `C-M-e` | `end-of-defun`                      | Jump past the closing `}` of the current block       |
+| `C-M-h` | `taskjuggler-mode-mark-block`       | Mark the current block as a region (incl. comments)  |
+| —       | `taskjuggler-mode-forward-block`    | Linear scan to the next block header (any depth)     |
+| —       | `taskjuggler-mode-backward-block`   | Linear scan to the previous block header (any depth) |
+| —       | `taskjuggler-mode-goto-last-child`  | Jump to the last direct child block                  |
+
+`narrow-to-defun` also works as expected (via the defun integration).
+
+### Block editing
+
+| Key        | Command                            | Description                                   |
+|------------|------------------------------------|-----------------------------------------------|
 | `M-<up>`   | `taskjuggler-mode-move-block-up`   | Swap block at point with its previous sibling |
 | `M-<down>` | `taskjuggler-mode-move-block-down` | Swap block at point with its next sibling     |
 
@@ -188,34 +207,11 @@ similar navigation commands.
 - The blank-line separator between the two blocks is preserved.
 - Works from anywhere inside a block, not just on the header line.
 
-### Block navigation
-
-Several commands let you move through the block structure without the mouse:
-
-| Key        | Command                             | Description                                           |
-|------------|-------------------------------------|-------------------------------------------------------|
-| `C-M-f`    | `forward-sexp`                      | Skip forward over one block as a unit (sexp)          |
-| `C-M-b`    | `backward-sexp`                     | Skip backward over one block as a unit (sexp)         |
-| `C-M-n`    | `taskjuggler-mode-next-block`            | Jump to the next *sibling* at the same depth          |
-| `C-M-p`    | `taskjuggler-mode-prev-block`            | Jump to the previous *sibling* at the same depth      |
-| `C-M-u`    | `taskjuggler-mode-goto-parent`           | Jump to the enclosing block's header                  |
-| `C-M-d`    | `taskjuggler-mode-goto-first-child`      | Jump to the first direct child block                  |
-| `C-M-a`    | `beginning-of-defun`                | Jump to the header of the current/enclosing block     |
-| `C-M-e`    | `end-of-defun`                      | Jump past the closing `}` of the current block        |
-| `C-M-h`    | `taskjuggler-mode-mark-block`            | Mark the current block as a region (incl. comments)   |
-| —          | `taskjuggler-mode-forward-block`         | Linear scan to the next block header (any depth)      |
-| —          | `taskjuggler-mode-backward-block`        | Linear scan to the previous block header (any depth)  |
-| —          | `taskjuggler-mode-goto-last-child`       | Jump to the last direct child block                   |
-
-`narrow-to-defun` also works as expected (via the defun integration).
-
-### Block editing
-
-| Key        | Command                             | Description                                           |
-|------------|-------------------------------------|-------------------------------------------------------|
-| `C-M-h`    | `taskjuggler-mode-mark-block`            | Select the current block as the active region         |
-| `C-x n b`  | `taskjuggler-mode-narrow-to-block`       | Narrow the buffer to the current block                |
-| —          | `taskjuggler-mode-clone-block`           | Duplicate the current block immediately after itself  |
+| Key         | Command                            | Description                                          |
+|-------------|------------------------------------|------------------------------------------------------|
+| `C-M-h`     | `taskjuggler-mode-mark-block`      | Select the current block as the active region        |
+| `C-c C-t n` | `taskjuggler-mode-narrow-to-block` | Narrow the buffer to the current block               |
+| —           | `taskjuggler-mode-clone-block`     | Duplicate the current block immediately after itself |
 
 - `taskjuggler-mode-mark-block` places point at the start of any immediately
   preceding comment lines and mark at the end of the closing `}`.
@@ -229,33 +225,22 @@ Several commands let you move through the block structure without the mouse:
 
 When `evil-mode` is active, additional normal-state bindings are registered:
 
-| Key   | Command                             |
-|-------|-------------------------------------|
-| `gj`  | `taskjuggler-mode-next-block`            |
-| `gk`  | `taskjuggler-mode-prev-block`            |
-| `gh`  | `taskjuggler-mode-goto-parent`           |
-| `gl`  | `taskjuggler-mode-goto-first-child`      |
-| `gL`  | `taskjuggler-mode-goto-last-child`       |
-| `]t`  | `taskjuggler-mode-forward-block-sexp`    |
-| `[t`  | `taskjuggler-mode-backward-block-sexp`   |
-| `]B`  | `taskjuggler-mode-forward-block`         |
-| `[B`  | `taskjuggler-mode-backward-block`        |
-| `[[`  | `beginning-of-defun`                |
-| `]]`  | `end-of-defun`                      |
+| Key  | Command                                |
+|------|----------------------------------------|
+| `gj` | `taskjuggler-mode-next-block`          |
+| `gk` | `taskjuggler-mode-prev-block`          |
+| `gh` | `taskjuggler-mode-goto-parent`         |
+| `gl` | `taskjuggler-mode-goto-first-child`    |
+| `gL` | `taskjuggler-mode-goto-last-child`     |
+| `]t` | `taskjuggler-mode-forward-block-sexp`  |
+| `[t` | `taskjuggler-mode-backward-block-sexp` |
+| `]B` | `taskjuggler-mode-forward-block`       |
+| `[B` | `taskjuggler-mode-backward-block`      |
+| `[[` | `beginning-of-defun`                   |
+| `]]` | `end-of-defun`                         |
 
-These bindings are registered with `with-eval-after-load 'evil` so the mode
-loads cleanly without evil present.
-
-### Command prefix (`C-c C-t`)
-
-Mode-specific commands are grouped under the `C-c C-t` prefix:
-
-| Key         | Command                       | Description                        |
-|-------------|-------------------------------|------------------------------------|
-| `C-c C-t d` | `taskjuggler-mode-date-dwim`       | Insert or edit a date at point     |
-| `C-c C-t m` | `taskjuggler-mode-man`             | Look up a TJ3 keyword in tj3man    |
-| `C-c C-t n` | `taskjuggler-mode-narrow-to-block` | Narrow buffer to the current block |
-
+These bindings are registered with `with-eval-after-load 'evil` so the
+mode loads cleanly without evil present.
 
 ### yasnippet snippets
 
@@ -286,8 +271,8 @@ The following snippet templates are available:
 
 ## Installation
 
-Note that all of these assume your `tj3` and `tj3man` programs are
-located at `~/bin`, adjust this path to where they are on your system.
+Note that all of these assume your `tj3` programs are located at
+`~/bin`, adjust this path to where they are on your system.
 
 ### MELPA (recommended)
 
@@ -351,6 +336,11 @@ git clone https://github.com/devrintalen/taskjuggler-mode.el ~/.emacs.d/taskjugg
 ```
 
 ## Configuration
+
+Mode-specific commands are grouped under the `C-c C-t` prefix.
+
+If `tj3` is not in `PATH`, then customize `taskjuggler-mode-tj3-bin-dir` with the directory containing the binary. This will then get used for all
+compilation and tj3man support.
 
 `tj3man` is resolved via `taskjuggler-mode-tj3-bin-dir`.
 
