@@ -59,6 +59,21 @@ Each value is a list of (LINE TYPE MSG) entries where TYPE is :error or
 Used to clear the right subset on re-add so diagnostics from other
 projects loaded in the same daemon are preserved.")
 
+(defvar taskjuggler-mode--tj3d-tracked-projects (make-hash-table :test 'equal)
+  "Hash of abs-.tjp paths submitted to tj3d this session.
+Used as a cheap gate by `taskjuggler-mode--tj3d-refresh-on-save' — no
+`tj3client status' probe needed.  Cleared by `taskjuggler-mode-tj3d-stop'.")
+
+(defvar taskjuggler-mode--tj3d-refresh-queue nil
+  "Pending tj3d refreshes as a FIFO of (ABS-TJP . QUIET) pairs.
+At most one entry per distinct ABS-TJP: duplicate schedule requests
+coalesce so rapid saves don't pile up redundant `tj3client add' runs.")
+
+(defvar taskjuggler-mode--tj3d-refresh-in-flight nil
+  "ABS-TJP currently being refreshed, or nil.
+Guards against two concurrent `tj3client add' runs clobbering the
+shared `*tj3client*' buffer.")
+
 (defmacro taskjuggler-mode--with-source-buffer (source &rest body)
   "Run BODY with point at the start of SOURCE's content.
 SOURCE is either a live buffer (preserved + widened + position saved)
@@ -291,21 +306,6 @@ newly inserted text so the buffer reads like a terminal."
             (ansi-color-apply-on-region start (process-mark proc))
             (set-marker start nil))
           (when moving (goto-char (process-mark proc))))))))
-
-(defvar taskjuggler-mode--tj3d-tracked-projects (make-hash-table :test 'equal)
-  "Hash of abs-.tjp paths submitted to tj3d this session.
-Used as a cheap gate by `taskjuggler-mode--tj3d-refresh-on-save' — no
-`tj3client status' probe needed.  Cleared by `taskjuggler-mode-tj3d-stop'.")
-
-(defvar taskjuggler-mode--tj3d-refresh-queue nil
-  "Pending tj3d refreshes as a FIFO of (ABS-TJP . QUIET) pairs.
-At most one entry per distinct ABS-TJP: duplicate schedule requests
-coalesce so rapid saves don't pile up redundant `tj3client add' runs.")
-
-(defvar taskjuggler-mode--tj3d-refresh-in-flight nil
-  "ABS-TJP currently being refreshed, or nil.
-Guards against two concurrent `tj3client add' runs clobbering the
-shared `*tj3client*' buffer.")
 
 (defun taskjuggler-mode--tj3d-add-project-run (tjp quiet)
   "Run `tj3client add' on TJP asynchronously and update diagnostics.
