@@ -96,8 +96,6 @@ If you're using [`devrintalen/TaskJuggler:jsgantt`][jsgantt], then you
 can easily see the task you're editing in the browser, and select
 tasks in the browser to jump to them in the active buffer.
 
-**TODO update this screencast with 2-way task highlighting**
-
 ![Screencast of active task highlighting with Emacs and browser side by side](screenshots/tasksync.gif)
 
 How it works:
